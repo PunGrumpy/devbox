@@ -43,5 +43,6 @@ setsid nohup sh -c "
   sh '$DEVBOX/common/browser-deps.sh'
   sh '$DEVBOX/common/tools.sh'
   sh '$DEVBOX/common/skills.sh'
+  sh '$DEVBOX/common/pstack.sh'
   echo \"== \$(date '+%F %T') setup exit=\$?\"
 " >>"$LOGS/setup.log" 2>&1 </dev/null &

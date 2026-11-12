@@ -1,8 +1,8 @@
 #!/bin/sh
 # Make an instabox machine work like my other boxes. instabox runs T3 Code
-# itself, so this adds Git as me, the agent skills, and T3 on the Mac's release
-# channel. Run it once on a new machine, and again to update. See README.md in
-# this folder.
+# itself, so this adds Git as me, the agent skills, pstack's models, and T3 on
+# the Mac's release channel. Run it once on a new machine, and again to update.
+# See README.md in this folder.
 set -u
 
 DEVBOX=$(cd "$(dirname "$0")/.." && pwd)
@@ -30,6 +30,7 @@ while [ "$i" -lt "$GIT_CONFIG_COUNT" ]; do
 done
 
 sh "$DEVBOX/common/skills.sh"
+sh "$DEVBOX/common/pstack.sh"
 
 # instabox ships a fixed T3 release. Update to the Mac's channel before every
 # start of its unit. The npm download can take longer than systemd's default
