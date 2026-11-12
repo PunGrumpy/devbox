@@ -18,14 +18,14 @@ if [ -f "$DEVBOX_DATA/.config/gh/hosts.yml" ] && [ ! -L "$HOME/.config/gh" ]; th
   ln -s "$DEVBOX_DATA/.config/gh" "$HOME/.config/gh"
 fi
 
-# Before T3 starts, so its agents inherit the git settings.
-. "$DEVBOX/common/git.sh"
+# Before T3 starts, so its agents inherit it.
+. "$DEVBOX/common/env.sh"
 sh "$DEVBOX/common/t3.sh"
 
 # Slow, and T3 does not need it to start.
 setsid nohup sh -c "
   echo \"== \$(date '+%F %T') setup\"
   sh '$DEVBOX/common/browser-deps.sh'
-  sh '$DEVBOX/common/dotfiles.sh'
+  sh '$DEVBOX/common/tools.sh'
   echo \"== \$(date '+%F %T') setup exit=\$?\"
 " >>"$LOGS/setup.log" 2>&1 </dev/null &

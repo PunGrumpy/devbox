@@ -1,6 +1,6 @@
 # devbox
 
-Sets up a remote dev machine the same way every time: [T3 Code](https://t3.codes), its browser, and [my dotfiles](https://github.com/PunGrumpy/dotfiles). The dotfiles stay generic. Anything a remote machine needs lives here.
+Sets up a remote machine for coding agents the same way every time: [T3 Code](https://t3.codes), its browser, the languages, and Git as me. Nobody works in its terminal, so it skips [my dotfiles](https://github.com/PunGrumpy/dotfiles).
 
 | Machine | Folder |
 | --- | --- |
@@ -14,8 +14,8 @@ Sets up a remote dev machine the same way every time: [T3 Code](https://t3.codes
 | --- | --- |
 | [`t3.sh`](common/t3.sh) | Names the T3 Code environment, then starts `t3 serve` on port 3773. Turns off Chrome's sandbox when the machine blocks it. |
 | [`browser-deps.sh`](common/browser-deps.sh) | Installs the libraries and fonts T3's browser needs. Debian and Ubuntu only. |
-| [`dotfiles.sh`](common/dotfiles.sh) | Applies the dotfiles with chezmoi, then updates them on every later start. |
-| [`git.sh`](common/git.sh) | Turns off commit signing. The signing key lives in 1Password, which a remote machine cannot reach. |
+| [`env.sh`](common/env.sh) | Sets Git to commit as me without signing, since the signing key lives in 1Password. Puts the languages on `PATH` for T3, its agents, and login shells. |
+| [`tools.sh`](common/tools.sh) | Installs Go and Rust with [mise](https://mise.jdx.dev/), into `DEVBOX_DATA` so a rebuild keeps them. The machine image brings the rest. |
 
 ## Add a machine
 

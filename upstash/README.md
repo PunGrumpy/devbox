@@ -5,15 +5,15 @@ Only `/workspace` survives a box rebuild, so the box sets itself up again on eve
 ## Create a box
 
 1. In the Upstash Console, create a box and connect GitHub. The box name becomes the T3 Code environment name.
-2. In **Settings → Init Command**, paste:
+2. In **Settings → Init Command**, paste the command below. If you attached this repo when you created the box, Upstash has cloned it already, and `sh /workspace/home/devbox/upstash/start.sh` is enough.
 
    ```sh
    d=/workspace/home/devbox; git -C $d pull -q --ff-only 2>/dev/null || git clone -q https://github.com/PunGrumpy/devbox $d; sh $d/upstash/start.sh
    ```
 
-3. Start the box. T3 Code comes up in a few seconds. The dotfiles take longer, because Homebrew builds part of the Brewfile on arm64 Linux.
+3. Start the box. T3 Code comes up in a few seconds. Go and Rust take a few minutes the first time.
 
-Logs go to `/workspace/home/.devbox-logs`: `start.log` for the start, `setup.log` for the browser libraries and the dotfiles.
+Logs go to `/workspace/home/.devbox-logs`: `start.log` for the start, `setup.log` for the browser libraries and the languages.
 
 ## Log in to GitHub as yourself
 

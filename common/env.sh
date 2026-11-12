@@ -1,0 +1,20 @@
+# Source this file. Sets the environment for T3, its agents, and login shells.
+#
+# Git reads GIT_CONFIG_* before ~/.gitconfig, so this overrides what the
+# machine image set without touching any file:
+# - commit as me, not as the image's default user
+# - no commit signing: the signing key lives in 1Password, which a remote
+#   machine cannot reach
+env_file=$(mktemp)
+cat >"$env_file" <<ENV
+export GIT_CONFIG_COUNT=3
+export GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=PunGrumpy
+export GIT_CONFIG_KEY_1=user.email GIT_CONFIG_VALUE_1=108584943+PunGrumpy@users.noreply.github.com
+export GIT_CONFIG_KEY_2=commit.gpgsign GIT_CONFIG_VALUE_2=false
+export MISE_DATA_DIR=$DEVBOX_DATA/.local/share/mise
+export PATH=$DEVBOX_DATA/.local/bin:$DEVBOX_DATA/.local/share/mise/shims:\$PATH
+ENV
+# shellcheck source=/dev/null
+. "$env_file"
+sudo -n install -m 644 "$env_file" /etc/profile.d/devbox.sh
+rm -f "$env_file"
