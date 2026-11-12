@@ -8,9 +8,10 @@ if [ ! -x "$CHEZMOI" ]; then
 fi
 
 # Homebrew's installer and chezmoi both ask before they change files unless told not to.
+# --keep-going: one failing install script should not skip the ones after it.
 export NONINTERACTIVE=1
 if [ -d "$HOME/.local/share/chezmoi/.git" ]; then
-  "$CHEZMOI" update --force
+  "$CHEZMOI" update --force --keep-going
 else
-  "$CHEZMOI" init --apply --force PunGrumpy
+  "$CHEZMOI" init --apply --force --keep-going PunGrumpy
 fi
