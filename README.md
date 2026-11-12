@@ -5,6 +5,7 @@ Sets up a remote machine for coding agents the same way every time: [T3 Code](ht
 | Machine | Folder |
 | --- | --- |
 | [Upstash Box](https://upstash.com/docs/box) | [`upstash/`](upstash/README.md) |
+| [instabox](https://instabox.sh) | [`instabox/`](instabox/README.md) |
 
 ## What every machine gets
 
