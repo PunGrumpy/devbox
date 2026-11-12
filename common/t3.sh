@@ -1,5 +1,6 @@
 #!/bin/sh
 # Start the T3 Code server, named $DEVBOX_NAME, with its data in $DEVBOX_DATA/.t3.
+# It listens on $DEVBOX_T3_HOST:$DEVBOX_T3_PORT (default 0.0.0.0:3773).
 set -u
 
 # T3 Code names the environment after PRETTY_HOSTNAME before the hostname. In a
@@ -22,5 +23,5 @@ fi
 if unshare -Ur true 2>/dev/null; then sandbox=1; else sandbox=0; fi
 echo "t3: browser sandbox=$sandbox"
 
-T3CODE_SERVER_BROWSER_SANDBOX=$sandbox setsid nohup t3 serve --host 0.0.0.0 --port 3773 \
+T3CODE_SERVER_BROWSER_SANDBOX=$sandbox setsid nohup t3 serve --host "${DEVBOX_T3_HOST:-0.0.0.0}" --port "${DEVBOX_T3_PORT:-3773}" \
   --base-dir "$DEVBOX_DATA/.t3" >/tmp/t3.log 2>&1 </dev/null &
