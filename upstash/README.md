@@ -4,14 +4,16 @@ Only `/workspace` survives a box rebuild, so the box sets itself up again on eve
 
 ## Create a box
 
-1. In the Upstash Console, create a box, connect GitHub, and attach this repo. Upstash clones it to `/workspace/home/devbox`. The box name becomes the T3 Code environment name.
+1. In the Upstash Console, create a box and connect GitHub. The box name becomes the T3 Code environment name.
 2. In **Settings → Init Command**, paste:
 
    ```sh
-   sh /workspace/home/devbox/upstash/start.sh
+   d=/workspace/home/devbox; git -C $d pull -q --ff-only 2>/dev/null || git clone -q https://github.com/PunGrumpy/devbox $d; sh $d/upstash/start.sh
    ```
 
-   `start.sh` pulls this repo on every start, then runs the new copy. Keep the command this short: when a longer clone-and-pull command was pasted, the box received only part of it.
+   `start.sh` also pulls this repo, then runs the new copy. So if you attach this repo when you create the box, `sh /workspace/home/devbox/upstash/start.sh` is enough.
+
+   The box writes the Init Command into `/workspace/home/.box/startup.sh` only when it starts, so after you edit it, that file shows the old command until the next start.
 
 3. Start the box. T3 Code comes up in a few seconds. Go and Rust take a few minutes the first time.
 
