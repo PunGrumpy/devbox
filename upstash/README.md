@@ -4,7 +4,7 @@ Only `/workspace` survives a box rebuild, so the box sets itself up again on eve
 
 ## Create a box
 
-1. In the Upstash Console, create a box and connect GitHub. The box name becomes the T3 Code environment name.
+1. In the Upstash Console, create a box and connect GitHub. T3 Code names the environment `upstash-<box name>`.
 2. In **Settings → Init Command**, paste:
 
    ```sh
