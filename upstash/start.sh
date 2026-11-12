@@ -3,7 +3,8 @@
 set -u
 
 DEVBOX=$(cd "$(dirname "$0")/.." && pwd)
-export DEVBOX_NAME="${UPSTASH_BOX_NAME:-$(hostname)}"
+# Prefixed so T3 tells it apart from boxes on other providers.
+export DEVBOX_NAME="upstash-${UPSTASH_BOX_NAME:-$(hostname)}"
 # Only /workspace survives a rebuild. $HOME and the rest of the disk do not.
 export DEVBOX_DATA=/workspace/home
 LOGS="$DEVBOX_DATA/.devbox-logs"
