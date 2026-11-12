@@ -6,8 +6,14 @@ set -u
 # container the hostname is a random id that cannot be changed.
 echo "PRETTY_HOSTNAME=$DEVBOX_NAME" | sudo -n tee /etc/machine-info >/dev/null
 
-if ! command -v t3 >/dev/null 2>&1; then
-  sudo -n npm install -g t3
+# Follow the same release channel as the Mac, and update to its newest
+# release on every start. The npm dist-tags match T3's channels.
+channel="${DEVBOX_T3_CHANNEL:-nightly}"
+want=$(npm view "t3@$channel" version 2>/dev/null)
+have=$(t3 --version 2>/dev/null | sed 's/^t3 v//')
+if [ -n "$want" ] && [ "$want" != "$have" ]; then
+  echo "t3: ${have:-none} -> $want ($channel)"
+  sudo -n npm install -g "t3@$want"
 fi
 
 # Chrome's sandbox needs user namespaces. Containers often block them (no
