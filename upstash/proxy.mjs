@@ -9,10 +9,12 @@ import net from "node:net";
 
 const [listenPort, t3Port, publicHost] = process.argv.slice(2);
 
-// Requests from the box itself (an SSH tunnel, curl) keep their own Host.
+// Upstash sends the public host as X-Forwarded-Host. Requests from the box
+// itself (an SSH tunnel, curl) have neither and keep their own Host.
 const rewrite = (headers) => {
   if (/^(localhost|127\.0\.0\.1)(:|$)/.test(headers.host ?? "")) return headers;
-  return { ...headers, host: publicHost, "x-forwarded-proto": "https" };
+  const host = headers["x-forwarded-host"] || publicHost;
+  return { ...headers, host, "x-forwarded-proto": "https" };
 };
 
 const server = http.createServer((req, res) => {
