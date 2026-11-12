@@ -11,6 +11,13 @@ mkdir -p "$LOGS"
 exec >>"$LOGS/start.log" 2>&1
 echo "== $(date '+%F %T') $DEVBOX_NAME as $(id -un)"
 
+# Update this repo, then run the new copy of this script. The Console keeps
+# only the short Init Command, so the update has to happen here.
+if [ -z "${DEVBOX_UPDATED:-}" ]; then
+  git -C "$DEVBOX" pull -q --ff-only || echo "devbox: pull failed, running $(git -C "$DEVBOX" rev-parse --short HEAD)"
+  DEVBOX_UPDATED=1 exec sh "$DEVBOX/upstash/start.sh"
+fi
+
 # Keep your own gh login on /workspace once it is saved there.
 if [ -f "$DEVBOX_DATA/.config/gh/hosts.yml" ] && [ ! -L "$HOME/.config/gh" ]; then
   mkdir -p "$HOME/.config"
