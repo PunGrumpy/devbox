@@ -1,18 +1,20 @@
-// Upstash's preview proxy passes the box's internal address (172.x:3773) to
-// T3 as the Host header. T3 builds its MCP OAuth URLs from Host, so linking
-// the box from the Mac fails: "This server only issues tokens for
-// http://172.x:3773/mcp". This proxy listens on the preview port, sets Host to
-// the public preview host, and passes HTTP and WebSocket traffic to T3.
+// Some machines put a proxy in front of T3 that passes T3 an internal address
+// as the Host header (Upstash: 172.x:3773, instabox: 127.0.0.1:3774). T3
+// builds its MCP OAuth URLs from Host, so linking the machine from the Mac
+// fails: "This server only issues tokens for http://172.x:3773/mcp". This
+// proxy listens on the port the machine's proxy reaches, sets Host to the
+// public host, and passes HTTP and WebSocket traffic to T3.
 // Usage: node proxy.mjs <listen port> <T3 port> <public host>
 import http from "node:http";
 import net from "node:net";
 
 const [listenPort, t3Port, publicHost] = process.argv.slice(2);
 
-// Upstash sends the public host as X-Forwarded-Host. Requests from the box
-// itself (an SSH tunnel, curl) have neither and keep their own Host.
+// Only requests that came through the machine's proxy carry X-Forwarded-*.
+// Use its X-Forwarded-Host when it sends one. Requests made on the machine
+// itself (an SSH tunnel, curl) keep their own Host.
 const rewrite = (headers) => {
-  if (/^(localhost|127\.0\.0\.1)(:|$)/.test(headers.host ?? "")) return headers;
+  if (!headers["x-forwarded-host"] && !headers["x-forwarded-proto"]) return headers;
   const host = headers["x-forwarded-host"] || publicHost;
   return { ...headers, host, "x-forwarded-proto": "https" };
 };

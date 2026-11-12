@@ -32,7 +32,7 @@ fi
 # T3 sees the public host (see proxy.mjs).
 if [ -n "${UPSTASH_BOX_ID:-}" ]; then
   export DEVBOX_T3_HOST=127.0.0.1 DEVBOX_T3_PORT=3772
-  setsid nohup node "$DEVBOX/upstash/proxy.mjs" 3773 3772 "$UPSTASH_BOX_ID-3773.preview.box.upstash.com" \
+  setsid nohup node "$DEVBOX/common/proxy.mjs" 3773 3772 "$UPSTASH_BOX_ID-3773.preview.box.upstash.com" \
     >/tmp/t3-proxy.log 2>&1 </dev/null &
 fi
 sh "$DEVBOX/common/t3.sh"

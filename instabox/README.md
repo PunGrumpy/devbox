@@ -1,6 +1,6 @@
 # instabox
 
-[instabox](https://instabox.sh) machines are Firecracker VMs. Both disks survive a stop, and `$HOME` (`/data/home`) is on the data disk. instabox runs T3 Code itself. This folder adds Git as me and the agent skills, and keeps T3 on the same release channel as the Mac (`nightly`, or set `DEVBOX_T3_CHANNEL`). T3 updates every time its unit starts, so restart it to update: `sudo systemctl restart t3-instabox`.
+[instabox](https://instabox.sh) machines are Firecracker VMs. Both disks survive a stop, and `$HOME` (`/data/home`) is on the data disk. instabox runs T3 Code itself. This folder adds Git as me and the agent skills, and keeps T3 on the same release channel as the Mac (`nightly`, or set `DEVBOX_T3_CHANNEL`). T3 updates every time its unit starts, so restart it to update: `sudo systemctl restart t3-instabox`. T3 also runs behind `common/proxy.mjs`, which gives it the machine's public `instabox.tech` host, so the Mac can link it as an environment.
 
 ## Set up a machine
 

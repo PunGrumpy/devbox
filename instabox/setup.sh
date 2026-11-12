@@ -33,11 +33,14 @@ sh "$DEVBOX/common/skills.sh"
 
 # instabox ships a fixed T3 release. Update to the Mac's channel before every
 # start of its unit. The npm download can take longer than systemd's default
-# 90 seconds, and the leading - starts T3 anyway if the update fails.
+# 90 seconds, and the leading - starts T3 anyway if the update fails. Then
+# start T3 behind common/proxy.mjs (see instabox/start.sh).
 dropin=$(mktemp)
 cat >"$dropin" <<UNIT
 [Service]
 ExecStartPre=-/bin/sh $DEVBOX/instabox/t3.sh
+ExecStart=
+ExecStart=/bin/sh $DEVBOX/instabox/start.sh
 TimeoutStartSec=5min
 UNIT
 sudo -n install -D -m 644 "$dropin" /etc/systemd/system/t3-instabox.service.d/devbox.conf
