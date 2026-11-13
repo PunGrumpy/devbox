@@ -36,6 +36,12 @@ if [ -n "${UPSTASH_BOX_ID:-}" ]; then
     >/tmp/t3-proxy.log 2>&1 </dev/null &
 fi
 sh "$DEVBOX/common/t3.sh"
+# For link.sh, after t3.sh installs t3. $HOME does not survive a rebuild, so
+# write it on every start.
+if [ -n "${UPSTASH_BOX_ID:-}" ]; then
+  sh "$DEVBOX/common/pair.sh" "$(command -v t3)" "$DEVBOX_DATA/.t3" \
+    "https://$UPSTASH_BOX_ID-3773.preview.box.upstash.com" || echo "devbox: devbox-pair not installed"
+fi
 
 # Slow, and T3 does not need it to start.
 setsid nohup sh -c "
