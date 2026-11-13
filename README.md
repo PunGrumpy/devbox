@@ -17,8 +17,19 @@ Sets up a remote machine for coding agents the same way every time: [T3 Code](ht
 | [`browser-deps.sh`](common/browser-deps.sh) | Installs the libraries and fonts T3's browser needs. Debian and Ubuntu only. |
 | [`env.sh`](common/env.sh) | Sets Git to commit as me without signing, since the signing key lives in 1Password. Puts the languages on `PATH` for T3, its agents, and login shells. |
 | [`skills.sh`](common/skills.sh) | Installs the same agent skills as [my dotfiles](https://github.com/PunGrumpy/dotfiles), for Claude Code and Codex. It reads the list from the dotfiles and reinstalls only when the list changes. |
+| [`pair.sh`](common/pair.sh) | Installs `~/.local/bin/devbox-pair`, which prints the machine's public T3 URL and a one-time pairing token for [`link.sh`](link.sh). |
 | [`tools.sh`](common/tools.sh) | Installs Go and Rust with [mise](https://mise.jdx.dev/), into `DEVBOX_DATA` so a rebuild keeps them. The machine image brings the rest. |
 
 ## Add a machine
 
 Make a folder with a `start.sh` that the provider runs on boot. It sets `DEVBOX_NAME` and `DEVBOX_DATA`, the directory that survives a rebuild, then calls the `common/` scripts. [`upstash/start.sh`](upstash/start.sh) is the example.
+
+## Link a machine
+
+So agents on a computer can work on a box, link the box as a T3 environment there. Run this on each computer you use T3 from, with the box's SSH host:
+
+```sh
+sh link.sh upstash-t3-box instabox-t3-box
+```
+
+It runs `devbox-pair` on each box over SSH, then `t3 environment link` here, so nothing asks for a pairing code. Links last 30 days, and running it again renews them. Set `T3` when `t3` is not on `PATH`, and `DEVBOX_LINK_ACCESS` for less than `full-access`.
