@@ -34,4 +34,4 @@ sh link.sh upstash-t3-box instabox-t3-box
 
 It runs `devbox-pair` on each box over SSH, then `t3 environment link` here, so nothing asks for a pairing code. Links last 30 days, and running it again renews them.
 
-That link is for agents. The T3 Code app keeps its own list of environments, so add `--app` to also send each box to the app here (`sh link.sh --app upstash-t3-box`). The app asks you to confirm each one. Set `T3` when `t3` is not on `PATH`, and `DEVBOX_LINK_ACCESS` for less than `full-access`.
+That link is for agents. The T3 Code app keeps its own list of environments, so add `--app` to also send each box to the app here (`sh link.sh --app upstash-t3-box`). On a Mac the app asks you to confirm each one. From WSL the Windows app ignores those links, so `link.sh` copies each pairing URL to the clipboard instead: paste it in Settings → Connections → Add environment. Set `T3` when `t3` is not on `PATH`, and `DEVBOX_LINK_ACCESS` for less than `full-access`.
