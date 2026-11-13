@@ -32,4 +32,6 @@ So agents on a computer can work on a box, link the box as a T3 environment ther
 sh link.sh upstash-t3-box instabox-t3-box
 ```
 
-It runs `devbox-pair` on each box over SSH, then `t3 environment link` here, so nothing asks for a pairing code. Links last 30 days, and running it again renews them. Set `T3` when `t3` is not on `PATH`, and `DEVBOX_LINK_ACCESS` for less than `full-access`.
+It runs `devbox-pair` on each box over SSH, then `t3 environment link` here, so nothing asks for a pairing code. Links last 30 days, and running it again renews them.
+
+That link is for agents. The T3 Code app keeps its own list of environments, so add `--app` to also send each box to the app here (`sh link.sh --app upstash-t3-box`). The app asks you to confirm each one. Set `T3` when `t3` is not on `PATH`, and `DEVBOX_LINK_ACCESS` for less than `full-access`.
