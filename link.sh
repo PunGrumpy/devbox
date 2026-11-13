@@ -5,7 +5,10 @@
 # again renews them.
 # Usage: sh link.sh [--app] <ssh host>...
 # --app also adds each box to the T3 Code app on this computer, which keeps
-# its own list under Settings -> Connections. The app asks to confirm each one.
+# its own list under Settings -> Connections. On macOS and Linux the app asks
+# to confirm each one. From WSL, the Windows app ignores t3code:// links, so
+# the pairing URL goes to the clipboard for Settings -> Connections -> Add
+# environment, one box at a time.
 # T3 picks the t3 binary (default: t3 on PATH). DEVBOX_LINK_ACCESS picks what
 # agents here may do there (default: full-access).
 set -u
@@ -24,15 +27,19 @@ pair() {
   ssh -o BatchMode=yes -o ConnectTimeout=15 "$1" "~/.local/bin/devbox-pair '$2'"
 }
 
-# Hand a t3code:// link to the app: WSL through Windows, then macOS, then Linux.
-open_link() {
-  if command -v explorer.exe >/dev/null; then
-    explorer.exe "$1" || true # explorer.exe exits 1 even when it opens the link.
-  elif command -v open >/dev/null; then
-    open "$1"
-  else
-    xdg-open "$1"
+# Give the app a pairing URL: through the clipboard from WSL, else as a
+# t3code:// link that the app opens with a confirmation.
+to_app() {
+  if command -v clip.exe >/dev/null; then
+    printf '%s' "$2" | clip.exe || return 1
+    printf '%s: pairing URL copied. In T3 Code, Settings -> Connections -> Add environment, paste it, then press Enter here. ' "$1"
+    read -r _ </dev/tty
+    return
   fi
+  link="t3code://pair?pairingUrl=$(printf '%s' "$2" |
+    sed 's/%/%25/g; s/:/%3A/g; s/\//%2F/g; s/#/%23/g; s/=/%3D/g')"
+  if command -v open >/dev/null; then open "$link"; else xdg-open "$link"; fi || return 1
+  echo "$1: confirm \"Add the backend\" in the T3 Code app"
 }
 
 status=0
@@ -51,9 +58,6 @@ for host in "$@"; do
     status=1
     continue
   fi
-  pairing=$(printf '%s/pair#token=%s' "${out% *}" "${out##* }" |
-    sed 's/%/%25/g; s/:/%3A/g; s/\//%2F/g; s/#/%23/g; s/=/%3D/g')
-  open_link "t3code://pair?pairingUrl=$pairing" || status=1
-  echo "$host: confirm \"Add the backend\" in the T3 Code app"
+  to_app "$host" "${out% *}/pair#token=${out##* }" || status=1
 done
 exit $status
