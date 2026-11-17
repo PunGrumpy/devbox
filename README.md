@@ -1,16 +1,92 @@
 # devbox
 
-`devbox` is one command-line tool for machines that run [T3 Code](https://t3.codes) coding agents. It works the same on any Linux machine or Mac, whoever hosts it. Anything that differs between machines is a flag, not a folder named after a provider.
-
-Today it has one command, `devbox migrate`, which maintains T3 Code's local state. Setting up a machine, linking it to T3, and backing up agent memory move into `devbox` next. Until then the shell scripts below still do that work.
+`devbox` is one command-line tool for machines that run [T3 Code](https://t3.codes) coding agents. It sets up any Linux machine, keeps T3 Code running there, links machines to the computers you use T3 from, and maintains T3 Code's local state. Anything that differs between machines is a flag, not a folder named after a provider.
 
 `devbox` is TypeScript on [Bun](https://bun.sh) and [Effect](https://effect.website).
 
+## Install
+
 ```sh
-bun install
-bun src/cli.ts --help
-bun run build        # dist/devbox, a single binary
+curl -fsSL https://raw.githubusercontent.com/PunGrumpy/devbox/main/install.sh | sh -s -- up
 ```
+
+`install.sh` installs Bun when it is missing, clones this repo into `$DEVBOX_HOME` (default `~/.devbox`) or fast-forwards it, installs the dependencies, writes a `devbox` wrapper to `~/.local/bin`, and runs `devbox` with its arguments. Run it again to update. `DEVBOX_REPO` clones from somewhere else.
+
+## Set up a machine
+
+```sh
+devbox up --name edge-7 --data /persist --public-url https://edge-7.example.com
+```
+
+`devbox up` reads the machine as it is, changes only what differs, and says what it changed. A second run prints `No changes`.
+
+| Flag           | Default      | What it sets                                                                                                                              |
+| -------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `--name`       | the hostname | The environment name T3 Code shows, as `PRETTY_HOSTNAME` in `/etc/machine-info`.                                                          |
+| `--data`       | `$HOME`      | The directory that survives a rebuild. T3 Code, mise, Rust, Claude Code and agent skills keep their data here.                            |
+| `--public-url` | none         | The origin an edge proxy serves the machine on. T3 then runs behind a proxy that gives it this host, so OAuth and pairing URLs use it.    |
+| `--port`       | `3773`       | The port T3 Code answers on, directly or through the proxy.                                                                               |
+| `--base-dir`   | `<data>/.t3` | T3 Code's data directory.                                                                                                                 |
+| `--workspace`  | `<data>`     | The working directory for agent sessions.                                                                                                 |
+| `--channel`    | `nightly`    | The npm dist-tag T3 Code installs and updates from.                                                                                       |
+| `--supervisor` | `auto`       | What keeps T3 running: a systemd system unit when systemd and passwordless sudo exist, else a systemd user unit, else a detached process. |
+| `--no-setup`   | setup runs   | Skips the slow setup that runs after T3 starts.                                                                                           |
+
+What it does:
+
+- Sets Git to commit as me without signing, and to log in to github.com through `gh`, in `~/.gitconfig`.
+- With passwordless sudo, writes `/etc/machine-info` and `/etc/profile.d/devbox.sh`, which puts the languages on `PATH` and keeps tool data in `--data` for login shells. Without it, it skips both with a note.
+- When `--data` is not `$HOME`, links `~/.agents` into it, and `~/.config/gh` once a gh login is saved there.
+- Installs or updates T3 Code from npm into `<data>/.local`.
+- Keeps `devbox serve` running under the supervisor, and restarts it when T3 Code updates or the flags change. It waits until T3 answers on the port.
+
+`devbox serve` takes the same flags. It probes user namespaces and turns off Chrome's sandbox when the machine blocks them, starts the proxy when `--public-url` is set, and runs `t3 serve`. Once T3 answers it installs the browser's libraries with apt, Go and Rust with [mise](https://mise.jdx.dev/), and the agent skills from [my dotfiles](https://github.com/PunGrumpy/dotfiles) for Claude Code and Codex. That never blocks T3. The skills list is parsed as data, never run, and installs again only when it changes.
+
+Logs of a detached `devbox serve` go to `<data>/.devbox-logs/serve.log`. A systemd unit logs to the journal: `journalctl -u devbox` or `journalctl --user -u devbox`.
+
+### Upstash Box
+
+Only `/workspace` survives a rebuild, so the box sets itself up on every start. In the Upstash Console, under **Settings → Init Command**, paste:
+
+```sh
+d=/workspace/home/devbox; git -C $d pull -q --ff-only 2>/dev/null || git clone -q https://github.com/PunGrumpy/devbox $d; sh $d/upstash/start.sh
+```
+
+[`upstash/start.sh`](upstash/start.sh) runs `devbox up --data /workspace/home --name upstash-<box name> --public-url https://<box id>-3773.preview.box.upstash.com`, and logs to `/workspace/home/.devbox-logs/start.log`. The box writes the Init Command into `/workspace/home/.box/startup.sh` only when it starts. To run it again, pause and resume the box with the [`@upstash/box`](https://upstash.com/docs/box) SDK.
+
+Upstash's GitHub connection logs gh in with an app token. To use your own account and keep it after a rebuild, log in once; the next start links `~/.config/gh` to it:
+
+```sh
+GH_CONFIG_DIR=/workspace/home/.config/gh gh auth login --web --git-protocol https
+```
+
+The box has no AppArmor and blocks user namespaces, so Chrome runs with `--no-sandbox` and the container is the only isolation.
+
+### instabox
+
+Create a machine with T3 Code turned on, then run this on it, and again to update:
+
+```sh
+git -C ~/devbox pull -q --ff-only 2>/dev/null || git clone -q https://github.com/PunGrumpy/devbox ~/devbox; sh ~/devbox/instabox/setup.sh
+```
+
+[`instabox/setup.sh`](instabox/setup.sh) turns off instabox's own `t3-instabox` unit and runs `devbox up --port 3774 --public-url https://3774-<id>.instabox.tech` with instabox's T3 data directory and `/data/workspace`, so threads carry over. The skills from the private `PunGrumpy/agents` repo need your gh login: run `gh auth login --web --git-protocol https`, then the setup again.
+
+`ssh.instabox.sh` cannot take your own SSH key. Log in with an `ibssh_` token as the user name, and keep it out of this repo. A new token revokes the old one: `npx instabox@latest ssh-token <machine> --ttl never`.
+
+## Link a machine
+
+So agents on a computer can work on a machine, link it as a T3 environment there. Run this on each computer you use T3 from, with the machines' SSH hosts:
+
+```sh
+devbox link edge-7 edge-8
+```
+
+It runs `devbox pair --json` on each machine over SSH, then `t3 environment link` here, so nothing asks for a pairing code. Links last 30 days, and running it again renews them. `--access` picks what agents here may do there (default `full-access`), and `--t3` the `t3` binary here.
+
+That link is for agents. The T3 Code app keeps its own list, so `--app` also sends each machine to the app here. On macOS and Linux it opens a `t3code://` link that the app asks you to confirm. From WSL the Windows app ignores those links, so it copies each pairing URL to the clipboard and waits for Enter while you paste it in Settings → Connections → Add environment.
+
+`devbox pair [--label <name>] [--json]` prints the machine's T3 URL and a one-time pairing token that lasts 15 minutes. `--json` prints `{"url", "token"}`.
 
 ## Maintain T3 Code's state
 
@@ -57,46 +133,6 @@ Claude Code keeps them in `<home>/projects/<slug>`. The slug is the resolved fol
 `T3_HOME` replaces `~/.t3` for the live database, the runtime file, the settings, and the backups. `T3_BACKUP_DIR` replaces the backup folder. `NO_COLOR` turns color off.
 
 Output goes to stderr in the style of the Vercel CLI, so a pipe gets only data. `doctor --json` prints one document on stdout. A wrong command line exits with 2, and any other failure exits with 1.
-
-## Set up a machine with the shell scripts
-
-These scripts are being replaced by `devbox` commands. They still run on every box today.
-
-Each machine runs [T3 Code](https://t3.codes), its browser, the languages, and Git as me. Nobody works in its terminal, so it skips [my dotfiles](https://github.com/PunGrumpy/dotfiles).
-
-| Machine                                     | Folder                            |
-| ------------------------------------------- | --------------------------------- |
-| [Upstash Box](https://upstash.com/docs/box) | [`upstash/`](upstash/README.md)   |
-| [instabox](https://instabox.sh)             | [`instabox/`](instabox/README.md) |
-
-### What every machine gets
-
-[`common/`](common) holds the parts that do not depend on the provider:
-
-| Script                                      | What it does                                                                                                                                                                                                   |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`t3.sh`](common/t3.sh)                     | Installs or updates T3 Code from the `nightly` channel (`DEVBOX_T3_CHANNEL` picks another), names the environment, then starts `t3 serve` on port 3773. Turns off Chrome's sandbox when the machine blocks it. |
-| [`browser-deps.sh`](common/browser-deps.sh) | Installs the libraries and fonts T3's browser needs. Debian and Ubuntu only.                                                                                                                                   |
-| [`env.sh`](common/env.sh)                   | Sets Git to commit as me without signing, since the signing key lives in 1Password. Puts the languages on `PATH` for T3, its agents, and login shells.                                                         |
-| [`skills.sh`](common/skills.sh)             | Installs the same agent skills as [my dotfiles](https://github.com/PunGrumpy/dotfiles), for Claude Code and Codex. It reads the list from the dotfiles and reinstalls only when the list changes.              |
-| [`pair.sh`](common/pair.sh)                 | Installs `~/.local/bin/devbox-pair`, which prints the machine's public T3 URL and a one-time pairing token for [`link.sh`](link.sh).                                                                           |
-| [`tools.sh`](common/tools.sh)               | Installs Go and Rust with [mise](https://mise.jdx.dev/), into `DEVBOX_DATA` so a rebuild keeps them. The machine image brings the rest.                                                                        |
-
-### Add a machine
-
-Make a folder with a `start.sh` that the provider runs on boot. It sets `DEVBOX_NAME` and `DEVBOX_DATA`, the directory that survives a rebuild, then calls the `common/` scripts. [`upstash/start.sh`](upstash/start.sh) is the example.
-
-### Link a machine
-
-So agents on a computer can work on a box, link the box as a T3 environment there. Run this on each computer you use T3 from, with the box's SSH host:
-
-```sh
-sh link.sh upstash-t3-box instabox-t3-box
-```
-
-It runs `devbox-pair` on each box over SSH, then `t3 environment link` here, so nothing asks for a pairing code. Links last 30 days, and running it again renews them.
-
-That link is for agents. The T3 Code app keeps its own list of environments, so add `--app` to also send each box to the app here (`sh link.sh --app upstash-t3-box`). On a Mac the app asks you to confirm each one. From WSL the Windows app ignores those links, so `link.sh` copies each pairing URL to the clipboard instead: paste it in Settings → Connections → Add environment. Set `T3` when `t3` is not on `PATH`, and `DEVBOX_LINK_ACCESS` for less than `full-access`.
 
 ## Develop
 
