@@ -3,6 +3,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Cause, Effect, Layer, Runtime } from "effect";
 import { CliConfig, CliError, CliOutput, Command, GlobalFlag } from "effect/cli";
 import packageJson from "../package.json" with { type: "json" };
+import { backup } from "./backup/command.ts";
 import { hintOf } from "./errors.ts";
 import { Host } from "./machine/host.ts";
 import { link } from "./machine/link.ts";
@@ -23,6 +24,7 @@ export const devbox = Command.make("devbox").pipe(
   ),
   Command.withSubcommands([
     up,
+    backup,
     serve,
     pair,
     link,

@@ -11,7 +11,10 @@ export type RunOptions = {
   readonly cwd?: string;
   readonly stdin?: string;
   readonly inherit?: boolean;
+  readonly timeoutMs?: number;
 };
+
+export const TIMED_OUT = 124;
 
 export type Proc = { readonly pid: number; readonly argv: ReadonlyArray<string> };
 
@@ -46,19 +49,25 @@ export class Host extends Context.Service<
     run: (argv, options = {}) =>
       Effect.promise(async (): Promise<Ran> => {
         try {
+          const started = performance.now();
           const child = Bun.spawn([...argv], {
             env: { ...process.env, ...options.env },
             cwd: options.cwd ?? "/",
             stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
             stdout: options.inherit ? "inherit" : "pipe",
             stderr: options.inherit ? "inherit" : "pipe",
+            ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
           });
           const [stdout, stderr, code] = await Promise.all([
             child.stdout ? new Response(child.stdout).text() : "",
             child.stderr ? new Response(child.stderr).text() : "",
             child.exited,
           ]);
-          return { code, stdout, stderr };
+          return {
+            code: timedOut(options.timeoutMs, started, code) ? TIMED_OUT : code,
+            stdout,
+            stderr,
+          };
         } catch (error) {
           return { code: 127, stdout: "", stderr: String(error) };
         }
@@ -129,6 +138,9 @@ export class Host extends Context.Service<
     ),
   }));
 }
+
+const timedOut = (limit: number | undefined, started: number, code: number): boolean =>
+  limit !== undefined && code !== 0 && performance.now() - started >= limit;
 
 const alive = (pid: number): boolean => {
   try {
