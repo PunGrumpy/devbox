@@ -1,6 +1,6 @@
 # devbox
 
-`devbox` is one command-line tool for machines that run [T3 Code](https://t3.codes) coding agents. It sets up any Linux machine, keeps T3 Code running there, links machines to the computers you use T3 from, and maintains T3 Code's local state. Anything that differs between machines is a flag, not a folder named after a provider.
+`devbox` is one command-line tool for machines that run [T3 Code](https://t3.codes) coding agents. It sets up any Linux machine, keeps T3 Code running there, links machines to the computers you use T3 from, backs up agent memory and threads, and maintains T3 Code's local state. Anything that differs between machines is a flag, not a folder named after a provider.
 
 `devbox` is TypeScript on [Bun](https://bun.sh) and [Effect](https://effect.website).
 
@@ -38,6 +38,7 @@ What it does:
 - With passwordless sudo, writes `/etc/machine-info` and `/etc/profile.d/devbox.sh`, which puts the languages on `PATH` and keeps tool data in `--data` for login shells. Without it, it skips both with a note.
 - When `--data` is not `$HOME`, links `~/.agents` into it, and `~/.config/gh` once a gh login is saved there.
 - Installs or updates T3 Code from npm into `<data>/.local`.
+- When `~/.config/devbox/backup/env` sets `RESTIC_REPOSITORY`, installs `restic` and `sqlite3` with apt if they are missing, and enables a nightly backup timer. See [Back up agent memory](#back-up-agent-memory). Without that file it prints one line saying backups are off.
 - Keeps `devbox serve` running under the supervisor, and restarts it when T3 Code updates or the flags change. It waits until T3 answers on the port.
 
 `devbox serve` takes the same flags. It probes user namespaces and turns off Chrome's sandbox when the machine blocks them, starts the proxy when `--public-url` is set, and runs `t3 serve`. Once T3 answers it installs the browser's libraries with apt, Go and Rust with [mise](https://mise.jdx.dev/), and the agent skills from [my dotfiles](https://github.com/PunGrumpy/dotfiles) for Claude Code and Codex. That never blocks T3. The skills list is parsed as data, never run, and installs again only when it changes.
@@ -87,6 +88,67 @@ It runs `devbox pair --json` on each machine over SSH, then `t3 environment link
 That link is for agents. The T3 Code app keeps its own list, so `--app` also sends each machine to the app here. On macOS and Linux it opens a `t3code://` link that the app asks you to confirm. From WSL the Windows app ignores those links, so it copies each pairing URL to the clipboard and waits for Enter while you paste it in Settings → Connections → Add environment.
 
 `devbox pair [--label <name>] [--json]` prints the machine's T3 URL and a one-time pairing token that lasts 15 minutes. `--json` prints `{"url", "token"}`.
+
+## Back up agent memory
+
+Agents keep their memory and threads in files under `~`. `devbox backup` copies them every night to an encrypted [restic](https://restic.net) repository. The repository can be a Cloudflare R2 bucket.
+
+```sh
+devbox backup run      # snapshot SQLite files, back up, prune old snapshots
+devbox backup verify   # restore the latest SQLite snapshots and open each one
+devbox backup sources  # list the sources that exist on this machine
+```
+
+### Set it up
+
+1. In the Cloudflare dashboard, open R2 and create a bucket, for example `agent-backup`.
+2. Open R2, then **Manage API tokens**, then create an API token. Pick **Object Read & Write** and limit it to that bucket. Prune needs the delete permission, which this one includes.
+3. Copy the **Access Key ID** and **Secret Access Key**. The secret is shown once. Your account ID is the first part of the S3 endpoint, `https://<account id>.r2.cloudflarestorage.com`.
+4. On the machine, run `devbox backup sources`. It writes `~/.config/devbox/backup/` with `sources`, `excludes` and an `env` file that only you can read. It never overwrites a file that exists.
+5. Fill in `env`:
+
+```sh
+RESTIC_REPOSITORY=s3:https://<account id>.r2.cloudflarestorage.com/agent-backup/<machine name>
+RESTIC_PASSWORD_FILE=/home/<you>/.config/devbox/backup/restic-password
+AWS_ACCESS_KEY_ID=<access key id>
+AWS_SECRET_ACCESS_KEY=<secret access key>
+AWS_DEFAULT_REGION=auto
+```
+
+6. Create the password and put a copy in your password manager now:
+
+```sh
+(umask 077; openssl rand -base64 32 > ~/.config/devbox/backup/restic-password)
+```
+
+7. Run `devbox backup run`, then `devbox backup verify`. The first run creates the repository.
+8. Run `devbox up` again. With systemd it installs `devbox-backup.service` and `devbox-backup.timer`, which run `devbox backup run` every day at 03:30 Asia/Bangkok, up to 20 minutes late. The timer catches up after downtime. It lives in the same scope as the T3 unit, so a system unit runs as your user and a user unit uses lingering. Without systemd, run `devbox backup run` from cron.
+
+### Keep the password off the VPS
+
+The repository is useless without the password. If the only copy sits on the machine that dies, every backup is lost. Keep the master copy in a password manager. The copy in `env` is there so the timer can run. Use a token that reaches only this bucket.
+
+### What a run does
+
+- Reads `sources`: one `<name> <path>` per line, `~` allowed. Add an agent by adding a line. A path that does not exist is skipped with a note. A line that is not `<name> <path>` stops the run.
+- Finds every SQLite file under a source by its first 16 bytes, not by its extension. Gemini uses `.db` and Codex uses `.sqlite`, and a file with those names may not be a database.
+- Snapshots each one with `sqlite3 .backup` into `~/.local/state/devbox/backup/sqlite`, checks it with `pragma quick_check`, and leaves the live file and its `-wal`, `-shm` and `-journal` out of restic. Copying a live WAL database can capture a torn state.
+- If `.backup` does not finish in two minutes, because the database is written too often, it uses `VACUUM INTO` instead.
+- Runs `restic backup --tag agent-backup --exclude-caches` with those exclusions and your `excludes` file, then `restic forget --prune` to keep 7 daily, 4 weekly and 6 monthly snapshots.
+- Creates the repository only when restic says it does not exist.
+- Takes a lock, so two runs never overlap.
+
+`excludes` is a restic exclude file. restic expands `$HOME` in it. `env` is read by `devbox` and its values are never printed.
+
+### Restore
+
+```sh
+set -a; . ~/.config/devbox/backup/env; set +a
+restic snapshots
+restic restore latest --target /tmp/restore
+```
+
+Restored SQLite snapshots sit under `<target>/home/<you>/.local/state/devbox/backup/sqlite/<name>/`. Copy the ones you need back into place while the agent is stopped.
 
 ## Maintain T3 Code's state
 
