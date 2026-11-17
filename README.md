@@ -96,6 +96,7 @@ Agents keep their memory and threads in files under `~`. `devbox backup` copies 
 ```sh
 devbox backup run      # snapshot SQLite files, back up, prune old snapshots
 devbox backup verify   # restore the latest SQLite snapshots and open each one
+devbox backup restore <target-dir> [--snapshot <id>]   # restore everything into a folder
 devbox backup sources  # list the sources that exist on this machine
 ```
 
@@ -131,24 +132,41 @@ The repository is useless without the password. If the only copy sits on the mac
 ### What a run does
 
 - Reads `sources`: one `<name> <path>` per line, `~` allowed. Add an agent by adding a line. A path that does not exist is skipped with a note. A line that is not `<name> <path>` stops the run.
-- Finds every SQLite file under a source by its first 16 bytes, not by its extension. Gemini uses `.db` and Codex uses `.sqlite`, and a file with those names may not be a database.
-- Snapshots each one with `sqlite3 .backup` into `~/.local/state/devbox/backup/sqlite`, checks it with `pragma quick_check`, and leaves the live file and its `-wal`, `-shm` and `-journal` out of restic. Copying a live WAL database can capture a torn state.
+- Finds every SQLite file under a source by its first 16 bytes, not by its extension. Gemini uses `.db` and Codex uses `.sqlite`, and a file with those names may not be a database. It skips files and folders that `excludes` names.
+- Snapshots each one with `sqlite3 .backup` into `~/.local/state/devbox/backup/sqlite/<name>/`, checks it with `pragma quick_check`, and leaves the live file and its `-wal`, `-shm` and `-journal` out of restic. Any `*.sqlite-wal`, `*.sqlite-shm`, `*.db-wal` and `*.db-shm` file is left out too. Copying a live WAL database can capture a torn state.
+- Writes `.manifest.json` next to the snapshots. It lists each snapshot's source name, source path and path inside the source, so a restore does not depend on the current `sources` file.
 - If `.backup` does not finish in two minutes, because the database is written too often, it uses `VACUUM INTO` instead.
-- Runs `restic backup --tag agent-backup --exclude-caches` with those exclusions and your `excludes` file, then `restic forget --prune` to keep 7 daily, 4 weekly and 6 monthly snapshots.
+- Runs `restic backup --tag agent-backup --exclude-caches` with those exclusions and your `excludes` file, then `restic forget --prune` to keep 7 daily, 4 weekly and 6 monthly snapshots. `forget` and `restore` only look at snapshots of this machine. The machine name is the host name. Set `RESTIC_HOST` in `env` to change it.
 - Creates the repository only when restic says it does not exist.
-- Takes a lock, so two runs never overlap.
+- Takes a lock, so two runs never overlap. A lock counts only while its process is a `devbox backup` run. A lock file that is empty or unreadable counts for 10 seconds, then it is stale.
 
 `excludes` is a restic exclude file. restic expands `$HOME` in it. `env` is read by `devbox` and its values are never printed.
 
 ### Restore
 
+On a new machine, install `restic`, fill in `~/.config/devbox/backup/env` with the same repository and password, then run:
+
+```sh
+devbox backup restore ~/restore            # latest snapshot of this machine
+devbox backup restore ~/restore --snapshot 1a2b3c4d
+```
+
+It runs `restic restore` into the folder. Files land at `<folder>/<original path>`, for example `~/restore/home/<you>/.claude`. Then it puts each SQLite snapshot at its live path inside the folder, for example `~/restore/home/<you>/.t3/userdata/statev2.sqlite`. It never writes outside the folder.
+
+It prints the folders to move into place. Stop the agents first. Delete any `-wal` or `-shm` file next to a database you replace, or SQLite may replay old changes into the restored file. Then move the files:
+
+```sh
+cp -a ~/restore/home/<you>/.t3/userdata/. ~/.t3/userdata/
+```
+
+`restore` reads `.manifest.json` from the snapshot. If the snapshot has none, it maps each staged folder to a path with the `sources` file.
+
+To look around by hand, use restic directly:
+
 ```sh
 set -a; . ~/.config/devbox/backup/env; set +a
 restic snapshots
-restic restore latest --target /tmp/restore
 ```
-
-Restored SQLite snapshots sit under `<target>/home/<you>/.local/state/devbox/backup/sqlite/<name>/`. Copy the ones you need back into place while the agent is stopped.
 
 ## Maintain T3 Code's state
 

@@ -53,7 +53,7 @@ describe("devbox up and backups", () => {
     expect(existsSync(join(m.home, ".config/systemd/user/devbox-backup.service"))).toBe(false);
   });
 
-  test("with a repository set it installs a nightly user timer and runs devbox backup run", async () => {
+  test("with a repository set it installs a nightly user timer and a oneshot service that executes `backup run`", async () => {
     const m = makeMachine({ userBus: true });
     withTools(m);
     envFile(m.home, ENABLED);

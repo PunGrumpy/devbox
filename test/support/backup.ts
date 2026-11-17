@@ -26,7 +26,7 @@ export const sourcesFile = (home: string, text: string) =>
 export const envFile = (home: string, text: string) =>
   write(join(home, ".config/devbox/backup/env"), text);
 
-export type FakeRepo = { exists: boolean; failCheck: boolean };
+export type FakeRepo = { exists: boolean; failCheck: boolean; stage?: string };
 
 export const withBackupTools = (
   m: FakeMachine,
@@ -65,10 +65,13 @@ export const withBackupTools = (
                 "Fatal: repository does not exist\nIs there a repository at the following location?\n",
             };
       if (args[0] === "init") return ((repo.exists = true), ok());
+      if (args[0] === "backup") return ((repo.stage = args.at(-1)), ok());
       if (args[0] === "restore") {
+        if (repo.stage === undefined)
+          return { code: 1, stdout: "", stderr: "Fatal: no matching ID found for prefix latest\n" };
         const target = args[args.indexOf("--target") + 1]!;
-        const include = args[args.indexOf("--include") + 1]!;
-        if (existsSync(include)) cpSync(include, join(target, include), { recursive: true });
+        if (existsSync(repo.stage))
+          cpSync(repo.stage, join(target, repo.stage), { recursive: true });
         return ok();
       }
       return ok();

@@ -1,5 +1,5 @@
 import { Result, Schema } from "effect";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { AbsolutePath, absolutePath } from "../migrate/paths.ts";
 
 export const RESTIC_TAG = "agent-backup";
@@ -18,8 +18,18 @@ const SourceLine = Schema.Struct({ name: SourceName, location: SourceLocation })
 export const Source = Schema.Struct({ name: SourceName, path: AbsolutePath });
 export type Source = typeof Source.Type;
 
-export type SqliteSnapshot = {
-  readonly source: string;
+export const MANIFEST = ".manifest.json";
+
+export const ManifestEntry = Schema.Struct({
+  source: SourceName,
+  path: Schema.String,
+  relative: Schema.String,
+});
+export type ManifestEntry = typeof ManifestEntry.Type;
+
+export const Manifest = Schema.Array(ManifestEntry);
+
+export type SqliteSnapshot = ManifestEntry & {
   readonly live: string;
   readonly entry: string;
 };
@@ -83,10 +93,44 @@ export const hasSqliteHeader = (bytes: Uint8Array): boolean =>
   bytes.length === SQLITE_HEADER.length &&
   SQLITE_HEADER.split("").every((char, i) => bytes[i] === char.charCodeAt(0));
 
-export const entryFor = (source: Source, live: string): string =>
-  live === source.path
-    ? join(source.name, live.slice(live.lastIndexOf("/") + 1))
-    : join(source.name, live.slice(source.path.length + 1));
+export const stagedEntry = ({ source, path, relative }: ManifestEntry): string =>
+  join(source, relative === "" ? basename(path) : relative);
+
+export const snapshotOf = (source: Source, live: string): SqliteSnapshot => {
+  const entry = {
+    source: source.name,
+    path: source.path,
+    relative: live === source.path ? "" : live.slice(source.path.length + 1),
+  };
+  return { ...entry, live, entry: stagedEntry(entry) };
+};
+
+export const manifestOf = (plan: BackupPlan): ReadonlyArray<ManifestEntry> =>
+  plan.snapshots.map(({ source, path, relative }) => ({ source, path, relative }));
+
+export const entriesFromStage = (
+  staged: ReadonlyArray<string>,
+  sources: ReadonlyArray<Source>,
+  isDirectory: (source: Source) => boolean,
+): { readonly entries: ReadonlyArray<ManifestEntry>; readonly unknown: ReadonlyArray<string> } => {
+  const entries: Array<ManifestEntry> = [];
+  const unknown = new Set<string>();
+  for (const file of staged) {
+    const [name = "", ...rest] = file.split("/");
+    const source = sources.find((candidate) => candidate.name === name);
+    if (source === undefined) {
+      unknown.add(name);
+      continue;
+    }
+    const relative = rest.join("/");
+    entries.push({
+      source: name,
+      path: source.path,
+      relative: relative === basename(source.path) && !isDirectory(source) ? "" : relative,
+    });
+  }
+  return { entries, unknown: [...unknown] };
+};
 
 export const sidecars = (live: string): ReadonlyArray<string> => [
   live,
@@ -95,13 +139,19 @@ export const sidecars = (live: string): ReadonlyArray<string> => [
   `${live}-journal`,
 ];
 
+const GENERIC_SIDECARS = ["*.sqlite-wal", "*.sqlite-shm", "*.db-wal", "*.db-shm"] as const;
+
 const globEscape = (path: string) => path.replace(/[\\*?[]/g, "\\$&");
 
 // restic expands $VARS in exclude files, so a literal $ in a path is written as $$.
 export const excludeFile = (plan: BackupPlan): string =>
-  plan.snapshots
-    .flatMap((snapshot) => sidecars(snapshot.live))
-    .map((path) => `${globEscape(path).replaceAll("$", "$$$$")}\n`)
+  [
+    ...plan.snapshots
+      .flatMap((snapshot) => sidecars(snapshot.live))
+      .map((path) => globEscape(path).replaceAll("$", "$$$$")),
+    ...GENERIC_SIDECARS,
+  ]
+    .map((line) => `${line}\n`)
     .join("");
 
 export const backupArgs = (
@@ -121,9 +171,11 @@ export const backupArgs = (
   plan.stage,
 ];
 
-export const forgetArgs: ReadonlyArray<string> = [
+export const forgetArgs = (host: string): ReadonlyArray<string> => [
   "restic",
   "forget",
+  "--host",
+  host,
   "--tag",
   RESTIC_TAG,
   "--group-by",
@@ -132,16 +184,24 @@ export const forgetArgs: ReadonlyArray<string> = [
   "--prune",
 ];
 
-export const restoreArgs = (plan: Pick<BackupPlan, "stage">, target: string) => [
+export const SnapshotId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9]+$/)));
+
+export const restoreArgs = (
+  host: string,
+  snapshot: string,
+  target: string,
+  include?: string,
+): ReadonlyArray<string> => [
   "restic",
   "restore",
-  "latest",
+  snapshot,
+  "--host",
+  host,
   "--tag",
   RESTIC_TAG,
   "--target",
   target,
-  "--include",
-  globEscape(plan.stage),
+  ...(include === undefined ? [] : ["--include", globEscape(include)]),
 ];
 
 export const BACKUP_TIMEOUT_MS = 120_000;
@@ -156,6 +216,8 @@ export const sqliteBackupArgs = (live: string, dest: string): ReadonlyArray<stri
 
 export const vacuumIntoArgs = (live: string, dest: string): ReadonlyArray<string> => [
   "sqlite3",
+  "-cmd",
+  ".timeout 30000",
   live,
   `vacuum into '${dest.replaceAll("'", "''")}'`,
 ];

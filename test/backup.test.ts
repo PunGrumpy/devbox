@@ -1,11 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, statSync, symlinkSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+} from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_SOURCES, parseEnv } from "../src/backup/config.ts";
+import { excludedBy, expandVars } from "../src/backup/exclude.ts";
 import {
   excludeFile,
   hasSqliteHeader,
   parseSources,
+  snapshotOf,
   sqliteBackupArgs,
 } from "../src/backup/model.ts";
 import { Effect } from "effect";
@@ -55,6 +68,24 @@ grok    ~/.grok
 
 const resticCalls = (m: ReturnType<typeof makeMachine>) =>
   m.calls.filter((argv) => argv[0] === "restic");
+
+const forgetCall = (m: ReturnType<typeof makeMachine>) =>
+  resticCalls(m).find((c) => c[1] === "forget")!;
+
+const excludes = (m: ReturnType<typeof makeMachine>, text: string) =>
+  write(join(m.home, ".config/devbox/backup/excludes"), text);
+
+const restoredAt = (m: ReturnType<typeof makeMachine>, target: string, rel: string) =>
+  join(target, m.home, rel);
+
+const rows = (path: string) =>
+  new Database(path, { readonly: true }).query("select count(*) as n from t").get();
+
+const snapshotNames = (m: ReturnType<typeof makeMachine>) =>
+  m.calls
+    .filter((c) => c[0] === "sqlite3" && c.at(-1)?.startsWith(".backup"))
+    .map((c) => c.at(-2)!.slice(m.home.length + 1))
+    .toSorted();
 
 describe("the sources file", () => {
   test("is read as `<name> <path>` lines, with ~ expanded and comments ignored", () => {
@@ -224,7 +255,13 @@ describe("devbox backup run", () => {
       `${m.home}/.gemini/tmp/abc/chat.db`,
     ];
     expect(lines.filter((l) => l !== "").toSorted()).toEqual(
-      live.flatMap((p) => [p, `${p}-wal`, `${p}-shm`, `${p}-journal`]).toSorted(),
+      [
+        ...live.flatMap((p) => [p, `${p}-wal`, `${p}-shm`, `${p}-journal`]),
+        "*.sqlite-wal",
+        "*.sqlite-shm",
+        "*.db-wal",
+        "*.db-shm",
+      ].toSorted(),
     );
     expect(lines).not.toContain(`${m.home}/.codex/notes.sqlite`);
   });
@@ -255,6 +292,8 @@ describe("devbox backup run", () => {
       [
         "restic",
         "forget",
+        "--host",
+        "box-1.example.internal",
         "--tag",
         "agent-backup",
         "--group-by",
@@ -328,8 +367,18 @@ describe("devbox backup run", () => {
     expect(r.err).toContain(`${busy} changes too fast for .backup, using VACUUM INTO`);
     const vacuums = m.calls.filter((c) => c[0] === "sqlite3" && c.at(-1)?.startsWith("vacuum"));
     expect(vacuums).toEqual([
-      ["sqlite3", busy, `vacuum into '${stateDir(m)}/sqlite.tmp/codex/state.sqlite'`],
+      [
+        "sqlite3",
+        "-cmd",
+        ".timeout 30000",
+        busy,
+        `vacuum into '${stateDir(m)}/sqlite.tmp/codex/state.sqlite'`,
+      ],
     ]);
+    const timeouts = m.runs
+      .filter((c) => c.argv.at(-1)?.startsWith("vacuum"))
+      .map((c) => c.timeoutMs);
+    expect(timeouts).toEqual([120_000]);
     expect(existsSync(join(stateDir(m), "sqlite/codex/state.sqlite"))).toBe(true);
   });
 
@@ -381,6 +430,44 @@ describe("devbox backup run", () => {
     expect(existsSync(lock)).toBe(false);
   });
 
+  test("a lock whose pid now belongs to another program is stale", async () => {
+    const { m } = fixture();
+    const lock = join(stateDir(m), "lock");
+    m.processes.push({ pid: 4242, argv: ["/usr/bin/python3", "serve.py"] });
+    write(lock, "4242\n");
+    const r = await backup(m, "run");
+    expect(r.code).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  test.each([[""], ["not a pid\n"]])(
+    "a just-written lock holding %p may belong to a writer that has not flushed yet",
+    async (content) => {
+      const { m } = fixture();
+      const lock = join(stateDir(m), "lock");
+      write(lock, content);
+      const r = await backup(m, "run");
+      expect(r.code).toBe(1);
+      expect(r.err).toContain("another devbox backup is starting");
+      expect(resticCalls(m)).toEqual([]);
+      expect(existsSync(lock)).toBe(true);
+    },
+  );
+
+  test.each([[""], ["not a pid\n"]])(
+    "a lock holding %p that has sat for a minute is stale",
+    async (content) => {
+      const { m } = fixture();
+      const lock = join(stateDir(m), "lock");
+      write(lock, content);
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(lock, old, old);
+      const r = await backup(m, "run");
+      expect(r.code).toBe(0);
+      expect(existsSync(lock)).toBe(false);
+    },
+  );
+
   test("the lock is released when the run fails", async () => {
     const { m } = fixture();
     const original = m.respond;
@@ -400,10 +487,12 @@ describe("devbox backup verify", () => {
     expect(r.code).toBe(0);
     expect(r.err).toContain("verify ok: 3 sqlite files restored and readable");
     const restore = resticCalls(m).find((c) => c[1] === "restore")!;
-    expect(restore.slice(0, 6)).toEqual([
+    expect(restore.slice(0, 8)).toEqual([
       "restic",
       "restore",
       "latest",
+      "--host",
+      "box-1.example.internal",
       "--tag",
       "agent-backup",
       "--target",
@@ -411,15 +500,27 @@ describe("devbox backup verify", () => {
     expect(restore.at(-2)).toBe("--include");
     expect(restore.at(-1)).toBe(join(stateDir(m), "sqlite"));
     expect(resticCalls(m)[0]).toEqual(["restic", "check"]);
-    const target = restore[6]!;
+    const target = restore[8]!;
     expect(existsSync(target)).toBe(false);
   });
 
-  test("fails when the snapshot holds no SQLite file", async () => {
+  test("a snapshot with no SQLite file passes restic check and says so", async () => {
+    const { m } = fixture();
+    sourcesFile(m.home, "claude-json ~/.claude.json\n");
+    await backup(m, "run");
+    m.calls.length = 0;
+    const r = await backup(m, "verify");
+    expect(r.code).toBe(0);
+    expect(r.err).toContain("holds no sqlite file");
+    expect(r.err).toContain("verify ok");
+    expect(resticCalls(m).map((c) => c[1])).toEqual(["check", "restore"]);
+  });
+
+  test("fails when the repository holds no snapshot", async () => {
     const { m } = fixture();
     const r = await backup(m, "verify");
     expect(r.code).toBe(1);
-    expect(r.err).toContain("holds no sqlite snapshot");
+    expect(r.err).toContain("restic restore exited with 1");
   });
 
   test("fails when a restored file fails quick_check", async () => {
@@ -447,10 +548,277 @@ describe("devbox backup verify", () => {
   });
 });
 
+describe("one repository shared by several machines", () => {
+  test("forget only considers snapshots recorded by this machine", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    const forget = forgetCall(m);
+    expect(forget[forget.indexOf("--host") + 1]).toBe("box-1.example.internal");
+    expect(forget[forget.indexOf("--group-by") + 1]).toBe("host,tags");
+  });
+
+  test("RESTIC_HOST in the env file names the host for backup, forget, verify and restore", async () => {
+    const { m } = fixture();
+    envFile(m.home, `${ENV}RESTIC_HOST=vps-2\n`);
+    await backup(m, "run");
+    await backup(m, "verify");
+    await backup(m, "restore", join(m.base, "out"));
+    const hosts = resticCalls(m)
+      .filter((c) => ["forget", "restore"].includes(c[1]!))
+      .map((c) => c[c.indexOf("--host") + 1]);
+    expect(hosts).toEqual(["vps-2", "vps-2", "vps-2"]);
+    for (const run of m.runs.filter((r) => r.argv[0] === "restic"))
+      expect(run.env?.RESTIC_HOST).toBe("vps-2");
+  });
+
+  test("verify restores the latest snapshot of this machine only", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    await backup(m, "verify");
+    const restore = resticCalls(m).find((c) => c[1] === "restore")!;
+    expect(restore[restore.indexOf("--host") + 1]).toBe("box-1.example.internal");
+  });
+});
+
+describe("what discovery leaves alone", () => {
+  test("a file the excludes file names is not snapshotted", async () => {
+    const { m } = fixture();
+    excludes(m, "$HOME/.codex/logs_*.sqlite*\n");
+    const r = await backup(m, "run");
+    expect(r.code).toBe(0);
+    expect(snapshotNames(m)).toEqual([".codex/state.sqlite", ".gemini/tmp/abc/chat.db"]);
+    expect(existsSync(join(stateDir(m), "sqlite/codex/logs_1.sqlite"))).toBe(false);
+    expect(readFileSync(join(stateDir(m), "sqlite-excludes"), "utf8")).not.toContain("logs_1");
+  });
+
+  test("a pattern without / matches any path component, and $DEVBOX_DATA expands", async () => {
+    const { m } = fixture();
+    makeSqlite(join(m.home, ".gemini/node_modules/pkg/x.sqlite"), 1);
+    makeSqlite(join(m.home, ".gemini/.cache/y.db"), 1);
+    makeSqlite(join(m.home, ".codex/skip-me.db"), 1);
+    excludes(m, "node_modules\n.cache\nskip-me.db\n$DEVBOX_DATA/.gemini/tmp\n");
+    await backup(m, "run");
+    expect(snapshotNames(m)).toEqual([".codex/logs_1.sqlite", ".codex/state.sqlite"]);
+  });
+
+  test("a pattern with / is a glob on the full path, and * does not cross a /", async () => {
+    const { m } = fixture();
+    makeSqlite(join(m.home, ".gemini/deep/er/z.db"), 1);
+    excludes(m, "$HOME/.gemini/*.db\n$HOME/.gemini/deep\n");
+    await backup(m, "run");
+    expect(snapshotNames(m)).toEqual([
+      ".codex/logs_1.sqlite",
+      ".codex/state.sqlite",
+      ".gemini/tmp/abc/chat.db",
+    ]);
+  });
+
+  test("an excluded directory is not walked", async () => {
+    const { m } = fixture();
+    const secret = join(m.home, ".gemini/private");
+    makeSqlite(join(secret, "a.db"), 1);
+    excludes(m, "$HOME/.gemini/private\n");
+    chmodSync(secret, 0o000);
+    try {
+      const r = await backup(m, "run");
+      expect(r.code).toBe(0);
+      expect(r.err).not.toContain("cannot read");
+    } finally {
+      chmodSync(secret, 0o755);
+    }
+  });
+});
+
+describe("devbox backup restore", () => {
+  test("puts each staged SQLite snapshot back at its live path inside the target", async () => {
+    const { m } = fixture();
+    makeSqlite(join(m.home, "single.sqlite"), 5);
+    sourcesFile(m.home, "codex ~/.codex\ngemini ~/.gemini\nsingle ~/single.sqlite\n");
+    await backup(m, "run");
+    const target = join(m.base, "restored");
+    const r = await backup(m, "restore", target);
+    expect(r.code).toBe(0);
+    for (const [rel, n] of [
+      [".codex/state.sqlite", 3],
+      [".codex/logs_1.sqlite", 1],
+      [".gemini/tmp/abc/chat.db", 2],
+      ["single.sqlite", 5],
+    ] as const)
+      expect(rows(restoredAt(m, target, rel))).toEqual({ n });
+    expect(existsSync(join(target, stateDir(m), "sqlite"))).toBe(false);
+    expect(r.err).toContain(`${target}${m.home}/.codex`);
+    expect(r.err).toContain(`-> ${m.home}/.codex`);
+    expect(r.err).toContain("-wal");
+  });
+
+  test("runs restic restore for this host and tag, into the target", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    const target = join(m.base, "restored");
+    await backup(m, "restore", target);
+    expect(resticCalls(m).find((c) => c[1] === "restore")).toEqual([
+      "restic",
+      "restore",
+      "latest",
+      "--host",
+      "box-1.example.internal",
+      "--tag",
+      "agent-backup",
+      "--target",
+      target,
+    ]);
+    await backup(m, "restore", target, "--snapshot", "1a2b3c4d");
+    expect(resticCalls(m).filter((c) => c[1] === "restore")[1]![2]).toBe("1a2b3c4d");
+  });
+
+  test("a snapshot id that looks like a flag is refused before restic runs", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    m.calls.length = 0;
+    const r = await backup(m, "restore", join(m.base, "restored"), "--snapshot=-rf");
+    expect(r.code).toBe(1);
+    expect(resticCalls(m)).toEqual([]);
+  });
+
+  test("uses the manifest from the snapshot, not the current sources file", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    sourcesFile(m.home, "other ~/elsewhere\n");
+    const target = join(m.base, "restored");
+    const r = await backup(m, "restore", target);
+    expect(r.code).toBe(0);
+    expect(rows(restoredAt(m, target, ".codex/state.sqlite"))).toEqual({ n: 3 });
+  });
+
+  test("falls back to the sources file when the snapshot has no manifest", async () => {
+    const { m } = fixture();
+    makeSqlite(join(m.home, "single.sqlite"), 5);
+    sourcesFile(m.home, "codex ~/.codex\ngemini ~/.gemini\nsingle ~/single.sqlite\n");
+    await backup(m, "run");
+    rmSync(join(stateDir(m), "sqlite/.manifest.json"));
+    const target = join(m.base, "restored");
+    const r = await backup(m, "restore", target);
+    expect(r.code).toBe(0);
+    expect(rows(restoredAt(m, target, ".codex/state.sqlite"))).toEqual({ n: 3 });
+    expect(rows(restoredAt(m, target, ".gemini/tmp/abc/chat.db"))).toEqual({ n: 2 });
+    expect(rows(restoredAt(m, target, "single.sqlite"))).toEqual({ n: 5 });
+  });
+
+  test("a staged folder that no source names is reported and skipped", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    rmSync(join(stateDir(m), "sqlite/.manifest.json"));
+    sourcesFile(m.home, "codex ~/.codex\n");
+    const target = join(m.base, "restored");
+    const r = await backup(m, "restore", target);
+    expect(r.code).toBe(0);
+    expect(r.err).toContain("no source named gemini");
+    expect(rows(restoredAt(m, target, ".codex/state.sqlite"))).toEqual({ n: 3 });
+    expect(existsSync(restoredAt(m, target, ".gemini/tmp/abc/chat.db"))).toBe(false);
+  });
+
+  test("a manifest that points outside the target writes nothing outside it", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    const manifest = join(stateDir(m), "sqlite/.manifest.json");
+    const entries = JSON.parse(readFileSync(manifest, "utf8"));
+    entries[0].relative = "../../../../../../../../escaped.sqlite";
+    write(manifest, JSON.stringify(entries));
+    const target = join(m.base, "deep/er/restored");
+    const r = await backup(m, "restore", target);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("outside");
+    expect(existsSync(join(m.base, "escaped.sqlite"))).toBe(false);
+    expect(existsSync("/escaped.sqlite")).toBe(false);
+  });
+
+  test("a symlink in the restored files cannot lead a snapshot outside the target", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    const target = join(m.base, "restored");
+    const outside = join(m.base, "outside");
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(restoredAt(m, target, ""), { recursive: true });
+    symlinkSync(outside, restoredAt(m, target, ".codex"));
+    const r = await backup(m, "restore", target);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("leads outside");
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  test("a -wal or -shm next to a restored database is removed", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    const target = join(m.base, "restored");
+    const live = restoredAt(m, target, ".codex/state.sqlite");
+    write(`${live}-wal`, "stale");
+    write(`${live}-shm`, "stale");
+    await backup(m, "restore", target);
+    expect(existsSync(`${live}-wal`)).toBe(false);
+    expect(existsSync(`${live}-shm`)).toBe(false);
+  });
+
+  test("needs restic only, so a new machine without sqlite3 can restore", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    m.binaries.delete("sqlite3");
+    const r = await backup(m, "restore", join(m.base, "restored"));
+    expect(r.code).toBe(0);
+  });
+
+  test("an empty repository is an error", async () => {
+    const { m } = fixture();
+    const r = await backup(m, "restore", join(m.base, "restored"));
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("restic restore exited with 1");
+  });
+});
+
+describe("exclude patterns", () => {
+  const vars = { HOME: "/home/a", DEVBOX_DATA: "/data" };
+  const excluded = (text: string, ...paths: Array<string>) => paths.map(excludedBy(text, vars));
+
+  test("$VAR, ${VAR} and $$ expand like restic, and an unset variable is empty", () => {
+    expect(expandVars("$HOME/x ${DEVBOX_DATA}/y $$z $NOPE/w", vars)).toBe(
+      "/home/a/x /data/y $z /w",
+    );
+  });
+
+  test("a pattern without / is a glob on every path component, and nothing else", () => {
+    expect(
+      excluded(
+        "node_modules\n*.tmp\n",
+        "/h/node_modules",
+        "/h/a.tmp",
+        "/h/node_modules2",
+        "/h/a/b",
+      ),
+    ).toEqual([true, true, false, false]);
+  });
+
+  test("a pattern with / is a glob on the full path, so * stops at a /", () => {
+    expect(
+      excluded("$HOME/.x/*.db\n", "/home/a/.x/y.db", "/home/a/.x/z/y.db", "/other/.x/y.db"),
+    ).toEqual([true, false, false]);
+    expect(excluded("/home/**/y.db\n", "/home/a/.x/z/y.db")).toEqual([true]);
+  });
+
+  test("a relative pattern with / matches at any depth", () => {
+    expect(excluded(".t3/logs\n", "/home/a/.t3/logs", "/home/a/.t3/other")).toEqual([true, false]);
+  });
+
+  test("comments, blank lines and ! lines add no pattern", () => {
+    expect(excluded("# node_modules\n\n!keep.db\n", "/h/node_modules", "/h/keep.db")).toEqual([
+      false,
+      false,
+    ]);
+  });
+});
+
 const plan = (live: string) => ({
   stage: absolutePath("/stage"),
   sources: [],
-  snapshots: [{ source: "s", live, entry: "s/x.db" }],
+  snapshots: [snapshotOf({ name: "s", path: absolutePath("/h") }, live)],
 });
 
 describe("what goes into the exclude file and the sqlite shell", () => {
@@ -460,8 +828,18 @@ describe("what goes into the exclude file and the sqlite shell", () => {
       "/h/a\\[1]/b\\*$$c.db-wal",
       "/h/a\\[1]/b\\*$$c.db-shm",
       "/h/a\\[1]/b\\*$$c.db-journal",
+      "*.sqlite-wal",
+      "*.sqlite-shm",
+      "*.db-wal",
+      "*.db-shm",
       "",
     ]);
+  });
+
+  test("sidecar patterns for any SQLite file are always excluded, even with no snapshot", () => {
+    expect(excludeFile({ stage: absolutePath("/stage"), sources: [], snapshots: [] })).toBe(
+      "*.sqlite-wal\n*.sqlite-shm\n*.db-wal\n*.db-shm\n",
+    );
   });
 
   test("the .backup target is quoted for the sqlite shell", () => {
