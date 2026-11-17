@@ -332,7 +332,7 @@ export const up = Command.make("up", upFlags, (flags) =>
     const { changes, skips } = plan(config, ctx, facts);
     for (const skip of skips) yield* out.note(`skipped ${skip.what}: ${skip.why}`);
     for (const change of changes) yield* apply(change, config, ctx, facts.supervisor, npm);
-    const [elapsed, answers] = yield* Effect.timed(answering(config.port, 180));
+    const [elapsed, answers] = yield* Effect.timed(answering(config.port, 600));
     if (!answers)
       return yield* new UpFailed({
         message: `T3 Code does not answer on port ${config.port}`,
