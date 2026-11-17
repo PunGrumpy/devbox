@@ -2,6 +2,7 @@ import { Effect, FileSystem, Option, Schema } from "effect";
 import { Command } from "effect/cli";
 import { dirname } from "node:path";
 import packageJson from "../../package.json" with { type: "json" };
+import { backupPaths, resticRepositoryOf } from "../backup/config.ts";
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
 import {
@@ -14,6 +15,9 @@ import {
 } from "./config.ts";
 import { Host } from "./host.ts";
 import {
+  BACKUP_SERVICE,
+  BACKUP_TIMER,
+  BackupFact,
   Change,
   type Context,
   type Facts,
@@ -85,6 +89,11 @@ const resolveNpm = (config: MachineConfig) =>
     return (yield* shimReady) ? npmShim : "npm";
   });
 
+const backupOff = (envPath: string) =>
+  BackupFact.Off({
+    why: `off. Run \`devbox backup sources\` to create ${envPath}, set RESTIC_REPOSITORY in it, then run \`devbox up\` again`,
+  });
+
 const gather = (config: MachineConfig, ctx: Context, npm: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
@@ -96,8 +105,13 @@ const gather = (config: MachineConfig, ctx: Context, npm: string) =>
       machineInfoPath(ctx.etc),
       profilePath(ctx.etc),
       machineFile(ctx.home),
+      backupPaths(ctx.home).env,
       ...Supervisor.$match(supervisor, {
-        Systemd: ({ scope }) => [unitPath(scope, ctx)],
+        Systemd: ({ scope }) => [
+          unitPath(scope, ctx),
+          unitPath(scope, ctx, BACKUP_SERVICE),
+          unitPath(scope, ctx, BACKUP_TIMER),
+        ],
         Detached: () => [],
       }),
     ];
@@ -170,6 +184,33 @@ const gather = (config: MachineConfig, ctx: Context, npm: string) =>
           : Effect.succeed(Option.none<boolean>()),
       Detached: () => Effect.succeed(Option.none<boolean>()),
     });
+    const envPath = backupPaths(ctx.home).env;
+    const backup = yield* Option.match(Option.flatten(Option.fromUndefinedOr(files.get(envPath))), {
+      onNone: () => Effect.succeed(backupOff(envPath)),
+      onSome: (text) =>
+        resticRepositoryOf(text) === undefined
+          ? Effect.succeed(backupOff(envPath))
+          : Effect.gen(function* () {
+              const missing = yield* Effect.filter(["restic", "sqlite3"], (name) =>
+                Effect.map(host.which(name), (found) => !found),
+              );
+              const timer = yield* Supervisor.$match(supervisor, {
+                Systemd: ({ scope }) =>
+                  Effect.map(
+                    Effect.all([
+                      host.run(systemctl(scope, ["is-active", BACKUP_TIMER])),
+                      host.run(systemctl(scope, ["is-enabled", BACKUP_TIMER])),
+                    ]),
+                    ([active, enabled]) => ({
+                      active: active.stdout.trim() === "active",
+                      enabled: enabled.stdout.trim() === "enabled",
+                    }),
+                  ),
+                Detached: () => Effect.succeed({ active: false, enabled: false }),
+              });
+              return BackupFact.On({ missing, apt: yield* host.which("apt-get"), timer });
+            }),
+    });
     return {
       sudo,
       files,
@@ -181,6 +222,7 @@ const gather = (config: MachineConfig, ctx: Context, npm: string) =>
       supervisor,
       serve,
       linger: yield* linger,
+      backup,
     } satisfies Facts;
   });
 
@@ -192,6 +234,8 @@ const describe = (change: Change): string =>
     Link: ({ path, target }) => `linked ${path} -> ${target}`,
     InstallT3: ({ from, to }) => `t3 ${Option.getOrElse(from, () => "none")} -> ${to}`,
     Linger: () => "enabled lingering, so the user unit starts at boot",
+    InstallTools: ({ packages }) => `installed ${packages.join(" and ")} with apt`,
+    EnableTimer: () => `enabled ${BACKUP_TIMER}, daily at 03:30 Asia/Bangkok`,
     Start: ({ why }) => `started T3 Code, because ${why}`,
   });
 
@@ -291,6 +335,35 @@ const apply = (
                 : out.warn("loginctl enable-linger failed; T3 starts when you log in"),
             ),
           ),
+      InstallTools: ({ packages }) =>
+        Effect.andThen(
+          must(["sudo", "-n", "apt-get", "update", "-qq"]),
+          must([
+            "sudo",
+            "-n",
+            "env",
+            "DEBIAN_FRONTEND=noninteractive",
+            "apt-get",
+            "install",
+            "-y",
+            "-qq",
+            "--no-install-recommends",
+            ...packages,
+          ]),
+        ),
+      EnableTimer: () =>
+        Supervisor.$match(supervisor, {
+          Systemd: ({ scope }) =>
+            Effect.all(
+              [
+                must(systemctl(scope, ["daemon-reload"])),
+                must(systemctl(scope, ["enable", BACKUP_TIMER])),
+                must(systemctl(scope, ["restart", BACKUP_TIMER])),
+              ],
+              { discard: true },
+            ),
+          Detached: () => Effect.void,
+        }),
       Start: ({ stop }) =>
         Supervisor.$match(supervisor, {
           Systemd: ({ scope }) =>
