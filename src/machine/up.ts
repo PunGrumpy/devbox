@@ -208,15 +208,26 @@ const apply = (change: Change, config: MachineConfig, ctx: Context, supervisor: 
           ),
         ),
       Link: ({ path, target }) =>
-        Effect.all(
-          [
-            fs.makeDirectory(target, { recursive: true }),
-            fs.remove(path, { recursive: true, force: true }),
-            fs.makeDirectory(dirname(path), { recursive: true }),
-            fs.symlink(target, path),
-          ],
-          { discard: true },
-        ).pipe(Effect.mapError(fsFailed)),
+        Effect.gen(function* () {
+          const isLink = Option.isSome(yield* fs.readLink(path).pipe(Effect.option));
+          if (isLink) {
+            yield* fs.remove(path);
+          } else if (yield* fs.exists(path)) {
+            if (!(yield* fs.exists(target))) {
+              yield* fs.makeDirectory(dirname(target), { recursive: true });
+              yield* fs.rename(path, target);
+            } else if ((yield* fs.readDirectory(path)).length === 0) {
+              yield* fs.remove(path, { recursive: true });
+            } else {
+              return yield* new UpFailed({
+                message: `${path} and ${target} both hold files. Merge them into ${target}, remove ${path}, then run devbox up again.`,
+              });
+            }
+          }
+          yield* fs.makeDirectory(target, { recursive: true });
+          yield* fs.makeDirectory(dirname(path), { recursive: true });
+          yield* fs.symlink(target, path);
+        }).pipe(Effect.catchTag("PlatformError", (error) => Effect.fail(fsFailed(error)))),
       InstallT3: ({ to }) =>
         must(["npm", "install", "-g", "--prefix", pathsOf(config.data).prefix, `t3@${to}`]),
       Linger: () =>

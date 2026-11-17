@@ -222,4 +222,29 @@ describe("devbox up converges", () => {
     expect(readlinkSync(join(m.home, ".config/gh"))).toBe(join(data, ".config/gh"));
     expect(lstatSync(join(data, ".agents")).isDirectory()).toBe(true);
   });
+
+  test("moving agent folders to --data keeps the files already in $HOME", async () => {
+    const m = makeMachine();
+    const data = join(m.base, "persist");
+    mkdirSync(join(m.home, ".agents/skills/tdd"), { recursive: true });
+    writeFileSync(join(m.home, ".agents/skills/tdd/SKILL.md"), "keep me\n");
+    const r = await up(m, "--supervisor", "detached", "--data", data);
+    expect(r.code).toBe(0);
+    expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
+    expect(readFileSync(join(data, ".agents/skills/tdd/SKILL.md"), "utf8")).toBe("keep me\n");
+  });
+
+  test("it refuses to link when $HOME and --data both hold agent files, and deletes neither", async () => {
+    const m = makeMachine();
+    const data = join(m.base, "persist");
+    mkdirSync(join(m.home, ".agents"), { recursive: true });
+    writeFileSync(join(m.home, ".agents/home.md"), "home\n");
+    mkdirSync(join(data, ".agents"), { recursive: true });
+    writeFileSync(join(data, ".agents/data.md"), "data\n");
+    const r = await up(m, "--supervisor", "detached", "--data", data);
+    expect(r.code).not.toBe(0);
+    expect(r.err).toContain("both hold files");
+    expect(readFileSync(join(m.home, ".agents/home.md"), "utf8")).toBe("home\n");
+    expect(readFileSync(join(data, ".agents/data.md"), "utf8")).toBe("data\n");
+  });
 });
