@@ -17,24 +17,24 @@ export const backupPaths = (home: string) => {
   };
 };
 
-export const DEFAULT_SOURCES = `# <name> <path>. One line per agent. Paths that do not exist are skipped.
-claude       ~/.claude
+export const DEFAULT_SOURCES = `# <name> <path>. One line per agent. ~ is $HOME, $DATA is devbox up --data. Missing paths are skipped.
+claude       $DATA/.claude
 claude-json  ~/.claude.json
-t3           ~/.t3/userdata
+t3           $DATA/.t3/userdata
 codex        ~/.codex
 gemini       ~/.gemini
 grok         ~/.grok
 cursor       ~/.cursor
 opencode     ~/.local/share/opencode
 opencode-cfg ~/.config/opencode
-agents       ~/.agents
+agents       $DATA/.agents
 `;
 
-export const DEFAULT_EXCLUDES = `$HOME/.t3/userdata/logs
-$HOME/.t3/userdata/server-browser
-$HOME/.t3/userdata/antigravity-tmp
-$HOME/.claude/plugins/.trash
-$HOME/.claude/plugins/cache
+export const DEFAULT_EXCLUDES = `$DEVBOX_DATA/.t3/userdata/logs
+$DEVBOX_DATA/.t3/userdata/server-browser
+$DEVBOX_DATA/.t3/userdata/antigravity-tmp
+$DEVBOX_DATA/.claude/plugins/.trash
+$DEVBOX_DATA/.claude/plugins/cache
 $HOME/.codex/logs_*.sqlite*
 node_modules
 .cache

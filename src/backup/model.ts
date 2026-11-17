@@ -9,7 +9,9 @@ export const SQLITE_HEADER = "SQLite format 3\0";
 const SourceName = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)),
 );
-const SourceLocation = Schema.String.pipe(Schema.check(Schema.isPattern(/^(?:~(?:\/.*)?|\/.*)$/)));
+const SourceLocation = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^(?:~(?:\/.*)?|\$DATA(?:\/.*)?|\/.*)$/)),
+);
 
 const SourceLine = Schema.Struct({ name: SourceName, location: SourceLocation });
 
@@ -35,10 +37,22 @@ export type ParsedSources = {
   readonly issues: ReadonlyArray<SourceIssue>;
 };
 
-const expandHome = (location: string, home: string) =>
-  location === "~" ? home : location.startsWith("~/") ? join(home, location.slice(2)) : location;
+const expand = (location: string, home: string, data: string) => {
+  for (const [token, dir] of [
+    ["~", home],
+    ["$DATA", data],
+  ] as const) {
+    if (location === token) return dir;
+    if (location.startsWith(`${token}/`)) return join(dir, location.slice(token.length + 1));
+  }
+  return location;
+};
 
-export const parseSources = (text: string, home: AbsolutePath): ParsedSources => {
+export const parseSources = (
+  text: string,
+  home: AbsolutePath,
+  data: string = home,
+): ParsedSources => {
   const sources: Array<Source> = [];
   const issues: Array<SourceIssue> = [];
   text.split("\n").forEach((raw, index) => {
@@ -51,7 +65,7 @@ export const parseSources = (text: string, home: AbsolutePath): ParsedSources =>
     if (Result.isFailure(decoded)) {
       issues.push({
         line: index + 1,
-        why: "expected `<name> <path>`, with a path that starts with ~ or /",
+        why: "expected `<name> <path>`, with a path that starts with ~, $DATA or /",
       });
       return;
     }
@@ -60,7 +74,7 @@ export const parseSources = (text: string, home: AbsolutePath): ParsedSources =>
       issues.push({ line: index + 1, why: `the name ${name} is already used` });
       return;
     }
-    sources.push({ name, path: absolutePath(expandHome(location, home)) });
+    sources.push({ name, path: absolutePath(expand(location, home, data)) });
   });
   return { sources, issues };
 };

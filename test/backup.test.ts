@@ -493,3 +493,19 @@ describe("the real host", () => {
     expect((await run(["true"], 5000)).code).toBe(0);
   });
 });
+
+describe("sources with $DATA", () => {
+  test("$DATA expands to devbox up --data and ~ to $HOME", () => {
+    const { sources, issues } = parseSources(
+      "claude $DATA/.claude\nt3 $DATA/.t3/userdata\njson ~/.claude.json\n",
+      absolutePath("/home/agent"),
+      "/workspace/home",
+    );
+    expect(issues).toEqual([]);
+    expect(sources.map((s) => s.path)).toEqual([
+      "/workspace/home/.claude",
+      "/workspace/home/.t3/userdata",
+      "/home/agent/.claude.json",
+    ]);
+  });
+});

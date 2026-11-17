@@ -1,6 +1,7 @@
 import { Effect, FileSystem, Option, Schema } from "effect";
 import { closeSync, openSync, readSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { MachineFile, machineFile } from "../machine/config.ts";
 import { Host, TIMED_OUT } from "../machine/host.ts";
 import { Locations } from "../migrate/locations.ts";
 import { AbsolutePath } from "../migrate/paths.ts";
@@ -88,6 +89,19 @@ const prepareConfig = Effect.gen(function* () {
   return { home, paths: backupPaths(home) };
 });
 
+const dataDir = (home: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const text = yield* fs.readFileString(machineFile(home)).pipe(Effect.option);
+    return Option.match(
+      Option.flatMap(text, Schema.decodeUnknownOption(Schema.fromJsonString(MachineFile))),
+      {
+        onNone: () => home,
+        onSome: (machine) => machine.data,
+      },
+    );
+  });
+
 const session = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const { home, paths } = yield* prepareConfig;
@@ -104,7 +118,7 @@ const session = Effect.gen(function* () {
     });
   yield* tools;
   yield* fs.makeDirectory(paths.state, { recursive: true }).pipe(Effect.mapError(fsFailed));
-  return { home, paths, env: values };
+  return { home, paths, env: { ...values, DEVBOX_DATA: yield* dataDir(home) } };
 });
 
 const withLock = <A, E, R>(path: string, work: Effect.Effect<A, E, R>) =>
@@ -158,7 +172,7 @@ export const loadSources = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const paths = backupPaths(home);
   const text = yield* fs.readFileString(paths.sources).pipe(Effect.mapError(fsFailed));
-  const { sources, issues } = parseSources(text, home);
+  const { sources, issues } = parseSources(text, home, yield* dataDir(home));
   if (issues.length > 0)
     return yield* new BackupFailed({
       message: `${paths.sources} has ${plural(issues.length, "line")} that cannot be read`,
