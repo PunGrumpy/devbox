@@ -4,6 +4,11 @@ import { Cause, Effect, Layer, Runtime } from "effect";
 import { CliConfig, CliError, CliOutput, Command, GlobalFlag } from "effect/cli";
 import packageJson from "../package.json" with { type: "json" };
 import { hintOf } from "./errors.ts";
+import { Host } from "./machine/host.ts";
+import { link } from "./machine/link.ts";
+import { pair } from "./machine/pair.ts";
+import { serve } from "./machine/serve.ts";
+import { up } from "./machine/up.ts";
 import { migrateRoot } from "./migrate/command.ts";
 import { doctor } from "./migrate/doctor.ts";
 import { Locations } from "./migrate/locations.ts";
@@ -17,6 +22,10 @@ export const devbox = Command.make("devbox").pipe(
     "Set up machines for T3 Code coding agents and maintain T3 Code's local state",
   ),
   Command.withSubcommands([
+    up,
+    serve,
+    pair,
+    link,
     migrateRoot.pipe(Command.withSubcommands([doctor, moveThreads, renameRoot])),
   ]),
 );
@@ -78,6 +87,7 @@ export const runCli = (args: ReadonlyArray<string>) =>
 export const MainLayer = Layer.mergeAll(
   Output.layer,
   Locations.layer,
+  Host.layer,
   T3Process.layer.pipe(Layer.provide(Locations.layer)),
 ).pipe(Layer.provideMerge(BunServices.layer));
 

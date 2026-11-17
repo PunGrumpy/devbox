@@ -1,15 +1,18 @@
-import { beforeAll, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeFixture } from "./support/fixture.ts";
 
-const binary = join(mkdtempSync(join(tmpdir(), "devbox-build-")), "devbox");
+const buildDir = mkdtempSync(join(tmpdir(), "devbox-build-"));
+const binary = join(buildDir, "devbox");
 
 beforeAll(() => {
   const build = Bun.spawnSync(["bun", "build", "src/cli.ts", "--compile", "--outfile", binary]);
   expect(build.exitCode).toBe(0);
 }, 60_000);
+
+afterAll(() => rmSync(buildDir, { recursive: true, force: true }));
 
 test("the compiled binary runs a command, prints JSON on stdout and exits with the usage code", () => {
   const f = makeFixture();
