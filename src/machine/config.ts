@@ -167,6 +167,7 @@ export const MachineFile = Schema.Struct({
   name: Schema.String,
   url: Schema.optional(Schema.String),
   port: Schema.Number,
+  data: Schema.String,
   baseDir: Schema.String,
   t3: Schema.String,
 });

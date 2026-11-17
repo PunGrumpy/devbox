@@ -27,6 +27,7 @@ const MACHINE = {
   name: "edge-7",
   url: "https://edge-7.example.com",
   port: 3773,
+  data: "/d",
   baseDir: "/d/.t3",
   t3: "/d/.local/bin/t3",
 };

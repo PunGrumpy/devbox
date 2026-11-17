@@ -4,6 +4,7 @@ import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
 import { MachineFile, machineFile } from "./config.ts";
 import { Host } from "./host.ts";
+import { processEnv, settingsFor } from "./settings.ts";
 
 export const Pairing = Schema.Struct({
   url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/))),
@@ -49,7 +50,12 @@ export const pair = Command.make(
       );
       const minted = yield* host.run(
         [machine.t3, "pair", "--base-dir", machine.baseDir, "--ttl", "15m", "--label", label],
-        { env: { T3CODE_HOME: machine.baseDir } },
+        {
+          env: {
+            ...processEnv(settingsFor(machine.data), process.env.PATH ?? ""),
+            T3CODE_HOME: machine.baseDir,
+          },
+        },
       );
       const token = /^Token: (\S+)$/m.exec(minted.stdout)?.[1];
       if (minted.code !== 0 || token === undefined)

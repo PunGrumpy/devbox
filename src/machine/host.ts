@@ -38,7 +38,7 @@ export class Host extends Context.Service<
 >()("devbox/machine/Host") {
   static readonly layer = Layer.sync(Host, () => ({
     hostname: hostname(),
-    user: userInfo().username,
+    user: Bun.spawnSync(["id", "-un"]).stdout.toString().trim() || userInfo().username,
     etc: "/etc",
     path: process.env.PATH ?? "",
     self: Bun.main.endsWith(".ts") ? [process.execPath, Bun.main] : [process.execPath],

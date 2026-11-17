@@ -1,7 +1,7 @@
 import { Data, Option } from "effect";
 import { join } from "node:path";
 import { type MachineConfig, machineFile, serveArgs } from "./config.ts";
-import { gitEntries, profileScript, type Setting } from "./settings.ts";
+import { gitEntries, processEnv, profileScript, type Setting, settingsFor } from "./settings.ts";
 
 export const UNIT = "devbox.service";
 
@@ -77,6 +77,8 @@ const systemdQuote = (arg: string): string =>
     ? arg
     : `"${arg.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%").replaceAll("$", "$$$$")}"`;
 
+const SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
 export const unitFile = (scope: "system" | "user", config: MachineConfig, ctx: Context): string =>
   [
     "[Unit]",
@@ -86,7 +88,7 @@ export const unitFile = (scope: "system" | "user", config: MachineConfig, ctx: C
     "",
     "[Service]",
     ...(scope === "system" ? [`User=${ctx.user}`] : []),
-    `Environment=${systemdQuote(`PATH=${ctx.path}`)}`,
+    `Environment=${systemdQuote(`PATH=${processEnv(settingsFor(config.data), SYSTEM_PATH).PATH}`)}`,
     `ExecStart=${[...ctx.self, ...serveArgs(config)].map(systemdQuote).join(" ")}`,
     "Restart=always",
     "RestartSec=5",
@@ -102,6 +104,7 @@ export const machineJson = (config: MachineConfig): string =>
       name: config.name,
       url: Option.getOrUndefined(config.publicUrl),
       port: config.port,
+      data: config.data,
       baseDir: config.baseDir,
       t3: join(config.data, ".local", "bin", "t3"),
     },

@@ -35,6 +35,7 @@ describe("flags become one machine config", () => {
     expect(JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8"))).toEqual({
       name: "box-1.example.internal",
       port: 3773,
+      data: m.home,
       baseDir: `${m.home}/.t3`,
       t3: `${m.home}/.local/bin/t3`,
     });
@@ -188,7 +189,9 @@ describe("devbox up converges", () => {
     expect(unit).toContain(
       `ExecStart=/opt/bun /opt/devbox/src/cli.ts serve --data ${m.home} --port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --public-url https://edge-7.example.com\n`,
     );
-    expect(unit).toContain("Environment=PATH=/usr/bin:/bin\n");
+    expect(unit).toContain(
+      `Environment=PATH=${m.home}/.local/bin:${m.home}/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n`,
+    );
     expect(unit).toContain("WantedBy=default.target");
     expect(unit).not.toContain("User=");
     expect(m.linger).toBe(true);
