@@ -502,7 +502,7 @@ describe("sources with $DATA", () => {
       "/workspace/home",
     );
     expect(issues).toEqual([]);
-    expect(sources.map((s) => s.path)).toEqual([
+    expect(sources.map((s): string => s.path)).toEqual([
       "/workspace/home/.claude",
       "/workspace/home/.t3/userdata",
       "/home/agent/.claude.json",
