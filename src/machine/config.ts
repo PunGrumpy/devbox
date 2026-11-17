@@ -156,6 +156,7 @@ export const pathsOf = (data: string) => ({
   t3: join(data, ".local", "bin", "t3"),
   t3Package: join(data, ".local", "lib", "node_modules", "t3", "package.json"),
   mise: join(data, ".local", "bin", "mise"),
+  npmShim: join(data, ".local", "share", "mise", "shims", "npm"),
   logs: join(data, ".devbox-logs"),
   skillsStamp: join(data, ".devbox-skills"),
 });

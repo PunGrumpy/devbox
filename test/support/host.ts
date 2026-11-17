@@ -47,7 +47,7 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     git: new Map(),
     units: new Map(),
     processes: [],
-    binaries: new Set(),
+    binaries: new Set(["npm"]),
     calls: [],
     stdin: new Map(),
     respond: () => undefined,
@@ -60,7 +60,7 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     if (custom) return custom;
     const [cmd, ...rest] = argv;
     const sudo = cmd === "sudo" && rest[0] === "-n";
-    const bin = sudo ? rest[1] : cmd;
+    const bin = (sudo ? rest[1] : cmd)?.split("/").at(-1);
     const args = sudo ? rest.slice(2) : rest;
     if (sudo && !m.sudo) return fail(1, "sudo: a password is required");
     if (bin === "true") return ok();

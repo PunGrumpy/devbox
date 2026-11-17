@@ -26,7 +26,8 @@ import {
   unitPath,
 } from "./plan.ts";
 import { answering } from "./serve.ts";
-import { gitEntries, settingsFor } from "./settings.ts";
+import { ensureMise } from "./setup.ts";
+import { gitEntries, processEnv, settingsFor } from "./settings.ts";
 
 export class UpFailed extends Schema.TaggedError<UpFailed>()("UpFailed", {
   message: Schema.String,
@@ -63,7 +64,23 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
     }
   });
 
-const gather = (config: MachineConfig, ctx: Context) =>
+const resolveNpm = (config: MachineConfig) =>
+  Effect.gen(function* () {
+    const host = yield* Host;
+    const fs = yield* FileSystem.FileSystem;
+    const out = yield* Output;
+    const { mise, npmShim } = pathsOf(config.data);
+    const shimReady = fs.exists(npmShim).pipe(Effect.orElseSucceed(() => false));
+    if (yield* host.which("npm")) return "npm";
+    if (yield* shimReady) return npmShim;
+    const env = processEnv(settingsFor(config.data), process.env.PATH ?? "");
+    yield* out.log("node: npm is missing, installing Node LTS with mise");
+    if (yield* ensureMise(config.data, env))
+      yield* host.run([mise, "use", "--global", "--yes", "node@lts"], { env, inherit: true });
+    return (yield* shimReady) ? npmShim : "npm";
+  });
+
+const gather = (config: MachineConfig, ctx: Context, npm: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
@@ -104,7 +121,7 @@ const gather = (config: MachineConfig, ctx: Context) =>
       Effect.map(Option.flatMap((text) => Schema.decodeUnknownOption(T3Package)(text))),
       Effect.map(Option.map((pkg) => pkg.version)),
     );
-    const view = yield* host.run(["npm", "view", `t3@${config.channel}`, "version"]);
+    const view = yield* host.run([npm, "view", `t3@${config.channel}`, "version"]);
     const latest = Option.filter(
       Option.some(view.stdout.trim()),
       (v) => view.code === 0 && v !== "",
@@ -173,7 +190,13 @@ const describe = (change: Change): string =>
 
 const fsFailed = (error: { readonly message: string }) => new UpFailed({ message: error.message });
 
-const apply = (change: Change, config: MachineConfig, ctx: Context, supervisor: Supervisor) =>
+const apply = (
+  change: Change,
+  config: MachineConfig,
+  ctx: Context,
+  supervisor: Supervisor,
+  npm: string,
+) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
@@ -229,7 +252,7 @@ const apply = (change: Change, config: MachineConfig, ctx: Context, supervisor: 
           yield* fs.symlink(target, path);
         }).pipe(Effect.catchTag("PlatformError", (error) => Effect.fail(fsFailed(error)))),
       InstallT3: ({ to }) =>
-        must(["npm", "install", "-g", "--prefix", pathsOf(config.data).prefix, `t3@${to}`]),
+        must([npm, "install", "-g", "--prefix", pathsOf(config.data).prefix, `t3@${to}`]),
       Linger: () =>
         host
           .run(["loginctl", "enable-linger", ctx.user])
@@ -288,7 +311,8 @@ export const up = Command.make("up", upFlags, (flags) =>
       ["workspace", config.workspace],
       ["channel", config.channel],
     ]);
-    const facts = yield* gather(config, ctx);
+    const npm = yield* resolveNpm(config);
+    const facts = yield* gather(config, ctx, npm);
     if (Option.isNone(facts.t3.installed) && Option.isNone(facts.t3.latest))
       return yield* new UpFailed({
         message: `cannot read t3@${config.channel} from npm, and T3 Code is not installed`,
@@ -302,7 +326,7 @@ export const up = Command.make("up", upFlags, (flags) =>
     );
     const { changes, skips } = plan(config, ctx, facts);
     for (const skip of skips) yield* out.note(`skipped ${skip.what}: ${skip.why}`);
-    for (const change of changes) yield* apply(change, config, ctx, facts.supervisor);
+    for (const change of changes) yield* apply(change, config, ctx, facts.supervisor, npm);
     const [elapsed, answers] = yield* Effect.timed(answering(config.port, 180));
     if (!answers)
       return yield* new UpFailed({

@@ -7,7 +7,7 @@ import {
   readlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { makeMachine, SELF } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
@@ -246,5 +246,30 @@ describe("devbox up converges", () => {
     expect(r.err).toContain("both hold files");
     expect(readFileSync(join(m.home, ".agents/home.md"), "utf8")).toBe("home\n");
     expect(readFileSync(join(data, ".agents/data.md"), "utf8")).toBe("data\n");
+  });
+
+  test("on a machine without npm it installs Node with mise and uses that npm for T3", async () => {
+    const m = makeMachine({ binaries: new Set() });
+    const data = m.home;
+    const shim = join(data, ".local/share/mise/shims/npm");
+    m.respond = (argv) => {
+      if (argv[0] === "curl" && argv.includes("https://mise.run"))
+        return { code: 0, stdout: "install mise", stderr: "" };
+      if (argv[0] === "sh") {
+        mkdirSync(join(data, ".local/bin"), { recursive: true });
+        writeFileSync(join(data, ".local/bin/mise"), "");
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (argv[0]?.endsWith("/mise") && argv.includes("node@lts")) {
+        mkdirSync(dirname(shim), { recursive: true });
+        writeFileSync(shim, "");
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      return undefined;
+    };
+    const r = await up(m, "--supervisor", "detached");
+    expect(m.calls.some((c) => c[0]?.endsWith("/mise") && c.includes("node@lts"))).toBe(true);
+    expect(m.calls.some((c) => c[0] === shim && c[1] === "install")).toBe(true);
+    expect(r.code).toBe(0);
   });
 });

@@ -60,21 +60,28 @@ const browserLibraries = Effect.gen(function* () {
     : out.warn("browser: could not install the libraries (needs passwordless sudo)");
 });
 
-const languages = (data: string, env: Record<string, string>) =>
+export const ensureMise = (data: string, env: Record<string, string>) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
+    const { mise } = pathsOf(data);
+    if (yield* fs.exists(mise).pipe(Effect.orElseSucceed(() => false))) return true;
+    const installer = yield* host.run(["curl", "-fsSL", "https://mise.run"]);
+    if (installer.code !== 0) return false;
+    const ran = yield* host.run(["sh"], {
+      stdin: installer.stdout,
+      env: { ...env, MISE_INSTALL_PATH: mise },
+      inherit: true,
+    });
+    return ran.code === 0;
+  });
+
+const languages = (data: string, env: Record<string, string>) =>
+  Effect.gen(function* () {
+    const host = yield* Host;
     const out = yield* Output;
     const { mise } = pathsOf(data);
-    if (!(yield* fs.exists(mise).pipe(Effect.orElseSucceed(() => false)))) {
-      const installer = yield* host.run(["curl", "-fsSL", "https://mise.run"]);
-      if (installer.code !== 0) return yield* out.warn("tools: cannot download mise");
-      yield* host.run(["sh"], {
-        stdin: installer.stdout,
-        env: { ...env, MISE_INSTALL_PATH: mise },
-        inherit: true,
-      });
-    }
+    if (!(yield* ensureMise(data, env))) return yield* out.warn("tools: cannot download mise");
     const use = yield* host.run([mise, "use", "--global", "--yes", "go@latest", "rust@latest"], {
       env,
       inherit: true,
