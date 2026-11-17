@@ -78,8 +78,7 @@ const excludes = (m: ReturnType<typeof makeMachine>, text: string) =>
 const restoredAt = (m: ReturnType<typeof makeMachine>, target: string, rel: string) =>
   join(target, m.home, rel);
 
-const rows = (path: string) =>
-  new Database(path, { readonly: true }).query("select count(*) as n from t").get();
+const rows = (path: string) => new Database(path).query("select count(*) as n from t").get();
 
 const snapshotNames = (m: ReturnType<typeof makeMachine>) =>
   m.calls
