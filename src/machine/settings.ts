@@ -48,8 +48,8 @@ export const processEnv = (
 
 const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
-export const profileScript = (settings: ReadonlyArray<Setting>): string =>
-  settings
+export const profileScript = (settings: ReadonlyArray<Setting>, user: string): string =>
+  `if [ "$(id -un)" = ${shellQuote(user)} ]; then\n${settings
     .flatMap((setting) => {
       switch (setting._tag) {
         case "Git":
@@ -60,5 +60,5 @@ export const profileScript = (settings: ReadonlyArray<Setting>): string =>
           return [`export PATH=${setting.dirs.map(shellQuote).join(":")}:"$PATH"`];
       }
     })
-    .map((line) => `${line}\n`)
-    .join("");
+    .map((line) => `  ${line}\n`)
+    .join("")}fi\n`;

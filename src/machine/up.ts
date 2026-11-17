@@ -126,7 +126,9 @@ const gather = (config: MachineConfig, ctx: Context, npm: string) =>
       Effect.map(Option.flatMap((text) => Schema.decodeUnknownOption(T3Package)(text))),
       Effect.map(Option.map((pkg) => pkg.version)),
     );
-    const view = yield* host.run([npm, "view", `t3@${config.channel}`, "version"]);
+    const view = yield* host.run([npm, "view", `t3@${config.channel}`, "version"], {
+      env: processEnv(settingsFor(config.data), process.env.PATH ?? ""),
+    });
     const latest = Option.filter(
       Option.some(view.stdout.trim()),
       (v) => view.code === 0 && v !== "",
@@ -206,7 +208,10 @@ const apply = (
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
-    const must = (argv: ReadonlyArray<string>, options?: { stdin?: string }) =>
+    const must = (
+      argv: ReadonlyArray<string>,
+      options?: { stdin?: string; env?: Record<string, string> },
+    ) =>
       Effect.flatMap(host.run(argv, options), (r) =>
         r.code === 0
           ? Effect.succeed(r)
@@ -237,19 +242,35 @@ const apply = (
         ),
       Link: ({ path, target }) =>
         Effect.gen(function* () {
+          const empty = (dir: string) =>
+            fs.readDirectory(dir).pipe(
+              Effect.map((entries) => entries.length === 0),
+              Effect.orElseSucceed(() => false),
+            );
+          const move = (from: string, to: string) =>
+            fs
+              .rename(from, to)
+              .pipe(
+                Effect.catchTag("PlatformError", () =>
+                  fs.copy(from, to).pipe(Effect.andThen(fs.remove(from, { recursive: true }))),
+                ),
+              );
           const isLink = Option.isSome(yield* fs.readLink(path).pipe(Effect.option));
           if (isLink) {
             yield* fs.remove(path);
           } else if (yield* fs.exists(path)) {
-            if (!(yield* fs.exists(target))) {
+            if (!(yield* fs.exists(target)) || (yield* empty(target))) {
+              yield* fs.remove(target, { recursive: true, force: true });
               yield* fs.makeDirectory(dirname(target), { recursive: true });
-              yield* fs.rename(path, target);
-            } else if ((yield* fs.readDirectory(path)).length === 0) {
+              yield* move(path, target);
+            } else if (yield* empty(path)) {
               yield* fs.remove(path, { recursive: true });
             } else {
-              return yield* new UpFailed({
-                message: `${path} and ${target} both hold files. Merge them into ${target}, remove ${path}, then run devbox up again.`,
-              });
+              const aside = `${path}.devbox-${Date.now()}`;
+              yield* fs.rename(path, aside);
+              yield* out.warn(
+                `${path} and ${target} both held files; kept ${target} and moved the other to ${aside}`,
+              );
             }
           }
           yield* fs.makeDirectory(target, { recursive: true });
@@ -257,7 +278,9 @@ const apply = (
           yield* fs.symlink(target, path);
         }).pipe(Effect.catchTag("PlatformError", (error) => Effect.fail(fsFailed(error)))),
       InstallT3: ({ to }) =>
-        must([npm, "install", "-g", "--prefix", pathsOf(config.data).prefix, `t3@${to}`]),
+        must([npm, "install", "-g", "--prefix", pathsOf(config.data).prefix, `t3@${to}`], {
+          env: processEnv(settingsFor(config.data), process.env.PATH ?? ""),
+        }),
       Linger: () =>
         host
           .run(["loginctl", "enable-linger", ctx.user])

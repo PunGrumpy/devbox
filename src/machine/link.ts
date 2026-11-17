@@ -45,6 +45,7 @@ const remotePairing = (target: string, label: string) =>
       "BatchMode=yes",
       "-o",
       "ConnectTimeout=15",
+      "--",
       target,
       `~/.local/bin/devbox pair --json --label ${shellQuote(label)}`,
     ]);

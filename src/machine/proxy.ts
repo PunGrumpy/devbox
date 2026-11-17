@@ -10,10 +10,10 @@ export const rewriteHeaders = (
   if (headers["x-forwarded-host"] === undefined && headers["x-forwarded-proto"] === undefined)
     return headers;
   const url = new URL(publicUrl);
-  const forwarded = [headers["x-forwarded-host"]].flat()[0];
+  const forwarded = [headers["x-forwarded-host"]].flat()[0]?.split(",")[0]?.trim();
   return {
     ...headers,
-    host: forwarded ?? url.host,
+    host: forwarded || url.host,
     "x-forwarded-proto": url.protocol.replace(":", ""),
   };
 };
@@ -53,6 +53,7 @@ export const proxy = (options: {
           if (!res.headersSent) res.writeHead(502);
           res.end();
         });
+        req.on("error", () => forward.destroy());
         req.pipe(forward);
       });
       server.on("upgrade", (req, socket, head) => {
@@ -65,7 +66,11 @@ export const proxy = (options: {
           forward.write(head);
           forward.pipe(socket).pipe(forward);
         });
-        forward.on("error", () => socket.destroy());
+        forward.on("error", () => {
+          if (forward.connecting)
+            socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+          else socket.destroy();
+        });
         socket.on("error", () => forward.destroy());
       });
       server.once("error", (error) => resume(Effect.die(error)));

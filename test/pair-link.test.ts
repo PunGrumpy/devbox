@@ -69,7 +69,7 @@ describe("devbox pair", () => {
 
 const sshAnswers = (m: ReturnType<typeof makeMachine>, stdout: (host: string) => string) => {
   m.respond = (argv) => {
-    if (argv[0] === "ssh") return { code: 0, stdout: stdout(argv[5]!), stderr: "" };
+    if (argv[0] === "ssh") return { code: 0, stdout: stdout(argv[6]!), stderr: "" };
     if (argv[0] === "t3" || argv[0] === "xdg-open" || argv[0] === "open" || argv[0] === "clip.exe")
       return { code: 0, stdout: "", stderr: "" };
     return undefined;
@@ -93,6 +93,7 @@ describe("devbox link", () => {
         "BatchMode=yes",
         "-o",
         "ConnectTimeout=15",
+        "--",
         "a",
         "~/.local/bin/devbox pair --json --label 'box-1'",
       ],
@@ -102,6 +103,7 @@ describe("devbox link", () => {
         "BatchMode=yes",
         "-o",
         "ConnectTimeout=15",
+        "--",
         "b",
         "~/.local/bin/devbox pair --json --label 'box-1'",
       ],
@@ -159,7 +161,7 @@ describe("devbox link", () => {
     expect(appLink("https://x/pair#token=a&b=c")).toBe(
       "t3code://pair?pairingUrl=https%3A%2F%2Fx%2Fpair%23token%3Da%26b%3Dc",
     );
-    expect(m.calls.filter((c) => c[0] === "ssh").map((c) => c[6])).toEqual([
+    expect(m.calls.filter((c) => c[0] === "ssh").map((c) => c[7])).toEqual([
       "~/.local/bin/devbox pair --json --label 'box-1'",
       "~/.local/bin/devbox pair --json --label 'box-1 app'",
     ]);

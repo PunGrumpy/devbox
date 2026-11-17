@@ -3,6 +3,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   writeFileSync,
@@ -237,7 +238,7 @@ describe("devbox up converges", () => {
     expect(readFileSync(join(data, ".agents/skills/tdd/SKILL.md"), "utf8")).toBe("keep me\n");
   });
 
-  test("it refuses to link when $HOME and --data both hold agent files, and deletes neither", async () => {
+  test("when $HOME and --data both hold agent files it keeps --data and moves the other aside", async () => {
     const m = makeMachine();
     const data = join(m.base, "persist");
     mkdirSync(join(m.home, ".agents"), { recursive: true });
@@ -245,10 +246,12 @@ describe("devbox up converges", () => {
     mkdirSync(join(data, ".agents"), { recursive: true });
     writeFileSync(join(data, ".agents/data.md"), "data\n");
     const r = await up(m, "--supervisor", "detached", "--data", data);
-    expect(r.code).not.toBe(0);
-    expect(r.err).toContain("both hold files");
-    expect(readFileSync(join(m.home, ".agents/home.md"), "utf8")).toBe("home\n");
+    expect(r.code).toBe(0);
+    expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
     expect(readFileSync(join(data, ".agents/data.md"), "utf8")).toBe("data\n");
+    const aside = readdirSync(m.home).find((name) => name.startsWith(".agents.devbox-"));
+    expect(aside).toBeDefined();
+    expect(readFileSync(join(m.home, aside!, "home.md"), "utf8")).toBe("home\n");
   });
 
   test("on a machine without npm it installs Node with mise and uses that npm for T3", async () => {
@@ -282,5 +285,33 @@ describe("devbox up converges", () => {
       argv[0] === "dpkg" ? { code: 1, stdout: "", stderr: "not installed" } : undefined;
     await up(m, "--supervisor", "detached");
     expect(m.calls).toContainEqual(["sudo", "-n", "apt-get", "install", "-y", "-qq", "libatomic1"]);
+  });
+
+  test("an empty agent folder left in --data does not block moving the one in $HOME", async () => {
+    const m = makeMachine();
+    const data = join(m.base, "persist");
+    mkdirSync(join(data, ".agents"), { recursive: true });
+    mkdirSync(join(m.home, ".agents"), { recursive: true });
+    writeFileSync(join(m.home, ".agents/home.md"), "home\n");
+    const r = await up(m, "--supervisor", "detached", "--data", data);
+    expect(r.code).toBe(0);
+    expect(readFileSync(join(data, ".agents/home.md"), "utf8")).toBe("home\n");
+  });
+
+  test("npm runs with the mise data dir from --data", async () => {
+    const m = makeMachine();
+    const data = join(m.base, "persist");
+    const seen: Array<string | undefined> = [];
+    const host = m.host;
+    m.host = {
+      ...host,
+      run: (argv, options) => {
+        if (argv[0]?.endsWith("npm")) seen.push(options?.env?.MISE_DATA_DIR);
+        return host.run(argv, options);
+      },
+    };
+    await up(m, "--supervisor", "detached", "--data", data);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((dir) => dir === join(data, ".local/share/mise"))).toBe(true);
   });
 });

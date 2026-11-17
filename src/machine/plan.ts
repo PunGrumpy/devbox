@@ -156,7 +156,7 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
     ),
     true,
   );
-  write(profilePath(ctx.etc), profileScript(ctx.settings), true);
+  write(profilePath(ctx.etc), profileScript(ctx.settings, ctx.user), true);
   write(machineFile(ctx.home), machineJson(config), false);
 
   const unitChanged = Supervisor.$match(facts.supervisor, {

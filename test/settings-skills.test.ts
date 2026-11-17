@@ -31,22 +31,27 @@ describe("one settings list, three sinks", () => {
   });
 
   test("the login profile exports the same values, quoted, without git plumbing", () => {
-    expect(profileScript(settingsFor("/it's"))).toBe(
+    expect(profileScript(settingsFor("/it's"), "agent")).toBe(
       [
-        `export MISE_DATA_DIR='/it'\\''s/.local/share/mise'`,
-        `export RUSTUP_HOME='/it'\\''s/.rustup'`,
-        `export CARGO_HOME='/it'\\''s/.cargo'`,
-        `export CLAUDE_CONFIG_DIR='/it'\\''s/.claude'`,
-        `export PATH='/it'\\''s/.local/bin':'/it'\\''s/.local/share/mise/shims':"$PATH"`,
+        `if [ "$(id -un)" = 'agent' ]; then`,
+        `  export MISE_DATA_DIR='/it'\\''s/.local/share/mise'`,
+        `  export RUSTUP_HOME='/it'\\''s/.rustup'`,
+        `  export CARGO_HOME='/it'\\''s/.cargo'`,
+        `  export CLAUDE_CONFIG_DIR='/it'\\''s/.claude'`,
+        `  export PATH='/it'\\''s/.local/bin':'/it'\\''s/.local/share/mise/shims':"$PATH"`,
+        "fi",
         "",
       ].join("\n"),
     );
-    const sourced = Bun.spawnSync([
-      "sh",
-      "-c",
-      `${profileScript(settingsFor("/it's"))}printf %s "$CLAUDE_CONFIG_DIR"`,
-    ]);
-    expect(sourced.stdout.toString()).toBe("/it's/.claude");
+    const me = Bun.spawnSync(["id", "-un"]).stdout.toString().trim();
+    const sourced = (user: string) =>
+      Bun.spawnSync([
+        "sh",
+        "-c",
+        `${profileScript(settingsFor("/it's"), user)}printf %s "$CLAUDE_CONFIG_DIR"`,
+      ]).stdout.toString();
+    expect(sourced(me)).toBe("/it's/.claude");
+    expect(sourced("someone-else")).toBe("");
   });
 });
 

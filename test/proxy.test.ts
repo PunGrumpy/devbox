@@ -24,6 +24,16 @@ describe("rewriteHeaders", () => {
       rewriteHeaders({ host: "10.0.0.1", "x-forwarded-host": "alias.example.com" }, PUBLIC).host,
     ).toBe("alias.example.com");
   });
+
+  test("a chained or empty X-Forwarded-Host still gives one valid Host", () => {
+    const first = rewriteHeaders(
+      { host: "10.0.0.1", "x-forwarded-host": "edge1.example.com, edge2.example.com" },
+      PUBLIC,
+    );
+    expect(first.host).toBe("edge1.example.com");
+    const empty = rewriteHeaders({ host: "10.0.0.1", "x-forwarded-host": "" }, PUBLIC);
+    expect(empty.host).toBe(new URL(PUBLIC).host);
+  });
 });
 
 describe("the in-process proxy", async () => {
