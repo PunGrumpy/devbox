@@ -15,6 +15,7 @@ import {
   hasSqliteHeader,
   parseSources,
   quickCheckArgs,
+  sidecars,
   BACKUP_TIMEOUT_MS,
   vacuumIntoArgs,
   restoreArgs,
@@ -214,7 +215,9 @@ const stageSnapshots = (plan: BackupPlan, env: Readonly<Record<string, string>>)
       });
       if (taken.code === TIMED_OUT) {
         yield* out.warn(`${snapshot.live} changes too fast for .backup, using VACUUM INTO`);
-        yield* fs.remove(dest, { force: true }).pipe(Effect.mapError(fsFailed));
+        yield* Effect.forEach(sidecars(dest), (path) => fs.remove(path, { force: true }), {
+          discard: true,
+        }).pipe(Effect.mapError(fsFailed));
         taken = yield* host.run(vacuumIntoArgs(snapshot.live, dest), { env });
       }
       if (taken.code !== 0)

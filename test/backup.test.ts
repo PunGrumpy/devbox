@@ -8,6 +8,8 @@ import {
   parseSources,
   sqliteBackupArgs,
 } from "../src/backup/model.ts";
+import { Effect } from "effect";
+import { Host, TIMED_OUT } from "../src/machine/host.ts";
 import { absolutePath } from "../src/migrate/paths.ts";
 import { envFile, makeSqlite, sourcesFile, withBackupTools, write } from "./support/backup.ts";
 import { makeMachine } from "./support/host.ts";
@@ -474,5 +476,20 @@ describe("what goes into the exclude file and the sqlite shell", () => {
     expect(hasSqliteHeader(header.subarray(0, 15))).toBe(false);
     expect(hasSqliteHeader(new TextEncoder().encode("SQLite format 4\0"))).toBe(false);
     expect(hasSqliteHeader(new Uint8Array())).toBe(false);
+  });
+});
+
+describe("the real host", () => {
+  test("reports a command that outlives timeoutMs as exit 124, and a quick failure as its own code", async () => {
+    const run = (argv: ReadonlyArray<string>, timeoutMs: number) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const host = yield* Host;
+          return yield* host.run(argv, { timeoutMs });
+        }).pipe(Effect.provide(Host.layer)),
+      );
+    expect((await run(["sleep", "5"], 200)).code).toBe(TIMED_OUT);
+    expect((await run(["sh", "-c", "exit 3"], 5000)).code).toBe(3);
+    expect((await run(["true"], 5000)).code).toBe(0);
   });
 });

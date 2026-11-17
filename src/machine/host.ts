@@ -49,6 +49,7 @@ export class Host extends Context.Service<
     run: (argv, options = {}) =>
       Effect.promise(async (): Promise<Ran> => {
         try {
+          const started = performance.now();
           const child = Bun.spawn([...argv], {
             env: { ...process.env, ...options.env },
             cwd: options.cwd ?? "/",
@@ -63,7 +64,7 @@ export class Host extends Context.Service<
             child.exited,
           ]);
           return {
-            code: child.signalCode !== null && options.timeoutMs !== undefined ? TIMED_OUT : code,
+            code: timedOut(options.timeoutMs, started, code) ? TIMED_OUT : code,
             stdout,
             stderr,
           };
@@ -137,6 +138,9 @@ export class Host extends Context.Service<
     ),
   }));
 }
+
+const timedOut = (limit: number | undefined, started: number, code: number): boolean =>
+  limit !== undefined && code !== 0 && performance.now() - started >= limit;
 
 const alive = (pid: number): boolean => {
   try {
