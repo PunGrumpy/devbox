@@ -18,6 +18,7 @@ export type FakeMachine = {
   processes: Array<Proc>;
   binaries: Set<string>;
   calls: Array<ReadonlyArray<string>>;
+  runs: Array<{ argv: ReadonlyArray<string>; env: Readonly<Record<string, string>> | undefined }>;
   stdin: Map<string, string>;
   respond: (argv: ReadonlyArray<string>) => Ran | undefined;
   nextPid: number;
@@ -49,6 +50,7 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     processes: [],
     binaries: new Set(["npm"]),
     calls: [],
+    runs: [],
     stdin: new Map(),
     respond: () => undefined,
     nextPid: 4000,
@@ -115,6 +117,7 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     run: (argv, options = {}) =>
       Effect.sync(() => {
         m.calls.push(argv);
+        m.runs.push({ argv, env: options.env });
         if (options.stdin !== undefined) m.stdin.set(argv.join(" "), options.stdin);
         return run(argv, options.stdin);
       }),

@@ -11,7 +11,10 @@ export type RunOptions = {
   readonly cwd?: string;
   readonly stdin?: string;
   readonly inherit?: boolean;
+  readonly timeoutMs?: number;
 };
+
+export const TIMED_OUT = 124;
 
 export type Proc = { readonly pid: number; readonly argv: ReadonlyArray<string> };
 
@@ -52,13 +55,18 @@ export class Host extends Context.Service<
             stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
             stdout: options.inherit ? "inherit" : "pipe",
             stderr: options.inherit ? "inherit" : "pipe",
+            ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
           });
           const [stdout, stderr, code] = await Promise.all([
             child.stdout ? new Response(child.stdout).text() : "",
             child.stderr ? new Response(child.stderr).text() : "",
             child.exited,
           ]);
-          return { code, stdout, stderr };
+          return {
+            code: child.signalCode !== null && options.timeoutMs !== undefined ? TIMED_OUT : code,
+            stdout,
+            stderr,
+          };
         } catch (error) {
           return { code: 127, stdout: "", stderr: String(error) };
         }
