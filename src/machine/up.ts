@@ -75,6 +75,11 @@ const resolveNpm = (config: MachineConfig) =>
     if (yield* shimReady) return npmShim;
     const env = processEnv(settingsFor(config.data), process.env.PATH ?? "");
     yield* out.log("node: npm is missing, installing Node LTS with mise");
+    if ((yield* host.run(["dpkg", "-s", "libatomic1"])).code === 1)
+      yield* host.run(["sudo", "-n", "apt-get", "install", "-y", "-qq", "libatomic1"], {
+        env: { ...env, DEBIAN_FRONTEND: "noninteractive" },
+        inherit: true,
+      });
     if (yield* ensureMise(config.data, env))
       yield* host.run([mise, "use", "--global", "--yes", "node@lts"], { env, inherit: true });
     return (yield* shimReady) ? npmShim : "npm";

@@ -272,4 +272,12 @@ describe("devbox up converges", () => {
     expect(m.calls.some((c) => c[0] === shim && c[1] === "install")).toBe(true);
     expect(r.code).toBe(0);
   });
+
+  test("before installing Node it adds libatomic1 when dpkg says it is missing", async () => {
+    const m = makeMachine({ binaries: new Set(), sudo: true });
+    m.respond = (argv) =>
+      argv[0] === "dpkg" ? { code: 1, stdout: "", stderr: "not installed" } : undefined;
+    await up(m, "--supervisor", "detached");
+    expect(m.calls).toContainEqual(["sudo", "-n", "apt-get", "install", "-y", "-qq", "libatomic1"]);
+  });
 });
