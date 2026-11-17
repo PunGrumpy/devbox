@@ -78,6 +78,15 @@ const excludes = (m: ReturnType<typeof makeMachine>, text: string) =>
 const restoredAt = (m: ReturnType<typeof makeMachine>, target: string, rel: string) =>
   join(target, m.home, rel);
 
+const onRestore = (m: ReturnType<typeof makeMachine>, also: () => void) => {
+  const respond = m.respond;
+  m.respond = (argv) => {
+    const ran = respond(argv);
+    if (argv[0] === "restic" && argv[1] === "restore") also();
+    return ran;
+  };
+};
+
 const rows = (path: string) => new Database(path).query("select count(*) as n from t").get();
 
 const snapshotNames = (m: ReturnType<typeof makeMachine>) =>
@@ -612,6 +621,15 @@ describe("what discovery leaves alone", () => {
     ]);
   });
 
+  test("a directory pattern with a trailing slash excludes that directory", async () => {
+    const { m } = fixture();
+    makeSqlite(join(m.home, ".gemini/node_modules/pkg/x.sqlite"), 1);
+    excludes(m, "node_modules/\n");
+    const r = await backup(m, "run");
+    expect(r.code).toBe(0);
+    expect(existsSync(join(stateDir(m), "sqlite/gemini/node_modules/pkg/x.sqlite"))).toBe(false);
+  });
+
   test("an excluded directory is not walked", async () => {
     const { m } = fixture();
     const secret = join(m.home, ".gemini/private");
@@ -666,7 +684,7 @@ describe("devbox backup restore", () => {
       "--target",
       target,
     ]);
-    await backup(m, "restore", target, "--snapshot", "1a2b3c4d");
+    await backup(m, "restore", `${target}-2`, "--snapshot", "1a2b3c4d");
     expect(resticCalls(m).filter((c) => c[1] === "restore")[1]![2]).toBe("1a2b3c4d");
   });
 
@@ -714,6 +732,18 @@ describe("devbox backup restore", () => {
     expect(r.err).toContain("no source named gemini");
     expect(rows(restoredAt(m, target, ".codex/state.sqlite"))).toEqual({ n: 3 });
     expect(existsSync(restoredAt(m, target, ".gemini/tmp/abc/chat.db"))).toBe(false);
+    expect(existsSync(join(target, stateDir(m), "sqlite/gemini/tmp/abc/chat.db"))).toBe(true);
+  });
+
+  test("it refuses a target folder that already holds files", async () => {
+    const { m } = fixture();
+    await backup(m, "run");
+    const target = join(m.base, "busy");
+    write(join(target, "keep.txt"), "mine\n");
+    const r = await backup(m, "restore", target);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("is not empty");
+    expect(readFileSync(join(target, "keep.txt"), "utf8")).toBe("mine\n");
   });
 
   test("a manifest that points outside the target writes nothing outside it", async () => {
@@ -737,8 +767,10 @@ describe("devbox backup restore", () => {
     const target = join(m.base, "restored");
     const outside = join(m.base, "outside");
     mkdirSync(outside, { recursive: true });
-    mkdirSync(restoredAt(m, target, ""), { recursive: true });
-    symlinkSync(outside, restoredAt(m, target, ".codex"));
+    onRestore(m, () => {
+      mkdirSync(restoredAt(m, target, ""), { recursive: true });
+      symlinkSync(outside, restoredAt(m, target, ".codex"));
+    });
     const r = await backup(m, "restore", target);
     expect(r.code).toBe(1);
     expect(r.err).toContain("leads outside");
@@ -750,8 +782,10 @@ describe("devbox backup restore", () => {
     await backup(m, "run");
     const target = join(m.base, "restored");
     const live = restoredAt(m, target, ".codex/state.sqlite");
-    write(`${live}-wal`, "stale");
-    write(`${live}-shm`, "stale");
+    onRestore(m, () => {
+      write(`${live}-wal`, "stale");
+      write(`${live}-shm`, "stale");
+    });
     await backup(m, "restore", target);
     expect(existsSync(`${live}-wal`)).toBe(false);
     expect(existsSync(`${live}-shm`)).toBe(false);

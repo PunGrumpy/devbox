@@ -18,7 +18,7 @@ export const excludedBy = (
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "" && !line.startsWith("#") && !line.startsWith("!"))
-    .map((line) => expandVars(line, vars))
+    .map((line) => expandVars(line, vars).replace(/\/+$/, ""))
     .filter((line) => line !== "");
   const names = patterns.filter((p) => !p.includes("/")).map((p) => new Bun.Glob(p));
   const paths = patterns

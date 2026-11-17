@@ -400,9 +400,10 @@ const entriesOf = (target: string, stage: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
-    if (!(yield* fs.exists(stage).pipe(Effect.mapError(fsFailed)))) return [];
+    if (!(yield* fs.exists(stage).pipe(Effect.mapError(fsFailed))))
+      return { entries: [], unknown: [] };
     const manifest = yield* readManifest(stage);
-    if (Option.isSome(manifest)) return manifest.value;
+    if (Option.isSome(manifest)) return { entries: manifest.value, unknown: [] };
     yield* out.note(`${MANIFEST} is missing from the snapshot, so the sources file maps the names`);
     const sources = yield* readSources;
     const directories = new Set<string>();
@@ -418,7 +419,7 @@ const entriesOf = (target: string, stage: string) =>
       yield* out.warn(
         `no source named ${name} in the sources file, so its snapshots stay in ${stage}`,
       );
-    return entries;
+    return { entries, unknown };
   });
 
 const place = (target: AbsolutePath, stage: AbsolutePath, entries: ReadonlyArray<ManifestEntry>) =>
@@ -457,12 +458,19 @@ export const restoreBackup = (targetDir: string, snapshot: string) =>
       });
     const { paths, env, host } = yield* session(["restic"]);
     const target = absolutePath(targetDir);
+    const existing = yield* fs.readDirectory(target).pipe(Effect.orElseSucceed(() => []));
+    if (existing.length > 0)
+      return yield* new BackupFailed({
+        message: `${target} is not empty`,
+        hint: "restore into a new or empty folder, then move what you need into place",
+      });
     yield* fs.makeDirectory(target, { recursive: true }).pipe(Effect.mapError(fsFailed));
     yield* must(restoreArgs(host, snapshot, target), env, { inherit: true });
     const stage = absolutePath(join(target, paths.stage));
-    const entries = yield* entriesOf(target, stage);
+    const { entries, unknown } = yield* entriesOf(target, stage);
     yield* place(target, stage, entries);
-    yield* fs.remove(stage, { recursive: true, force: true }).pipe(Effect.mapError(fsFailed));
+    if (unknown.length === 0)
+      yield* fs.remove(stage, { recursive: true, force: true }).pipe(Effect.mapError(fsFailed));
     const sources = yield* readSources.pipe(Effect.orElseSucceed(() => []));
     const roots = new Set([...entries, ...sources].map((item) => item.path));
     yield* out.success(
