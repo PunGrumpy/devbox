@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { installSkills } from "../src/machine/setup.ts";
+import { browserLibraries, installSkills } from "../src/machine/setup.ts";
 import { gitEntries, processEnv, profileScript, settingsFor } from "../src/machine/settings.ts";
 import { parseSkillsList, skillsAddArgs } from "../src/machine/skills.ts";
 import { makeMachine } from "./support/host.ts";
@@ -146,5 +146,27 @@ describe("the skills list is data", () => {
     expect(err).toContain("skills: up to date");
     expect(m.calls.slice(before).filter((c) => c[0] === "npx")).toEqual([]);
     writeFileSync(join(m.home, ".devbox-skills"), "stale\n");
+  });
+});
+
+describe("browser libraries", () => {
+  test("on Ubuntu 24.04 it installs the t64 package that replaced libasound2", async () => {
+    const m = makeMachine({ binaries: new Set(["apt-get"]) });
+    m.respond = (argv) => {
+      if (argv[0] === "apt-cache")
+        return {
+          code: 0,
+          stdout: argv[2] === "libasound2t64" ? "Candidate: 1.2.11\n" : "Candidate: (none)\n",
+          stderr: "",
+        };
+      if (argv[0] === "dpkg") return { code: 1, stdout: "", stderr: "" };
+      if (argv[0] === "sudo") return { code: 0, stdout: "", stderr: "" };
+      return undefined;
+    };
+    await runWith(m.host, browserLibraries);
+    const install = m.calls.find((c) => c.includes("install"));
+    expect(install).toContain("libasound2t64");
+    expect(install).not.toContain("libasound2");
+    expect(install).toContain("libnss3");
   });
 });

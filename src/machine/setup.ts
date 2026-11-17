@@ -30,11 +30,16 @@ const BROWSER_PACKAGES = [
   "fonts-liberation",
 ];
 
-const browserLibraries = Effect.gen(function* () {
+export const browserLibraries = Effect.gen(function* () {
   const host = yield* Host;
   const out = yield* Output;
   if (!(yield* host.which("apt-get"))) return yield* out.log("browser: no apt-get, skipped");
-  if ((yield* host.run(["dpkg", "-s", ...BROWSER_PACKAGES])).code === 0)
+  const packages = yield* Effect.forEach(BROWSER_PACKAGES, (name) =>
+    Effect.map(host.run(["apt-cache", "policy", `${name}t64`]), (policy) =>
+      /Candidate: (?!\(none\))/.test(policy.stdout) ? `${name}t64` : name,
+    ),
+  );
+  if ((yield* host.run(["dpkg", "-s", ...packages])).code === 0)
     return yield* out.log("browser: libraries present");
   const update = yield* host.run(["sudo", "-n", "apt-get", "update", "-qq"], { inherit: true });
   const install =
@@ -50,14 +55,16 @@ const browserLibraries = Effect.gen(function* () {
             "-y",
             "-qq",
             "--no-install-recommends",
-            ...BROWSER_PACKAGES,
+            ...packages,
           ],
           { inherit: true },
         )
       : update;
   yield* install.code === 0
     ? out.log("browser: libraries installed")
-    : out.warn("browser: could not install the libraries (needs passwordless sudo)");
+    : out.warn(
+        `browser: apt-get failed with exit ${install.code}; T3's browser preview may not start`,
+      );
 });
 
 export const ensureMise = (data: string, env: Record<string, string>) =>
