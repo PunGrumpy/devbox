@@ -28,7 +28,10 @@ const capture = (pick?: ReadonlyArray<ReadonlyArray<string>>) => {
     readAnswer: Effect.die("no terminal in tests"),
     pickMany: (question, choices) =>
       Effect.sync(() => {
-        asked.push({ question, choices });
+        asked.push({
+          question,
+          choices: choices.map(({ title, selected }) => ({ title, selected })),
+        });
         const titles = scripted.shift() ?? [];
         return choices.flatMap((choice, i) => (titles.includes(choice.title) ? [i] : []));
       }),
