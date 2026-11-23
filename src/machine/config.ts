@@ -1,7 +1,8 @@
-import { Option, Schema } from "effect";
+import { Option, Result, Schema } from "effect";
 import { Flag } from "effect/cli";
 import { join } from "node:path";
 import { type AbsolutePath, absolutePath } from "../migrate/paths.ts";
+import { type AgentChoice, type AgentsFlag, agentsFile, parseAgentsFlag } from "./agents.ts";
 
 export const Name = Schema.String.pipe(
   Schema.check(
@@ -80,6 +81,17 @@ export const upFlags = {
     ),
     Flag.withDefault("auto"),
   ),
+  agents: Flag.String("agents").pipe(
+    Flag.withDescription(
+      "agent CLIs to install: pick, none, or a list like claude,codex. Saved in <data>, so later runs ask nothing (default: ask once on a terminal)",
+    ),
+    Flag.filterMap(
+      (text) => Result.getSuccess(parseAgentsFlag(text)),
+      (text) =>
+        Result.match(parseAgentsFlag(text), { onSuccess: () => "", onFailure: (why) => why }),
+    ),
+    Flag.optional,
+  ),
 };
 
 export type ServeConfig = {
@@ -95,6 +107,7 @@ export type MachineConfig = ServeConfig & {
   readonly name: string;
   readonly channel: string;
   readonly supervisor: Supervisor;
+  readonly agents: AgentChoice;
 };
 
 type ServeFlags = {
@@ -110,6 +123,7 @@ type UpFlags = ServeFlags & {
   readonly name: Option.Option<string>;
   readonly channel: string;
   readonly supervisor: Supervisor;
+  readonly agents: Option.Option<AgentsFlag>;
 };
 
 export const serveConfig = (flags: ServeFlags, home: AbsolutePath): ServeConfig => {
@@ -130,11 +144,13 @@ export const machineConfig = (
   flags: UpFlags,
   home: AbsolutePath,
   hostname: string,
+  agents: AgentChoice,
 ): MachineConfig => ({
   ...serveConfig(flags, home),
   name: Option.getOrElse(flags.name, () => hostname),
   channel: flags.channel,
   supervisor: flags.supervisor,
+  agents,
 });
 
 export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [
@@ -159,6 +175,7 @@ export const pathsOf = (data: string) => ({
   npmShim: join(data, ".local", "share", "mise", "shims", "npm"),
   logs: join(data, ".devbox-logs"),
   skillsStamp: join(data, ".devbox-skills"),
+  agents: agentsFile(data),
 });
 
 export const machineFile = (home: string) => join(home, ".config", "devbox", "machine.json");

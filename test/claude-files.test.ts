@@ -430,6 +430,7 @@ describe("rename-root carries Claude files", () => {
             stdoutColor: false,
             interactive: false,
             readAnswer: Effect.die("no terminal in tests"),
+            pickMany: () => Effect.die("no terminal in tests"),
           }),
         ),
       ),

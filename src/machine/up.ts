@@ -11,8 +11,19 @@ import {
   machineFile,
   pathsOf,
   serveArgs,
+  serveConfig,
   upFlags,
 } from "./config.ts";
+import {
+  type AgentId,
+  AgentInstallFailed,
+  agentName,
+  chooseAgents,
+  installAgent,
+  loginHint,
+  presentAgents,
+  readSavedAgents,
+} from "./agents.ts";
 import { Host } from "./host.ts";
 import {
   BACKUP_SERVICE,
@@ -94,7 +105,12 @@ const backupOff = (envPath: string) =>
     why: `off. Run \`devbox backup sources\` to create ${envPath}, set RESTIC_REPOSITORY in it, then run \`devbox up\` again`,
   });
 
-const gather = (config: MachineConfig, ctx: Context, npm: string) =>
+const gather = (
+  config: MachineConfig,
+  ctx: Context,
+  npm: string,
+  saved: Facts["agents"]["saved"],
+) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
@@ -105,6 +121,7 @@ const gather = (config: MachineConfig, ctx: Context, npm: string) =>
       machineInfoPath(ctx.etc),
       profilePath(ctx.etc),
       machineFile(ctx.home),
+      pathsOf(config.data).agents,
       backupPaths(ctx.home).env,
       ...Supervisor.$match(supervisor, {
         Systemd: ({ scope }) => [
@@ -223,6 +240,7 @@ const gather = (config: MachineConfig, ctx: Context, npm: string) =>
       serve,
       linger: yield* linger,
       backup,
+      agents: { saved, present: yield* presentAgents(config.data) },
     } satisfies Facts;
   });
 
@@ -233,6 +251,7 @@ const describe = (change: Change): string =>
       `git config --global ${key} = ${values.map((v) => JSON.stringify(v)).join(", ")}`,
     Link: ({ path, target }) => `linked ${path} -> ${target}`,
     InstallT3: ({ from, to }) => `t3 ${Option.getOrElse(from, () => "none")} -> ${to}`,
+    InstallAgent: ({ id }) => `installed ${agentName(id)}. Log in once: ${loginHint(id)}`,
     Linger: () => "enabled lingering, so the user unit starts at boot",
     InstallTools: ({ packages }) => `installed ${packages.join(" and ")} with apt`,
     EnableTimer: () => `enabled ${BACKUP_TIMER}, daily at 03:30 Asia/Bangkok`,
@@ -325,6 +344,20 @@ const apply = (
         must([npm, "install", "-g", "--prefix", pathsOf(config.data).prefix, `t3@${to}`], {
           env: processEnv(settingsFor(config.data), process.env.PATH ?? ""),
         }),
+      InstallAgent: ({ id }) =>
+        installAgent(id, config.data, npm).pipe(
+          Effect.flatMap((ran) =>
+            ran.code === 0
+              ? Effect.void
+              : Effect.fail(
+                  new AgentInstallFailed({
+                    id,
+                    code: ran.code,
+                    detail: ran.stderr.trim().split("\n").at(-1) ?? "",
+                  }),
+                ),
+          ),
+        ),
       Linger: () =>
         host
           .run(["loginctl", "enable-linger", ctx.user])
@@ -393,7 +426,9 @@ export const up = Command.make("up", upFlags, (flags) =>
     const { home } = yield* Locations;
     const host = yield* Host;
     const out = yield* Output;
-    const config = machineConfig(flags, home, host.hostname);
+    const saved = yield* readSavedAgents(serveConfig(flags, home).data);
+    const agents = yield* chooseAgents(flags.agents, saved);
+    const config = machineConfig(flags, home, host.hostname, agents);
     const ctx: Context = {
       home,
       etc: host.etc,
@@ -411,9 +446,14 @@ export const up = Command.make("up", upFlags, (flags) =>
       ["base dir", config.baseDir],
       ["workspace", config.workspace],
       ["channel", config.channel],
+      ["agents", `${agents.ids.join(", ") || "none"} (${agents.from})`],
     ]);
+    if (agents.from === "default")
+      yield* out.note(
+        `no terminal to ask which agent CLIs to install, so using the defaults. Run \`devbox up${config.data === home ? "" : ` --data ${config.data}`} --agents pick\` on a terminal to choose`,
+      );
     const npm = yield* resolveNpm(config);
-    const facts = yield* gather(config, ctx, npm);
+    const facts = yield* gather(config, ctx, npm, saved);
     if (Option.isNone(facts.t3.installed) && Option.isNone(facts.t3.latest))
       return yield* new UpFailed({
         message: `cannot read t3@${config.channel} from npm, and T3 Code is not installed`,
@@ -427,7 +467,16 @@ export const up = Command.make("up", upFlags, (flags) =>
     );
     const { changes, skips } = plan(config, ctx, facts);
     for (const skip of skips) yield* out.note(`skipped ${skip.what}: ${skip.why}`);
-    for (const change of changes) yield* apply(change, config, ctx, facts.supervisor, npm);
+    for (const change of changes)
+      yield* apply(change, config, ctx, facts.supervisor, npm).pipe(
+        Effect.catchTag("AgentInstallFailed", (error) =>
+          out.check(
+            false,
+            `${agentName(error.id as AgentId)} did not install. The next devbox up tries again`,
+            error.detail,
+          ),
+        ),
+      );
     const [elapsed, answers] = yield* Effect.timed(answering(config.port, 600));
     if (!answers)
       return yield* new UpFailed({

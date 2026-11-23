@@ -1,6 +1,8 @@
+import { BunServices } from "@effect/platform-bun";
 import { Context, Duration, Effect, Layer } from "effect";
+import { Prompt } from "effect/cli";
 import { styleText } from "node:util";
-import { NotATerminal } from "./errors.ts";
+import { Aborted, NotATerminal } from "./errors.ts";
 
 export type Tone = "dim" | "bold" | "cyan" | "green" | "yellow" | "red" | "gray";
 
@@ -21,6 +23,11 @@ export type Streams = {
   readonly stdoutColor: boolean;
   readonly interactive: boolean;
   readonly readAnswer: Effect.Effect<string>;
+  /** Shows a multi-select and returns the indices ticked. Only called when `interactive`. */
+  readonly pickMany: (
+    question: string,
+    choices: ReadonlyArray<{ readonly title: string; readonly selected: boolean }>,
+  ) => Effect.Effect<ReadonlyArray<number>, Aborted>;
 };
 
 export class Output extends Context.Service<
@@ -47,6 +54,14 @@ export class Output extends Context.Service<
       task: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E, R>;
     readonly confirm: (question: string) => Effect.Effect<boolean, NotATerminal>;
+    readonly pick: <A>(
+      question: string,
+      choices: ReadonlyArray<{
+        readonly title: string;
+        readonly value: A;
+        readonly selected: boolean;
+      }>,
+    ) => Effect.Effect<ReadonlyArray<A>, NotATerminal | Aborted>;
   }
 >()("devbox/Output") {
   static readonly make = (streams: Streams): Output["Service"] => {
@@ -130,6 +145,12 @@ export class Output extends Context.Service<
           yield* line(paint("dim", yes ? "yes" : "no"));
           return yes;
         }),
+      pick: (question, choices) =>
+        Effect.gen(function* () {
+          if (!streams.interactive) return yield* new NotATerminal();
+          const indices = yield* streams.pickMany(question, choices);
+          return indices.flatMap((i) => (choices[i] === undefined ? [] : [choices[i].value]));
+        }),
     };
   };
 
@@ -148,6 +169,16 @@ export class Output extends Context.Service<
           resume(Effect.succeed(chunk.toString()));
         });
       }),
+      pickMany: (question, choices) =>
+        Prompt.run(
+          Prompt.MultiSelect({
+            message: question,
+            choices: choices.map((choice, i) => ({ ...choice, value: i })),
+          }),
+        ).pipe(
+          Effect.provide(BunServices.layer),
+          Effect.mapError(() => new Aborted()),
+        ),
     }),
   );
 }

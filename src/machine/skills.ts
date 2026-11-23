@@ -56,7 +56,13 @@ export const parseSkillsList = (text: string): SkillsList => {
   };
 };
 
-export const skillsAddArgs = (source: SkillSource): ReadonlyArray<string> => [
+export const skillsStamp = (list: SkillsList, agents: ReadonlyArray<string>): string =>
+  `${list.hash} ${agents.join(",")}`;
+
+export const skillsAddArgs = (
+  source: SkillSource,
+  agents: ReadonlyArray<string>,
+): ReadonlyArray<string> => [
   "npx",
   "-y",
   "skills",
@@ -67,6 +73,5 @@ export const skillsAddArgs = (source: SkillSource): ReadonlyArray<string> => [
   "--yes",
   "--copy",
   "--agent",
-  "claude-code",
-  "codex",
+  ...agents,
 ];
