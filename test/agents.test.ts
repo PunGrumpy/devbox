@@ -327,8 +327,8 @@ describe("skills follow the choice", () => {
     ]);
   });
 
-  test("exactly claude-code and codex keep the bare hash, anything else adds the targets", () => {
-    expect(skillsStamp(list, BOTH)).toBe(list.hash);
+  test("the stamp names the list and the agents it was installed for", () => {
+    expect(skillsStamp(list, BOTH)).toBe(`${list.hash} claude-code,codex`);
     expect(skillsStamp(list, ["claude-code"])).toBe(`${list.hash} claude-code`);
     expect(skillsStamp(list, [...BOTH, "devin"])).toBe(`${list.hash} claude-code,codex,devin`);
   });
@@ -342,7 +342,9 @@ describe("skills follow the choice", () => {
     const npx = () => m.calls.filter((c) => c[0] === "npx");
 
     await runWith(m.host, installSkills(m.home, {}, BOTH));
-    expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(list.hash);
+    expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
+      `${list.hash} claude-code,codex`,
+    );
     expect(npx()).toHaveLength(2);
 
     await runWith(m.host, installSkills(m.home, {}, BOTH));

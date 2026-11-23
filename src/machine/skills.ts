@@ -56,9 +56,8 @@ export const parseSkillsList = (text: string): SkillsList => {
   };
 };
 
-/** The hash alone for the two agents live boxes already have skills for, so they do not reinstall. */
 export const skillsStamp = (list: SkillsList, agents: ReadonlyArray<string>): string =>
-  agents.join(",") === "claude-code,codex" ? list.hash : `${list.hash} ${agents.join(",")}`;
+  `${list.hash} ${agents.join(",")}`;
 
 export const skillsAddArgs = (
   source: SkillSource,

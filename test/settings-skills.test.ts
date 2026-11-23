@@ -146,7 +146,7 @@ describe("the skills list is data", () => {
         : undefined;
     await runWith(m.host, installSkills(m.home, {}, BOTH));
     expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
-      parseSkillsList(TEMPLATE).hash,
+      `${parseSkillsList(TEMPLATE).hash} ${BOTH.join(",")}`,
     );
     const before = m.calls.length;
     const { err } = await runWith(m.host, installSkills(m.home, {}, BOTH));
