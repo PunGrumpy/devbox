@@ -38,6 +38,7 @@ import {
   ServeState,
   Supervisor,
   UNIT,
+  t3SettingsPath,
   unitPath,
 } from "./plan.ts";
 import { answering } from "./serve.ts";
@@ -122,6 +123,7 @@ const gather = (
       profilePath(ctx.etc),
       machineFile(ctx.home),
       pathsOf(config.data).agents,
+      t3SettingsPath(config.baseDir),
       backupPaths(ctx.home).env,
       ...Supervisor.$match(supervisor, {
         Systemd: ({ scope }) => [
@@ -286,12 +288,21 @@ const apply = (
             ),
       );
     yield* Change.$match(change, {
-      Write: ({ path, content, privileged }) =>
+      Write: ({ path, content, privileged, mode }) =>
         privileged
           ? must(["sudo", "-n", "tee", path], { stdin: content })
           : fs
               .makeDirectory(dirname(path), { recursive: true })
-              .pipe(Effect.andThen(fs.writeFileString(path, content)), Effect.mapError(fsFailed)),
+              .pipe(
+                Effect.andThen(
+                  fs.writeFileString(
+                    path,
+                    content,
+                    Option.isSome(mode) ? { mode: mode.value } : {},
+                  ),
+                ),
+                Effect.mapError(fsFailed),
+              ),
       Git: ({ key, values }) =>
         Effect.andThen(
           host.run(["git", "config", "--global", "--unset-all", key]),

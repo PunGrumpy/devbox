@@ -38,6 +38,7 @@ What it does:
 - Sets Git to commit as me without signing, and to log in to github.com through `gh`, in `~/.gitconfig`.
 - With passwordless sudo, writes `/etc/machine-info` and `/etc/profile.d/devbox.sh`, which puts the languages on `PATH` and keeps tool data in `--data` for login shells. Without it, it skips both with a note.
 - When `--data` is not `$HOME`, links `~/.agents` into it, and `~/.config/gh` once a gh login is saved there.
+- Turns on `"linkedEnvironmentsEnabled"` in `<base dir>/userdata/settings.json`, which `t3 environment link` needs on the machine being linked. It keeps every other key, creates the file with mode 600 when it is missing, and leaves a file that is not a JSON object alone with a note. A running T3 reads the file when it changes, so this does not restart it.
 - Installs or updates T3 Code from npm into `<data>/.local`, and installs the [agent CLIs](#agent-clis) you chose that are missing.
 - When `~/.config/devbox/backup/env` sets `RESTIC_REPOSITORY`, installs `restic` and `sqlite3` with apt if they are missing, and enables a nightly backup timer. See [Back up agent memory](#back-up-agent-memory). Without that file it prints one line saying backups are off.
 - Keeps `devbox serve` running under the supervisor, and restarts it when T3 Code updates or the flags change. It waits until T3 answers on the port.
@@ -109,7 +110,7 @@ It runs `devbox pair --json` on each machine over SSH, then `t3 environment link
 
 That link is for agents. The T3 Code app keeps its own list, so `--app` also sends each machine to the app here. On macOS and Linux it opens a `t3code://` link that the app asks you to confirm. From WSL the Windows app ignores those links, so it copies each pairing URL to the clipboard and waits for Enter while you paste it in Settings → Connections → Add environment.
 
-`devbox pair [--label <name>] [--json]` prints the machine's T3 URL and a one-time pairing token that lasts 15 minutes. `--json` prints `{"url", "token"}`.
+`devbox pair [--label <name>] [--json]` prints the machine's T3 URL and a one-time pairing token that lasts 15 minutes. `--json` prints `{"url", "token"}`. The URL is `--public-url` when the machine has one. Otherwise, on a machine on Tailscale, it is `http://<MagicDNS name>:<port>`, because `t3 environment link` refuses plain http to anything but a Tailscale address. With neither it is `http://<hostname>:<port>`.
 
 ## Back up agent memory
 

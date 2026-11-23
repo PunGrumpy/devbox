@@ -14,6 +14,22 @@ export type Pairing = typeof Pairing.Type;
 
 export const pairingUrl = (pairing: Pairing) => `${pairing.url}/pair#token=${pairing.token}`;
 
+const TailscaleSelf = Schema.fromJsonString(
+  Schema.Struct({ Self: Schema.Struct({ DNSName: Schema.String }) }),
+);
+
+// `t3 environment link` refuses plain http unless the host is a Tailscale address, and the bare
+// hostname is not one. The MagicDNS name is, and it stays reachable only from the tailnet.
+const tailscaleName = Effect.gen(function* () {
+  const host = yield* Host;
+  const status = yield* host.run(["tailscale", "status", "--self", "--json"], { timeoutMs: 5000 });
+  if (status.code !== 0) return Option.none<string>();
+  return Schema.decodeUnknownOption(TailscaleSelf)(status.stdout).pipe(
+    Option.map((json) => json.Self.DNSName.replace(/\.$/, "")),
+    Option.filter((name) => name !== ""),
+  );
+});
+
 export class PairFailed extends Schema.TaggedError<PairFailed>()("PairFailed", {
   message: Schema.String,
   hint: Schema.optional(Schema.String),
@@ -63,13 +79,15 @@ export const pair = Command.make(
           message: "t3 pair printed no token",
           hint: minted.stderr.trim() || "is T3 Code running? `devbox up` starts it",
         });
-      const pairing: Pairing = {
-        url: Option.getOrElse(
-          Option.fromUndefinedOr(machine.url),
-          () => `http://${host.hostname}:${machine.port}`,
-        ),
-        token,
-      };
+      const url = yield* Option.match(Option.fromUndefinedOr(machine.url), {
+        onSome: Effect.succeed,
+        onNone: () =>
+          Effect.map(
+            tailscaleName,
+            (name) => `http://${Option.getOrElse(name, () => host.hostname)}:${machine.port}`,
+          ),
+      });
+      const pairing: Pairing = { url, token };
       if (json) return yield* out.json(pairing);
       yield* out.pairs([
         ["url", pairing.url],

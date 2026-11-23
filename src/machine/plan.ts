@@ -1,4 +1,4 @@
-import { Data, Option } from "effect";
+import { Data, Option, Schema } from "effect";
 import { join } from "node:path";
 import {
   type AgentId,
@@ -69,7 +69,13 @@ export type Facts = {
 };
 
 export type Change = Data.TaggedEnum<{
-  Write: { readonly path: string; readonly content: string; readonly privileged: boolean };
+  Write: {
+    readonly path: string;
+    readonly content: string;
+    readonly privileged: boolean;
+    // Applies only when the file is created.
+    readonly mode: Option.Option<number>;
+  };
   Git: { readonly key: string; readonly values: ReadonlyArray<string> };
   Link: { readonly path: string; readonly target: string };
   InstallT3: { readonly from: Option.Option<string>; readonly to: string };
@@ -83,6 +89,31 @@ export const Change = Data.taggedEnum<Change>();
 
 export type Skip = { readonly what: string; readonly why: string };
 export type Plan = { readonly changes: ReadonlyArray<Change>; readonly skips: ReadonlyArray<Skip> };
+
+export const t3SettingsPath = (baseDir: string) => join(baseDir, "userdata", "settings.json");
+
+type LinkedEnvironments = Data.TaggedEnum<{
+  On: {};
+  Enable: { readonly content: string };
+  NotAnObject: {};
+}>;
+const LinkedEnvironments = Data.taggedEnum<LinkedEnvironments>();
+
+const SettingsObject = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown));
+
+// T3 refuses `t3 environment link` unless this is true, and its settings.json has no other
+// switch for it than a Settings screen a headless box never opens.
+export const enableLinkedEnvironments = (current: Option.Option<string>): LinkedEnvironments => {
+  const settings = Option.match(current, {
+    onNone: () => Option.some<Record<string, unknown>>({}),
+    onSome: (text) => Schema.decodeUnknownOption(SettingsObject)(text),
+  });
+  if (Option.isNone(settings)) return LinkedEnvironments.NotAnObject();
+  if (settings.value.linkedEnvironmentsEnabled === true) return LinkedEnvironments.On();
+  return LinkedEnvironments.Enable({
+    content: `${JSON.stringify({ ...settings.value, linkedEnvironmentsEnabled: true }, null, 2)}\n`,
+  });
+};
 
 export const machineInfoPath = (etc: string) => join(etc, "machine-info");
 export const profilePath = (etc: string) => join(etc, "profile.d", "devbox.sh");
@@ -196,13 +227,18 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
   const changes: Array<Change> = [];
   const skips: Array<Skip> = [];
   const current = (path: string) => Option.flatten(Option.fromUndefinedOr(facts.files.get(path)));
-  const write = (path: string, content: string, privileged: boolean) => {
+  const write = (
+    path: string,
+    content: string,
+    privileged: boolean,
+    mode: Option.Option<number> = Option.none(),
+  ) => {
     if (Option.contains(current(path), content)) return false;
     if (privileged && !facts.sudo) {
       skips.push({ what: path, why: "no passwordless sudo" });
       return false;
     }
-    changes.push(Change.Write({ path, content, privileged }));
+    changes.push(Change.Write({ path, content, privileged, mode }));
     return true;
   };
 
@@ -227,6 +263,17 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
   write(machineFile(ctx.home), machineJson(config), false);
   if (remembered(config.agents))
     write(pathsOf(config.data).agents, agentsJson(config.agents.ids), false);
+
+  const t3Settings = t3SettingsPath(config.baseDir);
+  LinkedEnvironments.$match(enableLinkedEnvironments(current(t3Settings)), {
+    On: () => undefined,
+    Enable: ({ content }) => write(t3Settings, content, false, Option.some(0o600)),
+    NotAnObject: () =>
+      skips.push({
+        what: t3Settings,
+        why: "not a JSON object, so linked environments stays as it is; turn it on in Settings → Labs",
+      }),
+  });
 
   const unitChanged = Supervisor.$match(facts.supervisor, {
     Systemd: ({ scope }) =>

@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -98,6 +99,93 @@ describe("flags become one machine config", () => {
     expect(r.code).toBe(2);
     expect(r.err).toContain(flag);
     expect(m.calls).toEqual([]);
+  });
+});
+
+describe("linked environments", () => {
+  const settingsFile = (m: ReturnType<typeof makeMachine>) =>
+    join(m.home, ".t3/userdata/settings.json");
+
+  test("a new box gets a private settings.json that turns it on, and a rerun changes nothing", async () => {
+    const m = makeMachine();
+    const first = await up(m, "--supervisor", "detached");
+    expect(first.err).toContain(`wrote ${settingsFile(m)}`);
+    expect(JSON.parse(readFileSync(settingsFile(m), "utf8"))).toEqual({
+      linkedEnvironmentsEnabled: true,
+    });
+    expect(statSync(settingsFile(m)).mode & 0o777).toBe(0o600);
+
+    const before = m.calls.length;
+    const second = await up(m, "--supervisor", "detached");
+    expect(second.err).toContain("No changes.");
+    expect(mutations(m, before)).toEqual([]);
+  });
+
+  test("it keeps every other key and the file's mode when it turns the setting on", async () => {
+    const m = makeMachine();
+    mkdirSync(dirname(settingsFile(m)), { recursive: true });
+    writeFileSync(
+      settingsFile(m),
+      JSON.stringify({
+        guestSharingEnabled: true,
+        linkedEnvironmentsEnabled: false,
+        nested: { a: [1] },
+      }),
+      { mode: 0o644 },
+    );
+    const r = await up(m, "--supervisor", "detached");
+    expect(r.code).toBe(0);
+    expect(JSON.parse(readFileSync(settingsFile(m), "utf8"))).toEqual({
+      guestSharingEnabled: true,
+      linkedEnvironmentsEnabled: true,
+      nested: { a: [1] },
+    });
+    expect(statSync(settingsFile(m)).mode & 0o777).toBe(0o644);
+  });
+
+  test("a setting that is already on is left byte for byte as it is", async () => {
+    const m = makeMachine();
+    mkdirSync(dirname(settingsFile(m)), { recursive: true });
+    const text = '{"linkedEnvironmentsEnabled":true,   "a": 1}';
+    writeFileSync(settingsFile(m), text);
+    const r = await up(m, "--supervisor", "detached");
+    expect(readFileSync(settingsFile(m), "utf8")).toBe(text);
+    expect(r.err).not.toContain("settings.json");
+  });
+
+  test.each([
+    ["an array", "[1]"],
+    ["null", "null"],
+    ["invalid JSON", "{ // comment\n}"],
+    ["empty", ""],
+  ])("when settings.json is %s it skips with a note and does not overwrite it", async (_, text) => {
+    const m = makeMachine();
+    mkdirSync(dirname(settingsFile(m)), { recursive: true });
+    writeFileSync(settingsFile(m), text);
+    const r = await up(m, "--supervisor", "detached");
+    expect(r.code).toBe(0);
+    expect(r.err).toContain(`skipped ${settingsFile(m)}: not a JSON object`);
+    expect(readFileSync(settingsFile(m), "utf8")).toBe(text);
+  });
+
+  test("it follows --base-dir", async () => {
+    const m = makeMachine();
+    const baseDir = join(m.base, "t3-home");
+    await up(m, "--supervisor", "detached", "--base-dir", baseDir);
+    expect(JSON.parse(readFileSync(join(baseDir, "userdata/settings.json"), "utf8"))).toEqual({
+      linkedEnvironmentsEnabled: true,
+    });
+  });
+
+  test("a running T3 reads it from the file, so the change does not restart it", async () => {
+    const m = makeMachine();
+    await up(m, "--supervisor", "detached");
+    const [first] = m.processes;
+    writeFileSync(settingsFile(m), '{"linkedEnvironmentsEnabled": false}');
+    const r = await up(m, "--supervisor", "detached");
+    expect(r.err).toContain(`wrote ${settingsFile(m)}`);
+    expect(r.err).not.toContain("started T3 Code");
+    expect(m.processes.map((p) => p.pid)).toEqual([first!.pid]);
   });
 });
 
