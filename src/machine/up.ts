@@ -17,6 +17,7 @@ import {
 import {
   type AgentId,
   AgentInstallFailed,
+  agentBin,
   agentName,
   chooseAgents,
   installAgent,
@@ -357,16 +358,21 @@ const apply = (
         }),
       InstallAgent: ({ id }) =>
         installAgent(id, config.data, npm).pipe(
+          // Judged by the binary, not the exit code: Devin's installer ends with a login that fails without a terminal.
           Effect.flatMap((ran) =>
-            ran.code === 0
-              ? Effect.void
-              : Effect.fail(
-                  new AgentInstallFailed({
-                    id,
-                    code: ran.code,
-                    detail: ran.stderr.trim().split("\n").at(-1) ?? "",
-                  }),
-                ),
+            Effect.flatMap(
+              fs.exists(agentBin(config.data, id)).pipe(Effect.orElseSucceed(() => false)),
+              (installed) =>
+                installed
+                  ? Effect.void
+                  : Effect.fail(
+                      new AgentInstallFailed({
+                        id,
+                        code: ran.code,
+                        detail: ran.stderr.trim().split("\n").at(-1) ?? "",
+                      }),
+                    ),
+            ),
           ),
         ),
       Linger: () =>

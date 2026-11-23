@@ -373,7 +373,7 @@ describe("devbox serve keeps the chosen agents current", () => {
       absolutePath(m.home),
     );
 
-  test("npm agents reinstall @latest, Devin updates itself, Claude is left alone, and skills get the targets", async () => {
+  test("npm agents reinstall @latest, Claude and Devin are left alone, and skills get the targets", async () => {
     const m = makeMachine();
     mkdirSync(join(m.home, ".config/devbox"), { recursive: true });
     writeFileSync(savedFile(m), '{"agents":["claude","codex","devin","opencode"]}\n');
@@ -396,7 +396,7 @@ describe("devbox serve keeps the chosen agents current", () => {
       prefix,
       "@openai/codex@latest",
     ]);
-    expect(m.calls).toContainEqual(["devin", "update"]);
+    expect(m.calls.some((c) => c[0] === "devin")).toBe(false);
     expect(m.calls.some((c) => c.includes("opencode-ai@latest"))).toBe(false);
     expect(m.calls.some((c) => c[0] === "claude")).toBe(false);
     expect(err).toContain("agents: Codex is current");

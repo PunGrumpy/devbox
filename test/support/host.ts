@@ -96,9 +96,8 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
       if (installs === undefined || env.HOME === undefined) return fail(1, "fake host: bash");
       if (m.brokenInstallers.has(installs)) return fail(1, `${installs}: install failed`);
       writeBin(join(env.HOME, ".local", "bin"), installs);
-      return ok();
+      return installs === "devin" ? fail(1, "Error: Login canceled") : ok();
     }
-    if (bin !== undefined && args[0] === "update" && AGENTS.some((a) => a.bin === bin)) return ok();
     if (bin === "tee") {
       mkdirSync(dirname(args[0]!), { recursive: true });
       writeFileSync(args[0]!, stdin ?? "");
