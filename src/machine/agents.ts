@@ -7,8 +7,8 @@ import { processEnv, settingsFor } from "./settings.ts";
 
 /** How an agent gets onto the machine without sudo. It also says who keeps it current. */
 export type Install = Data.TaggedEnum<{
-  /** `curl -fsSL url | bash` with HOME=<data>. `update` is the argv `serve` runs at each start; none means the agent updates itself. */
-  Script: { readonly url: string; readonly update: Option.Option<ReadonlyArray<string>> };
+  /** `curl -fsSL url | bash` with HOME=<data>. devbox never updates it: Claude Code updates itself, and `devin update` only runs on a terminal. */
+  Script: { readonly url: string };
   /** `npm install -g --prefix <data>/.local <pkg>@latest`, run again by `serve` at each start. */
   Npm: { readonly pkg: string };
 }>;
@@ -31,7 +31,7 @@ export const AGENTS = [
     id: "claude",
     name: "Claude Code",
     bin: "claude",
-    install: Install.Script({ url: "https://claude.ai/install.sh", update: Option.none() }),
+    install: Install.Script({ url: "https://claude.ai/install.sh" }),
     skills: "claude-code",
     login: "claude auth login",
     byDefault: true,
@@ -49,10 +49,7 @@ export const AGENTS = [
     id: "devin",
     name: "Devin",
     bin: "devin",
-    install: Install.Script({
-      url: "https://cli.devin.ai/install.sh",
-      update: Option.some(["devin", "update"]),
-    }),
+    install: Install.Script({ url: "https://cli.devin.ai/install.sh" }),
     skills: "devin",
     login: "devin configure",
     byDefault: false,
@@ -237,7 +234,7 @@ export const installAgent = (
     });
   });
 
-/** Best effort and never fails. Npm agents reinstall `@latest`, a Script with an update argv runs it, and the rest update themselves. */
+/** Best effort and never fails. Npm agents reinstall `@latest`; Script agents are left alone. */
 export const updateAgents = (data: string, ids: AgentIds, npm: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
@@ -250,13 +247,11 @@ export const updateAgents = (data: string, ids: AgentIds, npm: string) =>
         yield* out.warn(`agents: ${name} is chosen but not installed, run \`devbox up\``);
         continue;
       }
-      const argv = Install.$match(install, {
-        Npm: ({ pkg }) =>
-          Option.some([npm, "install", "-g", "--prefix", join(data, ".local"), `${pkg}@latest`]),
-        Script: ({ update }) => update,
-      });
-      if (Option.isNone(argv)) continue;
-      const ran = yield* host.run(argv.value, { env, timeoutMs: FIVE_MINUTES });
+      if (install._tag === "Script") continue;
+      const ran = yield* host.run(
+        [npm, "install", "-g", "--prefix", join(data, ".local"), `${install.pkg}@latest`],
+        { env, timeoutMs: FIVE_MINUTES },
+      );
       yield* ran.code === 0
         ? out.log(`agents: ${name} is current`)
         : out.warn(`agents: ${name} did not update, exit ${ran.code}`);

@@ -54,7 +54,7 @@ T3 Code finds an agent by its binary name on `PATH`, so a fresh machine needs th
 | ----------- | ------------- | --------------------------------------------------- | ---------------------------- | --------------------------- |
 | Claude Code | `claude`      | `claude.ai/install.sh`, into `<data>/.local/bin`    | itself                       | `claude auth login`         |
 | Codex       | `codex`       | npm, `@openai/codex`, into `<data>/.local`          | `devbox serve` at each start | `codex login --device-auth` |
-| Devin       | `devin`       | `cli.devin.ai/install.sh`, into `<data>/.local/bin` | `devbox serve` at each start | `devin configure`           |
+| Devin       | `devin`       | `cli.devin.ai/install.sh`, into `<data>/.local/bin` | `devin update` on a terminal | `devin configure`           |
 | OpenCode    | `opencode`    | npm, `opencode-ai`, into `<data>/.local`            | `devbox serve` at each start | `opencode auth login`       |
 
 ```sh
