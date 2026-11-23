@@ -1,11 +1,19 @@
 import { Effect, FileSystem, Option } from "effect";
 import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Output, plural } from "../output.ts";
 import { currentAgents, skillsAgentsOf, updateAgents } from "./agents.ts";
 import { type ServeConfig, pathsOf } from "./config.ts";
 import { Host } from "./host.ts";
+import {
+  claudeHomes,
+  INSTRUCTIONS_FETCH,
+  INSTRUCTIONS_SOURCE,
+  instructionsFile,
+  managedInstructions,
+} from "./instructions.ts";
+import { t3SettingsPath } from "./plan.ts";
 import { processEnv, settingsFor } from "./settings.ts";
 import { parseSkillsList, SKILLS_LIST_URL, skillsAddArgs, skillsStamp } from "./skills.ts";
 
@@ -140,6 +148,48 @@ export const installSkills = (
     );
   });
 
+export const installInstructions = (
+  config: Pick<ServeConfig, "data" | "baseDir">,
+  home: string,
+  env: Record<string, string>,
+) =>
+  Effect.gen(function* () {
+    const host = yield* Host;
+    const fs = yield* FileSystem.FileSystem;
+    const out = yield* Output;
+    const fetched = yield* host.run(INSTRUCTIONS_FETCH, { env });
+    if (fetched.code !== 0 || fetched.stdout.trim() === "")
+      return yield* out.warn(
+        `instructions: cannot read ${INSTRUCTIONS_SOURCE}; run gh auth login, then start again`,
+      );
+    const wanted = managedInstructions(fetched.stdout);
+    const settings = yield* fs.readFileString(t3SettingsPath(config.baseDir)).pipe(Effect.option);
+    const written = yield* Effect.filter(claudeHomes(settings, home, config.data), (dir) =>
+      Effect.gen(function* () {
+        const path = join(dir, "CLAUDE.md");
+        const current = yield* fs.readFileString(path).pipe(Effect.option);
+        switch (instructionsFile(current, wanted)._tag) {
+          case "Current":
+            return false;
+          case "NotOurs":
+            yield* out.warn(`instructions: left ${path} alone, devbox did not write it`);
+            return false;
+          case "Write":
+            return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
+              Effect.andThen(fs.writeFileString(path, wanted)),
+              Effect.as(true),
+              Effect.orElseSucceed(() => false),
+            );
+        }
+      }),
+    );
+    yield* out.log(
+      written.length === 0
+        ? "instructions: up to date"
+        : `instructions: wrote CLAUDE.md in ${written.join(", ")}`,
+    );
+  });
+
 export const postStart = (config: ServeConfig) =>
   Effect.gen(function* () {
     const out = yield* Output;
@@ -155,5 +205,6 @@ export const postStart = (config: ServeConfig) =>
       (yield* host.which("npm")) ? "npm" : pathsOf(config.data).npmShim,
     );
     yield* installSkills(config.data, env, skillsAgentsOf(ids));
+    if (ids.includes("claude")) yield* installInstructions(config, homedir(), env);
     yield* out.log("setup: done");
   });

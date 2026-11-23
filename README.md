@@ -48,6 +48,8 @@ What it does:
 
 `devbox serve` takes the same flags. It probes user namespaces and turns off Chrome's sandbox when the machine blocks them, starts the proxy when `--public-url` is set, and runs `t3 serve`. Once T3 answers it installs the browser's libraries with apt, Go and Rust with [mise](https://mise.jdx.dev/) (and `gh` when the machine has none), updates the agent CLIs it keeps current, and installs the agent skills from [my dotfiles](https://github.com/PunGrumpy/dotfiles) for the chosen agents that take skills. That never blocks T3. The skills list is parsed as data, never run, and installs again when it changes or when you choose another agent.
 
+When Claude Code is one of the agents, it also writes my standing rules as `CLAUDE.md` into every Claude home: `$CLAUDE_CONFIG_DIR`, and the `homePath` of each Claude provider instance in T3's `settings.json`. A new machine has none of the memory agents built up elsewhere, and that memory holds paths, shells and credentials of the machine it was written on, so the rules travel and the memory does not. The text comes from `instructions/global.md` in the private `PunGrumpy/agents` repo through the gh login. Each file starts with a marker line. `devbox` rewrites a file with the marker when the source changes, and leaves a `CLAUDE.md` without it alone with a note. Without a gh login it writes nothing and says to run `gh auth login`.
+
 Logs of a detached `devbox serve` go to `<data>/.devbox-logs/serve.log`. A systemd unit logs to the journal: `journalctl -u devbox` or `journalctl --user -u devbox`.
 
 ### Agent CLIs
