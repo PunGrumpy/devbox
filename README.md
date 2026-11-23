@@ -30,6 +30,7 @@ devbox up --name edge-7 --data /persist --public-url https://edge-7.example.com
 | `--workspace`  | `<data>`     | The working directory for agent sessions.                                                                                                 |
 | `--channel`    | `nightly`    | The npm dist-tag T3 Code installs and updates from.                                                                                       |
 | `--supervisor` | `auto`       | What keeps T3 running: a systemd system unit when systemd and passwordless sudo exist, else a systemd user unit, else a detached process. |
+| `--agents`     | ask once     | The agent CLIs to install: `pick`, `none`, or a list like `claude,codex`. Saved in `<data>`, so later runs ask nothing.                   |
 | `--no-setup`   | setup runs   | Skips the slow setup that runs after T3 starts.                                                                                           |
 
 What it does:
@@ -37,13 +38,34 @@ What it does:
 - Sets Git to commit as me without signing, and to log in to github.com through `gh`, in `~/.gitconfig`.
 - With passwordless sudo, writes `/etc/machine-info` and `/etc/profile.d/devbox.sh`, which puts the languages on `PATH` and keeps tool data in `--data` for login shells. Without it, it skips both with a note.
 - When `--data` is not `$HOME`, links `~/.agents` into it, and `~/.config/gh` once a gh login is saved there.
-- Installs or updates T3 Code from npm into `<data>/.local`.
+- Installs or updates T3 Code from npm into `<data>/.local`, and installs the [agent CLIs](#agent-clis) you chose that are missing.
 - When `~/.config/devbox/backup/env` sets `RESTIC_REPOSITORY`, installs `restic` and `sqlite3` with apt if they are missing, and enables a nightly backup timer. See [Back up agent memory](#back-up-agent-memory). Without that file it prints one line saying backups are off.
 - Keeps `devbox serve` running under the supervisor, and restarts it when T3 Code updates or the flags change. It waits until T3 answers on the port.
 
-`devbox serve` takes the same flags. It probes user namespaces and turns off Chrome's sandbox when the machine blocks them, starts the proxy when `--public-url` is set, and runs `t3 serve`. Once T3 answers it installs the browser's libraries with apt, Go and Rust with [mise](https://mise.jdx.dev/), and the agent skills from [my dotfiles](https://github.com/PunGrumpy/dotfiles) for Claude Code and Codex. That never blocks T3. The skills list is parsed as data, never run, and installs again only when it changes.
+`devbox serve` takes the same flags. It probes user namespaces and turns off Chrome's sandbox when the machine blocks them, starts the proxy when `--public-url` is set, and runs `t3 serve`. Once T3 answers it installs the browser's libraries with apt, Go and Rust with [mise](https://mise.jdx.dev/) (and `gh` when the machine has none), updates the agent CLIs it keeps current, and installs the agent skills from [my dotfiles](https://github.com/PunGrumpy/dotfiles) for the chosen agents that take skills. That never blocks T3. The skills list is parsed as data, never run, and installs again when it changes or when you choose another agent.
 
 Logs of a detached `devbox serve` go to `<data>/.devbox-logs/serve.log`. A systemd unit logs to the journal: `journalctl -u devbox` or `journalctl --user -u devbox`.
+
+### Agent CLIs
+
+T3 Code finds an agent by its binary name on `PATH`, so a fresh machine needs the CLIs installed. `devbox up` installs the ones you choose. The first time it runs on a terminal it asks, and it saves the answer in `<data>/.config/devbox/agents.json`. Later runs read that file and ask nothing. Without a terminal and without that file (Upstash, instabox, a systemd start) it installs the defaults, Claude Code and Codex, and saves nothing, so the next run on a terminal still asks.
+
+| Agent       | `--agents` id | Installed with                                      | Kept current by              | Log in once with            |
+| ----------- | ------------- | --------------------------------------------------- | ---------------------------- | --------------------------- |
+| Claude Code | `claude`      | `claude.ai/install.sh`, into `<data>/.local/bin`    | itself                       | `claude auth login`         |
+| Codex       | `codex`       | npm, `@openai/codex`, into `<data>/.local`          | `devbox serve` at each start | `codex login --device-auth` |
+| Devin       | `devin`       | `cli.devin.ai/install.sh`, into `<data>/.local/bin` | `devbox serve` at each start | `devin configure`           |
+| OpenCode    | `opencode`    | npm, `opencode-ai`, into `<data>/.local`            | `devbox serve` at each start | `opencode auth login`       |
+
+```sh
+devbox up --agents claude,codex,devin   # set the list; it is saved
+devbox up --agents pick                 # ask again, with the saved list ticked
+devbox up --agents none                 # manage no agent CLI
+```
+
+`--agents` replaces the saved list, so add or drop one by naming the new list. A dropped agent stays installed and logged in. `devbox` stops updating it and giving it skills, and prints the command that removes it. Logging in stays yours: after installing an agent, `devbox up` prints the command. An install that fails prints a failed check and does not fail `up`, and the next run tries again. Installing an agent restarts T3 Code, so it sees the new binary.
+
+The file lives in `--data`, not `~/.config`, because on Upstash only `/workspace` survives a rebuild. Run `devbox up` with the same `--data` the box uses.
 
 ### Upstash Box
 
