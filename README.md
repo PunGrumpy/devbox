@@ -54,12 +54,14 @@ Logs of a detached `devbox serve` go to `<data>/.devbox-logs/serve.log`. A syste
 
 T3 Code finds an agent by its binary name on `PATH`, so a fresh machine needs the CLIs installed. `devbox up` installs the ones you choose. The first time it runs on a terminal it asks, and it saves the answer in `<data>/.config/devbox/agents.json`. Later runs read that file and ask nothing. Without a terminal and without that file (Upstash, instabox, a systemd start) it installs the defaults, Claude Code and Codex, and saves nothing, so the next run on a terminal still asks.
 
-| Agent       | `--agents` id | Installed with                                      | Kept current by              | Log in once with            |
-| ----------- | ------------- | --------------------------------------------------- | ---------------------------- | --------------------------- |
-| Claude Code | `claude`      | `claude.ai/install.sh`, into `<data>/.local/bin`    | itself                       | `claude auth login`         |
-| Codex       | `codex`       | npm, `@openai/codex`, into `<data>/.local`          | `devbox serve` at each start | `codex login --device-auth` |
-| Devin       | `devin`       | `cli.devin.ai/install.sh`, into `<data>/.local/bin` | `devin update` on a terminal | `devin configure`           |
-| OpenCode    | `opencode`    | npm, `opencode-ai`, into `<data>/.local`            | `devbox serve` at each start | `opencode auth login`       |
+| Agent           | `--agents` id | Installed with                                                                  | Kept current by              | Log in once with                          |
+| --------------- | ------------- | ------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------- |
+| Claude Code     | `claude`      | `claude.ai/install.sh`, into `<data>/.local/bin`                                | itself                       | `claude auth login`                       |
+| Codex           | `codex`       | npm, `@openai/codex`, into `<data>/.local`                                      | `devbox serve` at each start | `codex login --device-auth`               |
+| Devin           | `devin`       | `cli.devin.ai/install.sh`, into `<data>/.local/bin`                             | `devin update` on a terminal | `devin configure`                         |
+| OpenCode        | `opencode`    | npm, `opencode-ai`, into `<data>/.local`                                        | `devbox serve` at each start | `opencode auth login`                     |
+| Antigravity CLI | `agy`         | `antigravity.google/cli/install.sh`, into `<data>/.local/bin`                   | itself                       | `agy`, then sign in on its welcome screen |
+| Grok Build      | `grok`        | `x.ai/cli/install.sh`, into `<data>/.grok/bin`, linked into `<data>/.local/bin` | itself                       | `grok login --device-auth`                |
 
 ```sh
 devbox up --agents claude,codex,devin   # set the list; it is saved
@@ -67,7 +69,7 @@ devbox up --agents pick                 # ask again, with the saved list ticked
 devbox up --agents none                 # manage no agent CLI
 ```
 
-`--agents` replaces the saved list, so add or drop one by naming the new list. A dropped agent stays installed and logged in. `devbox` stops updating it and giving it skills, and prints the command that removes it. Logging in stays yours: after installing an agent, `devbox up` prints the command. An install that fails prints a failed check and does not fail `up`, and the next run tries again. Installing an agent restarts T3 Code, so it sees the new binary.
+`--agents` replaces the saved list, so add or drop one by naming the new list. A dropped agent stays installed and logged in. `devbox` stops updating it and giving it skills, and prints the command that removes it. Logging in stays yours: after installing an agent, `devbox up` prints the command. An install that fails prints a failed check and does not fail `up`, and the next run tries again. Installing an agent restarts T3 Code, so it sees the new binary. Installing does not turn on the agent's provider in T3 Code: if T3 lists it as off, turn it on in its settings.
 
 The file lives in `--data`, not `~/.config`, because on Upstash only `/workspace` survives a rebuild. Run `devbox up` with the same `--data` the box uses.
 

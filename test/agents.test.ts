@@ -183,7 +183,9 @@ describe("--agents", () => {
     const m = makeMachine();
     const r = await up(m, "--agents", "claude,cursor");
     expect(r.code).toBe(2);
-    expect(r.err).toContain(`unknown agent "cursor"; known: claude, codex, devin, opencode`);
+    expect(r.err).toContain(
+      `unknown agent "cursor"; known: claude, codex, devin, opencode, agy, grok`,
+    );
     expect(m.calls).toEqual([]);
     expect(existsSync(savedFile(m))).toBe(false);
   });
@@ -226,6 +228,8 @@ describe("the picker", () => {
       { title: "Codex", selected: true },
       { title: "Devin", selected: false },
       { title: "OpenCode", selected: false },
+      { title: "Antigravity CLI", selected: false },
+      { title: "Grok Build", selected: false },
     ]);
     expect(r.err).toContain("agents      claude, devin (picked)");
     expect(saved(m)).toEqual({ agents: ["claude", "devin"] });
@@ -256,9 +260,9 @@ describe("the saved file", () => {
   test("ids this devbox does not know are dropped with a warning", async () => {
     const m = makeMachine();
     mkdirSync(join(m.home, ".config/devbox"), { recursive: true });
-    writeFileSync(savedFile(m), '{"agents":["claude","grok"]}\n');
+    writeFileSync(savedFile(m), '{"agents":["claude","aider"]}\n');
     const r = await up(m);
-    expect(r.err).toContain("ignoring grok");
+    expect(r.err).toContain("ignoring aider");
     expect(r.err).toContain("agents      claude (saved)");
     expect(existsSync(binOf(m, "codex"))).toBe(false);
   });

@@ -7,7 +7,7 @@ import { processEnv, settingsFor } from "./settings.ts";
 
 /** How an agent gets onto the machine without sudo. It also says who keeps it current. */
 export type Install = Data.TaggedEnum<{
-  /** `curl -fsSL url | bash` with HOME=<data>. devbox never updates it: Claude Code updates itself, and `devin update` only runs on a terminal. */
+  /** `curl -fsSL url | bash` with HOME=<data>. devbox never updates it: Claude Code, Antigravity and Grok update themselves, and `devin update` only runs on a terminal. */
   Script: { readonly url: string };
   /** `npm install -g --prefix <data>/.local <pkg>@latest`, run again by `serve` at each start. */
   Npm: { readonly pkg: string };
@@ -61,6 +61,24 @@ export const AGENTS = [
     install: Install.Npm({ pkg: "opencode-ai" }),
     skills: "opencode",
     login: "opencode auth login",
+    byDefault: false,
+  },
+  {
+    id: "agy",
+    name: "Antigravity CLI",
+    bin: "agy",
+    install: Install.Script({ url: "https://antigravity.google/cli/install.sh" }),
+    skills: "antigravity-cli",
+    login: "agy",
+    byDefault: false,
+  },
+  {
+    id: "grok",
+    name: "Grok Build",
+    bin: "grok",
+    install: Install.Script({ url: "https://x.ai/cli/install.sh" }),
+    skills: "grok",
+    login: "grok login --device-auth",
     byDefault: false,
   },
 ] as const satisfies ReadonlyArray<Agent>;
