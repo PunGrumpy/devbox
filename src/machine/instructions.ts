@@ -1,20 +1,12 @@
 import { Data, Option, Schema } from "effect";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
-export const INSTRUCTIONS_SOURCE = "PunGrumpy/agents instructions/global.md";
-
-// The repo is private, so this goes through the gh login and not a raw URL.
-export const INSTRUCTIONS_FETCH = [
-  "gh",
-  "api",
-  "-H",
-  "Accept: application/vnd.github.raw",
-  "repos/PunGrumpy/agents/contents/instructions/global.md",
-] as const;
-
-const MARKER = `<!-- Written by devbox from ${INSTRUCTIONS_SOURCE}. Edit it there; this file is overwritten. -->`;
-
-export const managedInstructions = (source: string): string => `${MARKER}\n\n${source.trim()}\n`;
+// One file for every agent. Claude Code reads CLAUDE.md, not AGENTS.md, so each Claude
+// home gets a link to it and a `git pull` of this repo updates them all.
+export const INSTRUCTIONS_FILE = fileURLToPath(
+  new URL("../../instructions/AGENTS.md", import.meta.url),
+);
 
 const T3Settings = Schema.fromJsonString(
   Schema.Struct({
@@ -52,23 +44,25 @@ export const claudeHomes = (
   return [...new Set([fallback, ...homes])];
 };
 
-export type InstructionsFile = Data.TaggedEnum<{
-  Current: {};
-  Write: {};
+export type InstructionsLink = Data.TaggedEnum<{
+  Linked: {};
+  Link: {};
   NotOurs: {};
 }>;
-export const InstructionsFile = Data.taggedEnum<InstructionsFile>();
+export const InstructionsLink = Data.taggedEnum<InstructionsLink>();
 
-export const instructionsFile = (
-  current: Option.Option<string>,
-  wanted: string,
-): InstructionsFile =>
-  Option.match(current, {
-    onNone: () => InstructionsFile.Write(),
-    onSome: (text) =>
-      text === wanted
-        ? InstructionsFile.Current()
-        : text.startsWith(MARKER)
-          ? InstructionsFile.Write()
-          : InstructionsFile.NotOurs(),
+export type InstructionsSource = { readonly path: string; readonly text: string };
+
+// A regular file that is a byte-for-byte copy of the source loses nothing as a link.
+export const instructionsLink = (
+  now: { readonly target: Option.Option<string>; readonly text: Option.Option<string> },
+  source: InstructionsSource,
+): InstructionsLink =>
+  Option.match(now.target, {
+    onSome: (target) =>
+      target === source.path ? InstructionsLink.Linked() : InstructionsLink.NotOurs(),
+    onNone: () =>
+      Option.isNone(now.text) || now.text.value === source.text
+        ? InstructionsLink.Link()
+        : InstructionsLink.NotOurs(),
   });

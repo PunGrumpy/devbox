@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { Option } from "effect";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import { claudeHomes, INSTRUCTIONS_FETCH } from "../src/machine/instructions.ts";
-import { installInstructions } from "../src/machine/setup.ts";
+import { claudeHomes, INSTRUCTIONS_FILE } from "../src/machine/instructions.ts";
+import { linkInstructions } from "../src/machine/setup.ts";
 import { absolutePath } from "../src/migrate/paths.ts";
 import { makeMachine } from "./support/host.ts";
 import { runWith } from "./support/run.ts";
@@ -33,17 +40,8 @@ describe("which Claude homes get instructions", () => {
   });
 });
 
-const MARKER =
-  "<!-- Written by devbox from PunGrumpy/agents instructions/global.md. Edit it there; this file is overwritten. -->";
-
-const machineServing = (source: { text: string } | undefined) => {
+const machine = () => {
   const m = makeMachine();
-  m.respond = (argv) =>
-    argv.join(" ") === INSTRUCTIONS_FETCH.join(" ")
-      ? source === undefined
-        ? { code: 4, stdout: "", stderr: "gh: To get started with GitHub CLI, run gh auth login" }
-        : { code: 0, stdout: source.text, stderr: "" }
-      : undefined;
   const baseDir = join(m.home, ".t3");
   mkdirSync(join(baseDir, "userdata"), { recursive: true });
   writeFileSync(
@@ -55,59 +53,78 @@ const machineServing = (source: { text: string } | undefined) => {
       },
     }),
   );
+  const source = join(m.base, "devbox", "instructions", "AGENTS.md");
+  mkdirSync(join(source, ".."), { recursive: true });
+  writeFileSync(source, "# Rules\n\n- Reply in Thai.\n");
   const run = () =>
     runWith(
       m.host,
-      installInstructions(
+      linkInstructions(
         { data: absolutePath(m.home), baseDir: absolutePath(baseDir) },
         m.home,
-        {},
+        source,
       ),
     );
   const file = (home: string) => join(m.home, home, "CLAUDE.md");
-  return { run, file };
+  const put = (home: string, text: string) => {
+    mkdirSync(join(m.home, home), { recursive: true });
+    writeFileSync(file(home), text);
+  };
+  return { m, run, file, put, source };
 };
 
-describe("installInstructions", () => {
-  test("writes the fetched rules under a marker into each home, then changes nothing", async () => {
-    const { run, file } = machineServing({ text: "# Rules\n\n- Reply in Thai.\n\n" });
+describe("linkInstructions", () => {
+  test("links CLAUDE.md in each home to the one AGENTS.md, then changes nothing", async () => {
+    const { run, file, source } = machine();
     const first = await run();
-    const wanted = `${MARKER}\n\n# Rules\n\n- Reply in Thai.\n`;
-    expect(readFileSync(file(".claude"), "utf8")).toBe(wanted);
-    expect(readFileSync(file(".claude-pun"), "utf8")).toBe(wanted);
-    expect(first.err).toContain("instructions: wrote CLAUDE.md in");
+    expect(readlinkSync(file(".claude"))).toBe(source);
+    expect(readlinkSync(file(".claude-pun"))).toBe(source);
+    expect(readFileSync(file(".claude-pun"), "utf8")).toBe("# Rules\n\n- Reply in Thai.\n");
+    expect(first.err).toContain("instructions: linked CLAUDE.md in");
 
     const second = await run();
     expect(second.err).toContain("instructions: up to date");
-    expect(second.err).not.toContain("wrote");
+    expect(second.err).not.toContain("linked");
   });
 
-  test("replaces a file it wrote when the source changes", async () => {
-    const source = { text: "old rule\n" };
-    const { run, file } = machineServing(source);
+  test("an edit to AGENTS.md shows in every home without another run", async () => {
+    const { run, file, source } = machine();
     await run();
-    source.text = "new rule\n";
-    await run();
-    expect(readFileSync(file(".claude"), "utf8")).toBe(`${MARKER}\n\nnew rule\n`);
+    writeFileSync(source, "new rule\n");
+    expect(readFileSync(file(".claude"), "utf8")).toBe("new rule\n");
   });
 
-  test("leaves a CLAUDE.md it did not write, says so, and still writes the other home", async () => {
-    const { run, file } = machineServing({ text: "rule\n" });
-    mkdirSync(join(file(".claude"), ".."), { recursive: true });
-    writeFileSync(file(".claude"), "# Mine\n");
+  test("replaces a regular file that is an exact copy of AGENTS.md", async () => {
+    const { run, file, put, source } = machine();
+    put(".claude", "# Rules\n\n- Reply in Thai.\n");
+    await run();
+    expect(readlinkSync(file(".claude"))).toBe(source);
+  });
+
+  test("leaves a different CLAUDE.md, says so, and still links the other home", async () => {
+    const { run, file, put, source } = machine();
+    put(".claude", "# Mine\n");
     const r = await run();
+    expect(lstatSync(file(".claude")).isSymbolicLink()).toBe(false);
     expect(readFileSync(file(".claude"), "utf8")).toBe("# Mine\n");
-    expect(r.err).toContain(`instructions: left ${file(".claude")} alone, devbox did not write it`);
-    expect(readFileSync(file(".claude-pun"), "utf8")).toBe(`${MARKER}\n\nrule\n`);
+    expect(r.err).toContain(
+      `instructions: left ${file(".claude")} alone, it is not a copy of ${source}`,
+    );
+    expect(readlinkSync(file(".claude-pun"))).toBe(source);
   });
 
-  test("without a gh login it writes nothing and names the fix", async () => {
-    const { run, file } = machineServing(undefined);
-    const r = await run();
-    expect(existsSync(file(".claude"))).toBe(false);
-    expect(existsSync(file(".claude-pun"))).toBe(false);
-    expect(r.err).toContain(
-      "instructions: cannot read PunGrumpy/agents instructions/global.md; run gh auth login, then start again",
-    );
+  test("leaves a link that points somewhere else", async () => {
+    const { m, run, file } = machine();
+    const mine = join(m.base, "mine.md");
+    writeFileSync(mine, "# Mine\n");
+    mkdirSync(join(m.home, ".claude"), { recursive: true });
+    symlinkSync(mine, file(".claude"));
+    await run();
+    expect(readlinkSync(file(".claude"))).toBe(mine);
   });
+});
+
+test("the repo ships the AGENTS.md the links point at", () => {
+  expect(INSTRUCTIONS_FILE.endsWith("/instructions/AGENTS.md")).toBe(true);
+  expect(readFileSync(INSTRUCTIONS_FILE, "utf8")).toContain("Never force push.");
 });

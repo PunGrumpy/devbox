@@ -6,13 +6,7 @@ import { Output, plural } from "../output.ts";
 import { currentAgents, skillsAgentsOf, updateAgents } from "./agents.ts";
 import { type ServeConfig, pathsOf } from "./config.ts";
 import { Host } from "./host.ts";
-import {
-  claudeHomes,
-  INSTRUCTIONS_FETCH,
-  INSTRUCTIONS_SOURCE,
-  instructionsFile,
-  managedInstructions,
-} from "./instructions.ts";
+import { claudeHomes, INSTRUCTIONS_FILE, instructionsLink } from "./instructions.ts";
 import { t3SettingsPath } from "./plan.ts";
 import { processEnv, settingsFor } from "./settings.ts";
 import { parseSkillsList, SKILLS_LIST_URL, skillsAddArgs, skillsStamp } from "./skills.ts";
@@ -148,35 +142,35 @@ export const installSkills = (
     );
   });
 
-export const installInstructions = (
+export const linkInstructions = (
   config: Pick<ServeConfig, "data" | "baseDir">,
   home: string,
-  env: Record<string, string>,
+  sourcePath: string,
 ) =>
   Effect.gen(function* () {
-    const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
-    const fetched = yield* host.run(INSTRUCTIONS_FETCH, { env });
-    if (fetched.code !== 0 || fetched.stdout.trim() === "")
-      return yield* out.warn(
-        `instructions: cannot read ${INSTRUCTIONS_SOURCE}; run gh auth login, then start again`,
-      );
-    const wanted = managedInstructions(fetched.stdout);
+    const text = yield* fs.readFileString(sourcePath).pipe(Effect.option);
+    if (Option.isNone(text)) return yield* out.warn(`instructions: no ${sourcePath}`);
+    const source = { path: sourcePath, text: text.value };
     const settings = yield* fs.readFileString(t3SettingsPath(config.baseDir)).pipe(Effect.option);
-    const written = yield* Effect.filter(claudeHomes(settings, home, config.data), (dir) =>
+    const linked = yield* Effect.filter(claudeHomes(settings, home, config.data), (dir) =>
       Effect.gen(function* () {
         const path = join(dir, "CLAUDE.md");
-        const current = yield* fs.readFileString(path).pipe(Effect.option);
-        switch (instructionsFile(current, wanted)._tag) {
-          case "Current":
+        const now = {
+          target: yield* fs.readLink(path).pipe(Effect.option),
+          text: yield* fs.readFileString(path).pipe(Effect.option),
+        };
+        switch (instructionsLink(now, source)._tag) {
+          case "Linked":
             return false;
           case "NotOurs":
-            yield* out.warn(`instructions: left ${path} alone, devbox did not write it`);
+            yield* out.warn(`instructions: left ${path} alone, it is not a copy of ${sourcePath}`);
             return false;
-          case "Write":
+          case "Link":
             return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
-              Effect.andThen(fs.writeFileString(path, wanted)),
+              Effect.andThen(fs.remove(path, { force: true })),
+              Effect.andThen(fs.symlink(sourcePath, path)),
               Effect.as(true),
               Effect.orElseSucceed(() => false),
             );
@@ -184,9 +178,9 @@ export const installInstructions = (
       }),
     );
     yield* out.log(
-      written.length === 0
+      linked.length === 0
         ? "instructions: up to date"
-        : `instructions: wrote CLAUDE.md in ${written.join(", ")}`,
+        : `instructions: linked CLAUDE.md in ${linked.join(", ")}`,
     );
   });
 
@@ -205,6 +199,6 @@ export const postStart = (config: ServeConfig) =>
       (yield* host.which("npm")) ? "npm" : pathsOf(config.data).npmShim,
     );
     yield* installSkills(config.data, env, skillsAgentsOf(ids));
-    if (ids.includes("claude")) yield* installInstructions(config, homedir(), env);
+    if (ids.includes("claude")) yield* linkInstructions(config, homedir(), INSTRUCTIONS_FILE);
     yield* out.log("setup: done");
   });
