@@ -28,6 +28,7 @@ devbox up --name edge-7 --data /persist --public-url https://edge-7.example.com
 | `--data`       | `$HOME`      | The directory that survives a rebuild. T3 Code, mise, Rust, Claude Code and agent skills keep their data here.                            |
 | `--public-url` | none         | The origin an edge proxy serves the machine on. T3 then runs behind a proxy that gives it this host, so OAuth and pairing URLs use it.    |
 | `--port`       | `3773`       | The port T3 Code answers on, directly or through the proxy.                                                                               |
+| `--host`       | `0.0.0.0`    | The address T3 Code listens on, so every interface. Not with `--public-url`, where T3 listens on `127.0.0.1` behind the proxy.            |
 | `--base-dir`   | `<data>/.t3` | T3 Code's data directory.                                                                                                                 |
 | `--workspace`  | `<data>`     | The working directory for agent sessions.                                                                                                 |
 | `--channel`    | `nightly`    | The npm dist-tag T3 Code installs and updates from.                                                                                       |
@@ -69,6 +70,16 @@ devbox up --agents none                 # manage no agent CLI
 `--agents` replaces the saved list, so add or drop one by naming the new list. A dropped agent stays installed and logged in. `devbox` stops updating it and giving it skills, and prints the command that removes it. Logging in stays yours: after installing an agent, `devbox up` prints the command. An install that fails prints a failed check and does not fail `up`, and the next run tries again. Installing an agent restarts T3 Code, so it sees the new binary.
 
 The file lives in `--data`, not `~/.config`, because on Upstash only `/workspace` survives a rebuild. Run `devbox up` with the same `--data` the box uses.
+
+### Keep T3 on the tailnet only
+
+By default T3 listens on every interface, including a cloud's private network. To make it reachable only over [Tailscale](https://tailscale.com), listen on the machine's Tailscale address:
+
+```sh
+devbox up --host "$(tailscale ip -4)"
+```
+
+`devbox up` and `devbox serve` pass `--host` to `t3 serve`. `devbox up` also probes that address, not `127.0.0.1`, to see whether T3 answers, and a changed `--host` restarts `devbox serve`. `--host 0.0.0.0` or `::` listens on every interface. Run `devbox up` after Tailscale is up, because T3 cannot bind an address the machine does not have yet.
 
 ### Upstash Box
 

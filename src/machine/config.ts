@@ -1,6 +1,7 @@
-import { Option, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import { Flag } from "effect/cli";
 import { join } from "node:path";
+import { UsageError } from "../errors.ts";
 import { type AbsolutePath, absolutePath } from "../migrate/paths.ts";
 import { type AgentChoice, type AgentsFlag, agentsFile, parseAgentsFlag } from "./agents.ts";
 
@@ -19,6 +20,22 @@ export const PublicUrl = Schema.String.pipe(
     }),
   ),
 );
+
+export const BindHost = Schema.String.pipe(
+  Schema.check(
+    Schema.isPattern(/^[A-Za-z0-9._:-]+$/, {
+      message: "expected an IP address or host name such as 100.64.0.7",
+    }),
+  ),
+);
+
+// Listening on every interface is what T3 did before --host existed, so a box without the flag
+// keeps the same unit file.
+export const ALL_INTERFACES = "0.0.0.0";
+
+// Where to knock to see whether T3 answers: a wildcard address is not one you can connect to.
+export const probeHost = (bind: string): string =>
+  bind === ALL_INTERFACES || bind === "::" ? "127.0.0.1" : bind;
 
 const Port = Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 })));
 
@@ -47,6 +64,13 @@ export const serveFlags = {
   ),
   workspace: Flag.String("workspace").pipe(
     Flag.withDescription("working directory for agent sessions (default <data>)"),
+    Flag.optional,
+  ),
+  host: Flag.String("host").pipe(
+    Flag.withDescription(
+      "address T3 Code listens on, for example a Tailscale IP (default 0.0.0.0, every interface; not with --public-url)",
+    ),
+    Flag.withSchema(BindHost),
     Flag.optional,
   ),
   publicUrl: Flag.String("public-url").pipe(
@@ -99,6 +123,7 @@ export type ServeConfig = {
   readonly port: number;
   readonly baseDir: AbsolutePath;
   readonly workspace: AbsolutePath;
+  readonly host: string;
   readonly publicUrl: Option.Option<string>;
   readonly setup: boolean;
 };
@@ -115,6 +140,7 @@ type ServeFlags = {
   readonly port: number;
   readonly baseDir: Option.Option<string>;
   readonly workspace: Option.Option<string>;
+  readonly host: Option.Option<string>;
   readonly publicUrl: Option.Option<string>;
   readonly setup: boolean;
 };
@@ -126,32 +152,40 @@ type UpFlags = ServeFlags & {
   readonly agents: Option.Option<AgentsFlag>;
 };
 
-export const serveConfig = (flags: ServeFlags, home: AbsolutePath): ServeConfig => {
-  const data = Option.match(flags.data, { onNone: () => home, onSome: (d) => absolutePath(d) });
-  const under = (value: Option.Option<string>, fallback: string) =>
-    absolutePath(Option.getOrElse(value, () => join(data, fallback)));
-  return {
-    data,
-    port: flags.port,
-    baseDir: under(flags.baseDir, ".t3"),
-    workspace: under(flags.workspace, "."),
-    publicUrl: flags.publicUrl,
-    setup: flags.setup,
-  };
-};
+export const serveConfig = (flags: ServeFlags, home: AbsolutePath) =>
+  Effect.gen(function* () {
+    if (Option.isSome(flags.host) && Option.isSome(flags.publicUrl))
+      return yield* new UsageError({
+        message: "--host and --public-url cannot be used together",
+        hint: "behind --public-url, T3 listens on 127.0.0.1 and the proxy takes every interface",
+      });
+    const data = Option.match(flags.data, { onNone: () => home, onSome: (d) => absolutePath(d) });
+    const under = (value: Option.Option<string>, fallback: string) =>
+      absolutePath(Option.getOrElse(value, () => join(data, fallback)));
+    return {
+      data,
+      port: flags.port,
+      baseDir: under(flags.baseDir, ".t3"),
+      workspace: under(flags.workspace, "."),
+      host: Option.getOrElse(flags.host, () => ALL_INTERFACES),
+      publicUrl: flags.publicUrl,
+      setup: flags.setup,
+    } satisfies ServeConfig;
+  });
 
 export const machineConfig = (
   flags: UpFlags,
   home: AbsolutePath,
   hostname: string,
   agents: AgentChoice,
-): MachineConfig => ({
-  ...serveConfig(flags, home),
-  name: Option.getOrElse(flags.name, () => hostname),
-  channel: flags.channel,
-  supervisor: flags.supervisor,
-  agents,
-});
+) =>
+  Effect.map(serveConfig(flags, home), (config): MachineConfig => ({
+    ...config,
+    name: Option.getOrElse(flags.name, () => hostname),
+    channel: flags.channel,
+    supervisor: flags.supervisor,
+    agents,
+  }));
 
 export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [
   "serve",
@@ -163,6 +197,7 @@ export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [
   config.baseDir,
   "--workspace",
   config.workspace,
+  ...(config.host === ALL_INTERFACES ? [] : ["--host", config.host]),
   ...Option.match(config.publicUrl, { onNone: () => [], onSome: (url) => ["--public-url", url] }),
   ...(config.setup ? [] : ["--no-setup"]),
 ];
@@ -183,6 +218,7 @@ export const machineFile = (home: string) => join(home, ".config", "devbox", "ma
 export const MachineFile = Schema.Struct({
   name: Schema.String,
   url: Schema.optional(Schema.String),
+  host: Schema.optional(Schema.String),
   port: Schema.Number,
   data: Schema.String,
   baseDir: Schema.String,

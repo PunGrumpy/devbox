@@ -10,6 +10,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { Option } from "effect";
+import { absolutePath } from "../src/migrate/paths.ts";
+import { t3Bind } from "../src/machine/serve.ts";
 import { makeMachine, SELF } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
@@ -186,6 +189,108 @@ describe("linked environments", () => {
     expect(r.err).toContain(`wrote ${settingsFile(m)}`);
     expect(r.err).not.toContain("started T3 Code");
     expect(m.processes.map((p) => p.pid)).toEqual([first!.pid]);
+  });
+});
+
+describe("--host", () => {
+  const TAILNET = "100.64.0.7";
+
+  test("T3 listens on every interface unless told otherwise, and the probe uses loopback", async () => {
+    const m = makeMachine();
+    const r = await up(m, "--supervisor", "detached");
+    expect(r.code).toBe(0);
+    expect(m.processes[0]!.argv).not.toContain("--host");
+    expect(m.probes.at(-1)).toEqual({ address: "127.0.0.1", port: 3773 });
+    expect(r.err).toContain("host        0.0.0.0");
+    expect(
+      JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")),
+    ).not.toHaveProperty("host");
+  });
+
+  test("it reaches serve, the unit file and machine.json, and the probe knocks on that address", async () => {
+    const m = makeMachine({ userBus: true });
+    const r = await up(m, "--host", TAILNET);
+    expect(r.code).toBe(0);
+    const unit = readFileSync(join(m.home, ".config/systemd/user/devbox.service"), "utf8");
+    expect(unit).toContain(
+      `--port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --host ${TAILNET}\n`,
+    );
+    expect(JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")).host).toBe(
+      TAILNET,
+    );
+    expect(m.probes.at(-1)).toEqual({ address: TAILNET, port: 3773 });
+    expect(r.err).toContain(`T3 Code answers on http://${TAILNET}:3773`);
+
+    const before = m.calls.length;
+    expect((await up(m, "--host", TAILNET)).err).toContain("No changes.");
+    expect(mutations(m, before)).toEqual([]);
+  });
+
+  test("changing it restarts a detached serve, and going back to the default removes the flag", async () => {
+    const m = makeMachine();
+    await up(m, "--supervisor", "detached");
+    const moved = await up(m, "--supervisor", "detached", "--host", TAILNET);
+    expect(moved.err).toContain("because its flags changed");
+    expect(m.processes.map((p) => p.argv.slice(-2))).toEqual([["--host", TAILNET]]);
+    const back = await up(m, "--supervisor", "detached");
+    expect(back.err).toContain("because its flags changed");
+    expect(m.processes[0]!.argv).not.toContain("--host");
+  });
+
+  test("an IPv6 address is a valid host", async () => {
+    const m = makeMachine();
+    const r = await up(m, "--supervisor", "detached", "--host", "fd7a:115c::7");
+    expect(r.code).toBe(0);
+    expect(m.probes.at(-1)!.address).toBe("fd7a:115c::7");
+  });
+
+  test.each([
+    [["--host", "::"], "127.0.0.1"],
+    [["--host", "0.0.0.0"], "127.0.0.1"],
+  ])("a wildcard %p is probed on loopback", async (args, address) => {
+    const m = makeMachine();
+    await up(m, "--supervisor", "detached", ...args);
+    expect(m.probes.at(-1)!.address).toBe(address);
+  });
+
+  test.each([
+    [["--host", "two words"]],
+    [["--host", "http://x"]],
+    [["--host", "100.64.0.7", "--public-url", "https://edge-7.example.com"]],
+  ])("rejects %p with exit 2 before touching the machine", async (args) => {
+    const m = makeMachine();
+    const r = await up(m, ...args);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("--host");
+    expect(m.calls).toEqual([]);
+  });
+
+  test("serve rejects it with --public-url too, and names why", async () => {
+    const m = makeMachine();
+    const r = await devbox(
+      { HOME: m.home },
+      ["serve", "--host", TAILNET, "--public-url", "https://edge-7.example.com"],
+      { host: m.host },
+    );
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("--host and --public-url cannot be used together");
+    expect(r.err).toContain("T3 listens on 127.0.0.1");
+    expect(m.calls).toEqual([]);
+  });
+
+  test("T3 listens on --host, or on loopback behind the proxy", () => {
+    const base = {
+      data: absolutePath("/d"),
+      port: 3773,
+      baseDir: absolutePath("/d/.t3"),
+      workspace: absolutePath("/d"),
+      setup: true,
+    };
+    expect(t3Bind({ ...base, host: TAILNET, publicUrl: Option.none() })).toBe(TAILNET);
+    expect(t3Bind({ ...base, host: "0.0.0.0", publicUrl: Option.none() })).toBe("0.0.0.0");
+    expect(
+      t3Bind({ ...base, host: "0.0.0.0", publicUrl: Option.some("https://x.example.com") }),
+    ).toBe("127.0.0.1");
   });
 });
 

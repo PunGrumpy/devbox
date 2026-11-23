@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Option } from "effect";
+import { Effect, Option } from "effect";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -367,6 +367,7 @@ describe("devbox serve keeps the chosen agents current", () => {
         port: 3773,
         baseDir: Option.none(),
         workspace: Option.none(),
+        host: Option.none(),
         publicUrl: Option.none(),
         setup: true,
       },
@@ -386,7 +387,7 @@ describe("devbox serve keeps the chosen agents current", () => {
         : argv[0] === "npx"
           ? { code: 0, stdout: "", stderr: "" }
           : undefined;
-    const { err } = await runWith(m.host, postStart(serving(m)));
+    const { err } = await runWith(m.host, Effect.flatMap(serving(m), postStart));
     const prefix = join(m.home, ".local");
     expect(m.calls).toContainEqual([
       "npm",
@@ -422,7 +423,7 @@ describe("devbox serve keeps the chosen agents current", () => {
     for (const m of [withGh, without]) {
       mkdirSync(join(m.home, ".local/bin"), { recursive: true });
       writeFileSync(join(m.home, ".local/bin/mise"), "");
-      await runWith(m.host, postStart(serving(m)));
+      await runWith(m.host, Effect.flatMap(serving(m), postStart));
     }
     const miseUse = (m: Machine) => m.calls.find((c) => c.includes("--global"))!;
     expect(miseUse(without)).toContain("gh@latest");

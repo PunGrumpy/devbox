@@ -35,7 +35,7 @@ export class Host extends Context.Service<
       options: { readonly env: Readonly<Record<string, string>>; readonly log: string },
     ) => Effect.Effect<number>;
     readonly stop: (pid: number) => Effect.Effect<void>;
-    readonly answers: (port: number) => Effect.Effect<boolean>;
+    readonly answers: (port: number, address: string) => Effect.Effect<boolean>;
     readonly readLine: Effect.Effect<string>;
   }
 >()("devbox/machine/Host") {
@@ -105,9 +105,9 @@ export class Host extends Context.Service<
         for (let i = 0; i < 50 && alive(pid); i += 1) yield* Effect.sleep("200 millis");
         if (alive(pid)) signal(pid, "SIGKILL");
       }),
-    answers: (port) =>
+    answers: (port, address) =>
       Effect.promise(() =>
-        fetch(`http://127.0.0.1:${port}/`, {
+        fetch(`http://${address.includes(":") ? `[${address}]` : address}:${port}/`, {
           redirect: "manual",
           signal: AbortSignal.timeout(2000),
         }).then(

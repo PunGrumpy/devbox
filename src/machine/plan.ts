@@ -8,7 +8,7 @@ import {
   remembered,
   removeHint,
 } from "./agents.ts";
-import { type MachineConfig, machineFile, pathsOf, serveArgs } from "./config.ts";
+import { ALL_INTERFACES, type MachineConfig, machineFile, pathsOf, serveArgs } from "./config.ts";
 import { gitEntries, processEnv, profileScript, type Setting, settingsFor } from "./settings.ts";
 
 export const UNIT = "devbox.service";
@@ -201,6 +201,7 @@ export const machineJson = (config: MachineConfig): string =>
     {
       name: config.name,
       url: Option.getOrUndefined(config.publicUrl),
+      host: config.host === ALL_INTERFACES ? undefined : config.host,
       port: config.port,
       data: config.data,
       baseDir: config.baseDir,

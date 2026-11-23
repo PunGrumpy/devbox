@@ -19,6 +19,7 @@ export type FakeMachine = {
   processes: Array<Proc>;
   binaries: Set<string>;
   calls: Array<ReadonlyArray<string>>;
+  probes: Array<{ readonly address: string; readonly port: number }>;
   runs: Array<{
     argv: ReadonlyArray<string>;
     env: Readonly<Record<string, string>> | undefined;
@@ -64,6 +65,7 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     processes: [],
     binaries: new Set(["npm"]),
     calls: [],
+    probes: [],
     runs: [],
     stdin: new Map(),
     brokenInstallers: new Set(),
@@ -176,12 +178,14 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
         m.calls.push(["<stop>", String(pid)]);
         m.processes = m.processes.filter((p) => p.pid !== pid);
       }),
-    answers: () =>
-      Effect.sync(
-        () =>
+    answers: (port, address) =>
+      Effect.sync(() => {
+        m.probes.push({ address, port });
+        return (
           m.processes.some((p) => p.argv.includes("serve")) ||
-          [...m.units.values()].some((u) => u.active),
-      ),
+          [...m.units.values()].some((u) => u.active)
+        );
+      }),
     readLine: Effect.sync(() => {
       m.calls.push(["<enter>"]);
       return "";
