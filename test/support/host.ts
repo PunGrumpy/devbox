@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { AGENTS } from "../../src/machine/agents.ts";
 import type { Host, Proc, Ran } from "../../src/machine/host.ts";
 
 export type FakeMachine = {
@@ -24,6 +25,8 @@ export type FakeMachine = {
     timeoutMs: number | undefined;
   }>;
   stdin: Map<string, string>;
+  /** Agent binaries whose installer exits non-zero. */
+  brokenInstallers: Set<string>;
   respond: (argv: ReadonlyArray<string>) => Ran | undefined;
   nextPid: number;
   host: Host["Service"];
@@ -31,6 +34,13 @@ export type FakeMachine = {
 
 const ok = (stdout = ""): Ran => ({ code: 0, stdout, stderr: "" });
 const fail = (code = 1, stderr = ""): Ran => ({ code, stdout: "", stderr });
+
+const installerScript = (bin: string) => `#!/bin/bash\n# installs ${bin}\n`;
+
+const writeBin = (dir: string, bin: string) => {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, bin), "");
+};
 
 export const SELF = ["/opt/bun", "/opt/devbox/src/cli.ts"] as const;
 
@@ -56,12 +66,17 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     calls: [],
     runs: [],
     stdin: new Map(),
+    brokenInstallers: new Set(),
     respond: () => undefined,
     nextPid: 4000,
     ...overrides,
   } as FakeMachine;
 
-  const run = (argv: ReadonlyArray<string>, stdin?: string): Ran => {
+  const run = (
+    argv: ReadonlyArray<string>,
+    stdin?: string,
+    env: Readonly<Record<string, string>> = {},
+  ): Ran => {
     const custom = m.respond(argv);
     if (custom) return custom;
     const [cmd, ...rest] = argv;
@@ -70,6 +85,20 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     const args = sudo ? rest.slice(2) : rest;
     if (sudo && !m.sudo) return fail(1, "sudo: a password is required");
     if (bin === "true") return ok();
+    if (bin === "curl") {
+      const url = args.at(-1);
+      const agent = AGENTS.find((a) => a.install._tag === "Script" && a.install.url === url);
+      return agent ? ok(installerScript(agent.bin)) : fail(22, `fake host: no ${url}`);
+    }
+    if (bin === "setsid") return run(args, stdin, env);
+    if (bin === "bash") {
+      const installs = /# installs (\S+)/.exec(stdin ?? "")?.[1];
+      if (installs === undefined || env.HOME === undefined) return fail(1, "fake host: bash");
+      if (m.brokenInstallers.has(installs)) return fail(1, `${installs}: install failed`);
+      writeBin(join(env.HOME, ".local", "bin"), installs);
+      return ok();
+    }
+    if (bin !== undefined && args[0] === "update" && AGENTS.some((a) => a.bin === bin)) return ok();
     if (bin === "tee") {
       mkdirSync(dirname(args[0]!), { recursive: true });
       writeFileSync(args[0]!, stdin ?? "");
@@ -87,7 +116,16 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
       return m.latest === undefined ? fail(1) : ok(`${m.latest}\n`);
     if (bin === "npm" && args[0] === "install") {
       const prefix = args[args.indexOf("--prefix") + 1]!;
-      const version = args.at(-1)!.replace(/^t3@/, "");
+      const target = args.at(-1)!;
+      const agent = AGENTS.find(
+        (a) => a.install._tag === "Npm" && target === `${a.install.pkg}@latest`,
+      );
+      if (agent) {
+        if (m.brokenInstallers.has(agent.bin)) return fail(1, `${agent.bin}: install failed`);
+        writeBin(join(prefix, "bin"), agent.bin);
+        return ok();
+      }
+      const version = target.replace(/^t3@/, "");
       const pkg = join(prefix, "lib", "node_modules", "t3", "package.json");
       mkdirSync(dirname(pkg), { recursive: true });
       writeFileSync(pkg, JSON.stringify({ name: "t3", version }));
@@ -123,7 +161,7 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
         m.calls.push(argv);
         m.runs.push({ argv, env: options.env, timeoutMs: options.timeoutMs });
         if (options.stdin !== undefined) m.stdin.set(argv.join(" "), options.stdin);
-        return run(argv, options.stdin);
+        return run(argv, options.stdin, options.env);
       }),
     which: (name) => Effect.sync(() => m.binaries.has(name)),
     processes: Effect.sync(() => [...m.processes]),

@@ -1,6 +1,14 @@
 import { Data, Option } from "effect";
 import { join } from "node:path";
-import { type MachineConfig, machineFile, serveArgs } from "./config.ts";
+import {
+  type AgentId,
+  type AgentIds,
+  agentName,
+  agentsJson,
+  remembered,
+  removeHint,
+} from "./agents.ts";
+import { type MachineConfig, machineFile, pathsOf, serveArgs } from "./config.ts";
 import { gitEntries, processEnv, profileScript, type Setting, settingsFor } from "./settings.ts";
 
 export const UNIT = "devbox.service";
@@ -54,6 +62,10 @@ export type Facts = {
   readonly serve: ServeState;
   readonly linger: Option.Option<boolean>;
   readonly backup: BackupFact;
+  readonly agents: {
+    readonly saved: Option.Option<AgentIds>;
+    readonly present: ReadonlyMap<AgentId, boolean>;
+  };
 };
 
 export type Change = Data.TaggedEnum<{
@@ -61,6 +73,7 @@ export type Change = Data.TaggedEnum<{
   Git: { readonly key: string; readonly values: ReadonlyArray<string> };
   Link: { readonly path: string; readonly target: string };
   InstallT3: { readonly from: Option.Option<string>; readonly to: string };
+  InstallAgent: { readonly id: AgentId };
   Linger: {};
   InstallTools: { readonly packages: ReadonlyArray<string> };
   EnableTimer: {};
@@ -212,6 +225,8 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
   );
   write(profilePath(ctx.etc), profileScript(ctx.settings, ctx.user), true);
   write(machineFile(ctx.home), machineJson(config), false);
+  if (remembered(config.agents))
+    write(pathsOf(config.data).agents, agentsJson(config.agents.ids), false);
 
   const unitChanged = Supervisor.$match(facts.supervisor, {
     Systemd: ({ scope }) =>
@@ -229,6 +244,15 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
       why: `npm did not answer, keeping ${installed.value}`,
     });
   }
+
+  const toInstall = config.agents.ids.filter((id) => facts.agents.present.get(id) !== true);
+  for (const id of toInstall) changes.push(Change.InstallAgent({ id }));
+  for (const id of Option.getOrElse(facts.agents.saved, () => []))
+    if (!config.agents.ids.includes(id))
+      skips.push({
+        what: agentName(id),
+        why: `no longer chosen, left installed. ${removeHint(id, config.data)}`,
+      });
 
   if (Option.contains(facts.linger, false)) changes.push(Change.Linger());
 
@@ -266,7 +290,13 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
 
   const why = ServeState.$match(facts.serve, {
     Running: () =>
-      unitChanged ? "the unit changed" : t3Changed ? "T3 Code was updated" : undefined,
+      unitChanged
+        ? "the unit changed"
+        : t3Changed
+          ? "T3 Code was updated"
+          : toInstall.length > 0
+            ? "an agent CLI was installed"
+            : undefined,
     Stale: () => "its flags changed",
     Stopped: () => "it was not running",
   });

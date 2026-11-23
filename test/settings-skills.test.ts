@@ -55,6 +55,8 @@ describe("one settings list, three sinks", () => {
   });
 });
 
+const BOTH = ["claude-code", "codex"];
+
 const TEMPLATE = `#!/bin/bash
 skill() { bunx skills add "$@" --global --yes </dev/null; }
 skill mattpocock/skills --skill grilling
@@ -71,7 +73,7 @@ describe("the skills list is data", () => {
       { repo: "https://github.com/PunGrumpy/agents.git", skills: ["cli-builder", "dx-design"] },
     ]);
     expect(list.rejected).toEqual([]);
-    expect(skillsAddArgs(list.sources[2]!)).toEqual([
+    expect(skillsAddArgs(list.sources[2]!, ["claude-code", "codex"])).toEqual([
       "npx",
       "-y",
       "skills",
@@ -121,7 +123,7 @@ describe("the skills list is data", () => {
         : argv[0] === "npx"
           ? { code: 0, stdout: "", stderr: "" }
           : undefined;
-    const { err } = await runWith(m.host, installSkills(m.home, {}));
+    const { err } = await runWith(m.host, installSkills(m.home, {}, BOTH));
     expect(existsSync(marker)).toBe(false);
     expect(m.calls.filter((c) => c[0] === "npx").map((c) => c[4])).toEqual([
       "mattpocock/skills",
@@ -142,12 +144,12 @@ describe("the skills list is data", () => {
       argv[0] === "curl" || argv[0] === "npx"
         ? { code: 0, stdout: TEMPLATE, stderr: "" }
         : undefined;
-    await runWith(m.host, installSkills(m.home, {}));
+    await runWith(m.host, installSkills(m.home, {}, BOTH));
     expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
       parseSkillsList(TEMPLATE).hash,
     );
     const before = m.calls.length;
-    const { err } = await runWith(m.host, installSkills(m.home, {}));
+    const { err } = await runWith(m.host, installSkills(m.home, {}, BOTH));
     expect(err).toContain("skills: up to date");
     expect(m.calls.slice(before).filter((c) => c[0] === "npx")).toEqual([]);
     writeFileSync(join(m.home, ".devbox-skills"), "stale\n");
