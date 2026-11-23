@@ -12,6 +12,8 @@ curl -fsSL https://raw.githubusercontent.com/PunGrumpy/devbox/main/install.sh | 
 
 `install.sh` installs Bun when it is missing, clones this repo into `$DEVBOX_HOME` (default `~/.devbox`) or fast-forwards it, installs the dependencies, writes a `devbox` wrapper to `~/.local/bin`, and runs `devbox` with its arguments. Run it again to update. `DEVBOX_REPO` clones from somewhere else.
 
+Bun's installer needs `unzip`. When Bun and `unzip` are both missing, `install.sh` installs `unzip` with `apt-get` if you are root or have passwordless sudo. Otherwise it stops and prints the command for an admin to run: `sudo apt-get install -y unzip`.
+
 ## Set up a machine
 
 ```sh
