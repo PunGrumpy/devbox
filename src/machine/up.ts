@@ -10,6 +10,7 @@ import {
   type MachineConfig,
   machineFile,
   pathsOf,
+  probeHost,
   serveArgs,
   serveConfig,
   upFlags,
@@ -443,9 +444,10 @@ export const up = Command.make("up", upFlags, (flags) =>
     const { home } = yield* Locations;
     const host = yield* Host;
     const out = yield* Output;
-    const saved = yield* readSavedAgents(serveConfig(flags, home).data);
+    const served = yield* serveConfig(flags, home);
+    const saved = yield* readSavedAgents(served.data);
     const agents = yield* chooseAgents(flags.agents, saved);
-    const config = machineConfig(flags, home, host.hostname, agents);
+    const config = yield* machineConfig(flags, home, host.hostname, agents);
     const ctx: Context = {
       home,
       etc: host.etc,
@@ -459,6 +461,7 @@ export const up = Command.make("up", upFlags, (flags) =>
       ["name", config.name],
       ["data", config.data],
       ["port", String(config.port)],
+      ["host", config.host],
       ["public url", Option.getOrElse(config.publicUrl, () => "none")],
       ["base dir", config.baseDir],
       ["workspace", config.workspace],
@@ -494,7 +497,7 @@ export const up = Command.make("up", upFlags, (flags) =>
           ),
         ),
       );
-    const [elapsed, answers] = yield* Effect.timed(answering(config.port, 600));
+    const [elapsed, answers] = yield* Effect.timed(answering(config.host, config.port, 600));
     if (!answers)
       return yield* new UpFailed({
         message: `T3 Code does not answer on port ${config.port}`,
@@ -503,7 +506,10 @@ export const up = Command.make("up", upFlags, (flags) =>
           Detached: () => `see ${pathsOf(config.data).logs}/serve.log`,
         }),
       });
-    const where = Option.getOrElse(config.publicUrl, () => `http://127.0.0.1:${config.port}`);
+    const where = Option.getOrElse(
+      config.publicUrl,
+      () => `http://${probeHost(config.host)}:${config.port}`,
+    );
     yield* out.success(
       `${changes.length === 0 ? "No changes. " : ""}T3 Code answers on ${where}`,
       elapsed,

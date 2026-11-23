@@ -3,7 +3,7 @@ import { Command } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
-import { pathsOf, serveConfig, serveFlags } from "./config.ts";
+import { pathsOf, probeHost, type ServeConfig, serveConfig, serveFlags } from "./config.ts";
 import { Host } from "./host.ts";
 import { freePort, proxy } from "./proxy.ts";
 import { postStart } from "./setup.ts";
@@ -20,10 +20,14 @@ export class T3Missing extends Schema.TaggedError<T3Missing>()("T3Missing", {
   }
 }
 
-export const answering = (port: number, attempts: number) =>
+// Behind the proxy T3 stays on loopback, and the proxy is the only thing that listens outside.
+export const t3Bind = (config: ServeConfig) =>
+  Option.isSome(config.publicUrl) ? "127.0.0.1" : config.host;
+
+export const answering = (bind: string, port: number, attempts: number) =>
   Effect.gen(function* () {
     const host = yield* Host;
-    return yield* host.answers(port).pipe(
+    return yield* host.answers(port, probeHost(bind)).pipe(
       Effect.flatMap((ok) => (ok ? Effect.succeed(true) : Effect.fail(false))),
       Effect.retry({ schedule: Schedule.spaced("1 second"), times: attempts }),
       Effect.orElseSucceed(() => false),
@@ -33,7 +37,7 @@ export const answering = (port: number, attempts: number) =>
 export const serve = Command.make("serve", serveFlags, (flags) =>
   Effect.gen(function* () {
     const { home } = yield* Locations;
-    const config = serveConfig(flags, home);
+    const config = yield* serveConfig(flags, home);
     const host = yield* Host;
     const out = yield* Output;
     const fs = yield* FileSystem.FileSystem;
@@ -49,6 +53,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
       // T3 Code runs Chrome with --no-sandbox when this is 0, for hosts that block user namespaces.
       T3CODE_SERVER_BROWSER_SANDBOX: sandbox ? "1" : "0",
     };
+    const bind = t3Bind(config);
     const t3Port = Option.isSome(config.publicUrl) ? yield* freePort : config.port;
     if (Option.isSome(config.publicUrl)) {
       yield* proxy({
@@ -64,7 +69,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
     yield* out.log(`t3: browser sandbox ${sandbox ? "on" : "off"}`);
 
     if (config.setup) {
-      yield* answering(t3Port, 600).pipe(
+      yield* answering(bind, t3Port, 600).pipe(
         Effect.flatMap((up) =>
           up ? postStart(config) : out.warn("setup: T3 never answered, skipped"),
         ),
@@ -77,7 +82,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
       [
         "serve",
         "--host",
-        Option.isSome(config.publicUrl) ? "127.0.0.1" : "0.0.0.0",
+        bind,
         "--port",
         String(t3Port),
         "--base-dir",
