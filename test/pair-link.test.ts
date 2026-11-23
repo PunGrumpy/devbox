@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appLink } from "../src/machine/link.ts";
+import type { Ran } from "../src/machine/host.ts";
 import { makeMachine } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
@@ -14,14 +15,23 @@ Token: KJJDV5SUA4NL
 Expires: 2026-11-17T12:09:22.174Z
 `;
 
-const boxWith = (machine: object) => {
+const boxWith = (machine: object, tailscale?: Ran) => {
   const m = makeMachine();
   mkdirSync(join(m.home, ".config/devbox"), { recursive: true });
   writeFileSync(join(m.home, ".config/devbox/machine.json"), JSON.stringify(machine));
-  m.respond = (argv) =>
-    argv[1] === "pair" ? { code: 0, stdout: T3_PAIR_OUTPUT, stderr: "" } : undefined;
+  m.respond = (argv) => {
+    if (argv[1] === "pair") return { code: 0, stdout: T3_PAIR_OUTPUT, stderr: "" };
+    if (argv[0] === "tailscale") return tailscale;
+    return undefined;
+  };
   return m;
 };
+
+const tailscaleSelf = (self: unknown): Ran => ({
+  code: 0,
+  stdout: JSON.stringify({ BackendState: "Running", Self: self }),
+  stderr: "",
+});
 
 const MACHINE = {
   name: "edge-7",
@@ -48,6 +58,40 @@ describe("devbox pair", () => {
   test("without a public URL it offers the hostname and port", async () => {
     const m = boxWith({ ...MACHINE, url: undefined });
     const r = await devbox({ HOME: m.home }, ["pair", "--json"], { host: m.host });
+    expect(JSON.parse(r.out).url).toBe("http://box-1.example.internal:3773");
+  });
+
+  test("without a public URL it offers the Tailscale name, which t3 environment link accepts over http", async () => {
+    const m = boxWith(
+      { ...MACHINE, url: undefined },
+      tailscaleSelf({ DNSName: "box-1.tail585c0b.ts.net.", HostName: "box-1" }),
+    );
+    const r = await devbox({ HOME: m.home }, ["pair", "--json"], { host: m.host });
+    expect(JSON.parse(r.out).url).toBe("http://box-1.tail585c0b.ts.net:3773");
+    expect(m.calls).toContainEqual(["tailscale", "status", "--self", "--json"]);
+  });
+
+  test("a public URL wins and Tailscale is not asked", async () => {
+    const m = boxWith(MACHINE, tailscaleSelf({ DNSName: "box-1.tail585c0b.ts.net." }));
+    const r = await devbox({ HOME: m.home }, ["pair", "--json"], { host: m.host });
+    expect(JSON.parse(r.out).url).toBe("https://edge-7.example.com");
+    expect(m.calls.some((c) => c[0] === "tailscale")).toBe(false);
+  });
+
+  test.each([
+    ["tailscale is not installed", { code: 127, stdout: "", stderr: "not found" }],
+    ["tailscale is down", { code: 1, stdout: "", stderr: "failed to connect to local tailscaled" }],
+    ["its output is not JSON", { code: 0, stdout: "Logged out.", stderr: "" }],
+    [
+      "it has no Self",
+      { code: 0, stdout: JSON.stringify({ BackendState: "Stopped" }), stderr: "" },
+    ],
+    ["its DNSName is empty", tailscaleSelf({ DNSName: "" })],
+    ["its DNSName is not a string", tailscaleSelf({ DNSName: 7 })],
+  ])("when %s it keeps the hostname URL", async (_, tailscale) => {
+    const m = boxWith({ ...MACHINE, url: undefined }, tailscale);
+    const r = await devbox({ HOME: m.home }, ["pair", "--json"], { host: m.host });
+    expect(r.code).toBe(0);
     expect(JSON.parse(r.out).url).toBe("http://box-1.example.internal:3773");
   });
 
