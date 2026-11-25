@@ -1,3 +1,5 @@
 # Linked by devbox. zsh reads neither /etc/profile nor ~/.profile, where PATH comes from.
 typeset -U path PATH
 emulate sh -c '. /etc/profile; [ ! -r "$HOME/.profile" ] || . "$HOME/.profile"'
+# Without sudo there is no /etc/profile.d/devbox.sh to add these.
+path=("$HOME/.local/bin"(N) "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims"(N) $path)
