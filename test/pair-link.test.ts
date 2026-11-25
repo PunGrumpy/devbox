@@ -78,6 +78,45 @@ describe("devbox pair", () => {
     expect(m.calls.some((c) => c[0] === "tailscale")).toBe(false);
   });
 
+  test("--url beats the Tailscale name and Tailscale is not asked", async () => {
+    const m = boxWith(
+      { ...MACHINE, url: undefined },
+      tailscaleSelf({ DNSName: "box-1.tail585c0b.ts.net." }),
+    );
+    const r = await devbox({ HOME: m.home }, ["pair", "--json", "--url", "https://t.example.com"], {
+      host: m.host,
+    });
+    expect(JSON.parse(r.out)).toEqual({ url: "https://t.example.com", token: "KJJDV5SUA4NL" });
+    expect(m.calls.some((c) => c[0] === "tailscale")).toBe(false);
+  });
+
+  test("--url beats the saved public URL", async () => {
+    const m = boxWith(MACHINE);
+    const r = await devbox({ HOME: m.home }, ["pair", "--json", "--url", "https://t.example.com"], {
+      host: m.host,
+    });
+    expect(JSON.parse(r.out).url).toBe("https://t.example.com");
+  });
+
+  test("--url drops a trailing slash from the pairing url", async () => {
+    const m = boxWith(MACHINE);
+    const r = await devbox({ HOME: m.home }, ["pair", "--url", "https://t.example.com/"], {
+      host: m.host,
+    });
+    expect(r.err).toMatch(/^ *pairing url\s+https:\/\/t\.example\.com\/pair#token=KJJDV5SUA4NL$/m);
+  });
+
+  test.each(["https://t.example.com/path", "ftp://t.example.com"])(
+    "--url %s is a usage error and mints no token",
+    async (url) => {
+      const m = boxWith(MACHINE);
+      const r = await devbox({ HOME: m.home }, ["pair", "--url", url], { host: m.host });
+      expect(r.code).toBe(2);
+      expect(r.err).toContain("expected an origin such as");
+      expect(m.calls).toEqual([]);
+    },
+  );
+
   test.each([
     ["tailscale is not installed", { code: 127, stdout: "", stderr: "not found" }],
     ["tailscale is down", { code: 1, stdout: "", stderr: "failed to connect to local tailscaled" }],

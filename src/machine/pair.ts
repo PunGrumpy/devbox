@@ -2,7 +2,7 @@ import { Effect, FileSystem, Option, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
-import { MachineFile, machineFile } from "./config.ts";
+import { MachineFile, machineFile, originFlag } from "./config.ts";
 import { Host } from "./host.ts";
 import { processEnv, settingsFor } from "./settings.ts";
 
@@ -42,12 +42,16 @@ export const pair = Command.make(
       Flag.withDescription("name the server shows for this client"),
       Flag.withDefault("devbox"),
     ),
+    url: originFlag(
+      "url",
+      "origin to print in the link, for example a tunnel (default the public URL, then the Tailscale name)",
+    ),
     json: Flag.Boolean("json").pipe(
       Flag.withDescription("print {url, token} on stdout"),
       Flag.withDefault(false),
     ),
   },
-  ({ label, json }) =>
+  ({ label, url: origin, json }) =>
     Effect.gen(function* () {
       const { home } = yield* Locations;
       const host = yield* Host;
@@ -79,14 +83,17 @@ export const pair = Command.make(
           message: "t3 pair printed no token",
           hint: minted.stderr.trim() || "is T3 Code running? `devbox up` starts it",
         });
-      const url = yield* Option.match(Option.fromUndefinedOr(machine.url), {
-        onSome: Effect.succeed,
-        onNone: () =>
-          Effect.map(
-            tailscaleName,
-            (name) => `http://${Option.getOrElse(name, () => host.hostname)}:${machine.port}`,
-          ),
-      });
+      const url = yield* Option.match(
+        Option.orElse(origin, () => Option.fromUndefinedOr(machine.url)),
+        {
+          onSome: Effect.succeed,
+          onNone: () =>
+            Effect.map(
+              tailscaleName,
+              (name) => `http://${Option.getOrElse(name, () => host.hostname)}:${machine.port}`,
+            ),
+        },
+      );
       const pairing: Pairing = { url, token };
       if (json) return yield* out.json(pairing);
       yield* out.pairs([
