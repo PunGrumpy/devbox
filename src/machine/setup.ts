@@ -1,6 +1,6 @@
 import { Effect, FileSystem, Option } from "effect";
 import { mkdtempSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Output, plural } from "../output.ts";
 import { currentAgents, skillsAgentsOf, updateAgents } from "./agents.ts";
@@ -9,6 +9,7 @@ import { Host } from "./host.ts";
 import { claudeHomes, INSTRUCTIONS_FILE, instructionsLink } from "./instructions.ts";
 import { t3SettingsPath } from "./plan.ts";
 import { processEnv, settingsFor } from "./settings.ts";
+import { setupShell } from "./shell.ts";
 import { parseSkillsList, SKILLS_LIST_URL, skillsAddArgs, skillsStamp } from "./skills.ts";
 
 const BROWSER_PACKAGES = [
@@ -94,10 +95,12 @@ const languages = (data: string, env: Record<string, string>) =>
     if (!(yield* ensureMise(data, env))) return yield* out.warn("tools: cannot download mise");
     const gh = (yield* host.which("gh")) ? [] : ["gh@latest"];
     const use = yield* host.run(
-      [mise, "use", "--global", "--yes", "go@latest", "rust@latest", ...gh],
+      [mise, "use", "--global", "--yes", "go@latest", "rust@latest", "starship@latest", ...gh],
       { env, inherit: true },
     );
-    yield* use.code === 0 ? out.log("tools: go and rust ready") : out.warn("tools: mise failed");
+    yield* use.code === 0
+      ? out.log("tools: go, rust and starship ready")
+      : out.warn("tools: mise failed");
   });
 
 export const installSkills = (
@@ -184,13 +187,14 @@ export const linkInstructions = (
     );
   });
 
-export const postStart = (config: ServeConfig) =>
+export const postStart = (config: ServeConfig, home: string) =>
   Effect.gen(function* () {
     const out = yield* Output;
     const env = processEnv(settingsFor(config.data), process.env.PATH ?? "");
     yield* out.log("setup: starting");
     yield* browserLibraries;
     yield* languages(config.data, env);
+    yield* setupShell(home);
     const ids = yield* currentAgents(config.data);
     const host = yield* Host;
     yield* updateAgents(
@@ -199,6 +203,6 @@ export const postStart = (config: ServeConfig) =>
       (yield* host.which("npm")) ? "npm" : pathsOf(config.data).npmShim,
     );
     yield* installSkills(config.data, env, skillsAgentsOf(ids));
-    if (ids.includes("claude")) yield* linkInstructions(config, homedir(), INSTRUCTIONS_FILE);
+    if (ids.includes("claude")) yield* linkInstructions(config, home, INSTRUCTIONS_FILE);
     yield* out.log("setup: done");
   });

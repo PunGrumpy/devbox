@@ -50,6 +50,8 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
     const env = {
       ...processEnv(settingsFor(config.data), process.env.PATH ?? ""),
       T3CODE_HOME: config.baseDir,
+      // Agents run their commands in $SHELL. They keep bash when the login shell is zsh.
+      SHELL: "/bin/bash",
       // T3 Code runs Chrome with --no-sandbox when this is 0, for hosts that block user namespaces.
       T3CODE_SERVER_BROWSER_SANDBOX: sandbox ? "1" : "0",
     };
@@ -71,7 +73,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
     if (config.setup) {
       yield* answering(bind, t3Port, 600).pipe(
         Effect.flatMap((up) =>
-          up ? postStart(config) : out.warn("setup: T3 never answered, skipped"),
+          up ? postStart(config, home) : out.warn("setup: T3 never answered, skipped"),
         ),
         Effect.forkScoped,
       );

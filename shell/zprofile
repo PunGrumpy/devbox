@@ -1,0 +1,3 @@
+# Linked by devbox. zsh reads neither /etc/profile nor ~/.profile, where PATH comes from.
+typeset -U path PATH
+emulate sh -c '. /etc/profile; [ ! -r "$HOME/.profile" ] || . "$HOME/.profile"'
