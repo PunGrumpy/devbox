@@ -1,0 +1,22 @@
+# https://vercel.com/geist/terminal, plus the host name, so a devbox never looks like the laptop.
+format = "$hostname$directory$git_branch$line_break$character"
+
+[hostname]
+ssh_only = false
+format = "[$hostname]($style) "
+style = "bold blue"
+
+[directory]
+format = "[$path]($style) "
+style = "bold"
+truncation_length = 0
+truncate_to_repo = false
+
+[git_branch]
+format = "[$branch]($style)"
+style = "bright-black"
+
+[character]
+success_symbol = "▲"
+error_symbol = "[▲](bold red)"
+vimcmd_symbol = "[▲](bold blue)"

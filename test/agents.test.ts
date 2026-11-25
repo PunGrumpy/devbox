@@ -391,7 +391,10 @@ describe("devbox serve keeps the chosen agents current", () => {
         : argv[0] === "npx"
           ? { code: 0, stdout: "", stderr: "" }
           : undefined;
-    const { err } = await runWith(m.host, Effect.flatMap(serving(m), postStart));
+    const { err } = await runWith(
+      m.host,
+      Effect.flatMap(serving(m), (config) => postStart(config, m.home)),
+    );
     const prefix = join(m.home, ".local");
     expect(m.calls).toContainEqual([
       "npm",
@@ -427,7 +430,10 @@ describe("devbox serve keeps the chosen agents current", () => {
     for (const m of [withGh, without]) {
       mkdirSync(join(m.home, ".local/bin"), { recursive: true });
       writeFileSync(join(m.home, ".local/bin/mise"), "");
-      await runWith(m.host, Effect.flatMap(serving(m), postStart));
+      await runWith(
+        m.host,
+        Effect.flatMap(serving(m), (config) => postStart(config, m.home)),
+      );
     }
     const miseUse = (m: Machine) => m.calls.find((c) => c.includes("--global"))!;
     expect(miseUse(without)).toContain("gh@latest");

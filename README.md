@@ -46,11 +46,19 @@ What it does:
 - When `~/.config/devbox/backup/env` sets `RESTIC_REPOSITORY`, installs `restic` and `sqlite3` with apt if they are missing, and enables a nightly backup timer. See [Back up agent memory](#back-up-agent-memory). Without that file it prints one line saying backups are off.
 - Keeps `devbox serve` running under the supervisor, and restarts it when T3 Code updates or the flags change. It waits until T3 answers on the port.
 
-`devbox serve` takes the same flags. It probes user namespaces and turns off Chrome's sandbox when the machine blocks them, starts the proxy when `--public-url` is set, and runs `t3 serve`. Once T3 answers it installs the browser's libraries with apt, Go and Rust with [mise](https://mise.jdx.dev/) (and `gh` when the machine has none), updates the agent CLIs it keeps current, and installs the agent skills from [my dotfiles](https://github.com/PunGrumpy/dotfiles) for the chosen agents that take skills. That never blocks T3. The skills list is parsed as data, never run, and installs again when it changes or when you choose another agent.
+`devbox serve` takes the same flags. It probes user namespaces and turns off Chrome's sandbox when the machine blocks them, starts the proxy when `--public-url` is set, and runs `t3 serve`. Once T3 answers it installs the browser's libraries with apt, Go, Rust and Starship with [mise](https://mise.jdx.dev/) (and `gh` when the machine has none), updates the agent CLIs it keeps current, and installs the agent skills from [my dotfiles](https://github.com/PunGrumpy/dotfiles) for the chosen agents that take skills. It also sets up [the shell](#shell). That never blocks T3. The skills list is parsed as data, never run, and installs again when it changes or when you choose another agent.
 
 When Claude Code is one of the agents, it also links `CLAUDE.md` in every Claude home to [`instructions/AGENTS.md`](instructions/AGENTS.md) in this checkout: `$CLAUDE_CONFIG_DIR`, and the `homePath` of each Claude provider instance in T3's `settings.json`. A new machine has none of the memory agents built up elsewhere, and that memory holds paths, shells and credentials of the machine it was written on, so the rules travel and the memory does not. Because they are links, updating this checkout updates every home. `devbox` replaces a `CLAUDE.md` that is an exact copy of the file, and leaves any other `CLAUDE.md` or link alone with a note.
 
 Logs of a detached `devbox serve` go to `<data>/.devbox-logs/serve.log`. A systemd unit logs to the journal: `journalctl -u devbox` or `journalctl --user -u devbox`.
+
+### Shell
+
+`devbox serve` gives you zsh with a [Starship](https://starship.rs) prompt in the style of the [Geist terminal](https://vercel.com/geist/terminal). The prompt adds the host name, so a devbox never looks like your laptop. Colors and the font come from your own terminal app.
+
+- With passwordless sudo it installs zsh with apt and makes it your login shell. Without it, it prints the command for an admin to run.
+- It links `~/.zprofile`, `~/.zshrc` and `~/.config/starship.toml` to [`shell/`](shell) in this checkout, and leaves a file that is not its own alone with a note. Put settings for one machine in `~/.zshrc.local`.
+- T3 Code and its agents keep `SHELL=/bin/bash`, so agent commands run as before.
 
 ### Agent CLIs
 

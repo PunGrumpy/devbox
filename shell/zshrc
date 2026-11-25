@@ -1,0 +1,13 @@
+# Linked by devbox. Settings for one machine go in ~/.zshrc.local.
+HISTFILE=$HOME/.zsh_history
+HISTSIZE=50000
+SAVEHIST=50000
+setopt share_history hist_ignore_all_dups hist_ignore_space interactive_comments
+bindkey -e
+
+autoload -Uz compinit && compinit
+zstyle ':completion:*' menu select
+
+(( $+commands[starship] )) && eval "$(starship init zsh)"
+[[ -r $HOME/.zshrc.local ]] && source "$HOME/.zshrc.local"
+true
