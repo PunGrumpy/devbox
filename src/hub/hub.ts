@@ -1,6 +1,9 @@
 import { Effect, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
+import { readFileSync } from "node:fs";
 import http from "node:http";
+import { extname, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BindHost, Port } from "../machine/config.ts";
 import { Output } from "../output.ts";
 import {
@@ -10,7 +13,6 @@ import {
   snapshotFlags,
   takeSnapshot,
 } from "./machines.ts";
-import page from "./page.html" with { type: "text" };
 
 export type History = {
   readonly sampleSeconds: number;
@@ -50,40 +52,77 @@ export const nextHistory = (previous: History | undefined, snapshot: Snapshot): 
   };
 };
 
-// Bun types every .html import as an HTMLBundle; `type: "text"` makes it the file's text.
-const TEMPLATE = String(page);
+export type Asset = { readonly body: Uint8Array; readonly path: string };
 
-// `<` as < keeps a label such as "</script>" from closing the script tag it sits in.
-const renderPage = (snapshot: HubSnapshot): string =>
-  TEMPLATE.replace('"__DEVBOX_SNAPSHOT__"', () =>
-    JSON.stringify(snapshot).replaceAll("<", "\\u003c"),
-  );
+const CONTENT_TYPES: Readonly<Record<string, string>> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".woff2": "font/woff2",
+};
+
+/** Reads a request path from the built page in `dir`, and nothing from outside it. */
+export const assetsIn =
+  (dir: string) =>
+  (pathname: string): Asset | undefined => {
+    const root = resolve(dir);
+    try {
+      const wanted = decodeURIComponent(pathname);
+      const path = resolve(root, `.${wanted.endsWith("/") ? `${wanted}index.html` : wanted}`);
+      if (!path.startsWith(`${root}${sep}`)) return undefined;
+      return { body: readFileSync(path), path };
+    } catch {
+      return undefined;
+    }
+  };
+
+// Next names these files by their content, so a browser may keep them for good.
+const HASHED = "/_next/static/";
 
 type Reply = {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
-  readonly body: string;
+  readonly body: string | Uint8Array;
 };
 
 const NO_STORE = { "cache-control": "no-store" };
 const TEXT = { "content-type": "text/plain; charset=utf-8" };
 
-export const route = (method: string, url: string, snapshot: HubSnapshot): Reply => {
+const NOT_BUILT =
+  "The hub page is not built. In the devbox checkout run `bun install` and `bun run build` in hub/, or pass --ui.\n";
+
+export const route = (
+  method: string,
+  url: string,
+  snapshot: HubSnapshot,
+  asset: (pathname: string) => Asset | undefined,
+): Reply => {
   const { pathname } = new URL(url, "http://hub");
-  if (pathname !== "/" && pathname !== "/api/machines")
-    return { status: 404, headers: TEXT, body: "not found\n" };
   if (method !== "GET")
     return { status: 405, headers: { ...TEXT, allow: "GET" }, body: "method not allowed\n" };
-  if (pathname === "/")
+  if (pathname === "/api/machines")
     return {
       status: 200,
-      headers: { ...NO_STORE, "content-type": "text/html; charset=utf-8" },
-      body: renderPage(snapshot),
+      headers: { ...NO_STORE, "content-type": "application/json; charset=utf-8" },
+      body: `${JSON.stringify(snapshot, null, 2)}\n`,
     };
+  const found = asset(pathname);
+  if (found === undefined)
+    return { status: 404, headers: TEXT, body: pathname === "/" ? NOT_BUILT : "not found\n" };
   return {
     status: 200,
-    headers: { ...NO_STORE, "content-type": "application/json; charset=utf-8" },
-    body: `${JSON.stringify(snapshot, null, 2)}\n`,
+    headers: {
+      "cache-control": pathname.startsWith(HASHED)
+        ? "public, max-age=31536000, immutable"
+        : "no-store",
+      "content-type": CONTENT_TYPES[extname(found.path)] ?? "application/octet-stream",
+    },
+    body: found.body,
   };
 };
 
@@ -92,11 +131,16 @@ export class HubFailed extends Schema.TaggedError<HubFailed>()("HubFailed", {
   hint: Schema.optional(Schema.String),
 }) {}
 
-const listen = (host: string, port: number, latest: () => HubSnapshot) =>
+const listen = (
+  host: string,
+  port: number,
+  latest: () => HubSnapshot,
+  asset: (pathname: string) => Asset | undefined,
+) =>
   Effect.acquireRelease(
     Effect.callback<http.Server, HubFailed>((resume) => {
       const server = http.createServer((req, res) => {
-        const reply = route(req.method ?? "GET", req.url ?? "/", latest());
+        const reply = route(req.method ?? "GET", req.url ?? "/", latest(), asset);
         res.writeHead(reply.status, reply.headers);
         res.end(reply.body);
       });
@@ -119,6 +163,8 @@ const listen = (host: string, port: number, latest: () => HubSnapshot) =>
       }),
   );
 
+const BUILT_PAGE = fileURLToPath(new URL("../../hub/out", import.meta.url));
+
 export const hub = Command.make(
   "hub",
   {
@@ -134,14 +180,18 @@ export const hub = Command.make(
       Flag.withSchema(Port),
       Flag.withDefault(3780),
     ),
+    ui: Flag.String("ui").pipe(
+      Flag.withDescription("directory of the built page (default hub/out in this checkout)"),
+      Flag.withDefault(BUILT_PAGE),
+    ),
     ...snapshotFlags,
   },
-  ({ host, port, t3, t3Port }) =>
+  ({ host, port, ui, t3, t3Port }) =>
     Effect.gen(function* () {
       const out = yield* Output;
       const first = yield* takeSnapshot({ t3, t3Port });
       let latest: HubSnapshot = { ...first, history: nextHistory(undefined, first) };
-      yield* listen(host, port, () => latest);
+      yield* listen(host, port, () => latest, assetsIn(ui));
       yield* out.log(
         `hub: ${origin(host, port)}/ and /api/machines, checking every ${SAMPLE_SECONDS}s`,
       );
@@ -155,6 +205,6 @@ export const hub = Command.make(
     }).pipe(Effect.scoped),
 ).pipe(
   Command.withDescription(
-    "Serve a page of your machines and the same data at /api/machines, refreshed every minute",
+    "Serve the hub page and your machines as JSON at /api/machines, refreshed every minute",
   ),
 );

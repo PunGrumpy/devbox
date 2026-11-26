@@ -1,0 +1,3 @@
+[test]
+# hub/ is its own package with its own dependencies and tests.
+root = "test"

@@ -1,4 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Effect } from "effect";
 import { HISTORY_LIMIT, type HubSnapshot, nextHistory } from "../src/hub/hub.ts";
 import type { Machine, MachineState, Snapshot } from "../src/hub/machines.ts";
@@ -51,10 +55,34 @@ const sneakyComputer = () => {
   return m;
 };
 
+/** A built page with one hashed asset, and a file beside it that the hub must never serve. */
+const builtPage = () => {
+  const base = mkdtempSync(join(tmpdir(), "devbox-hub-"));
+  const ui = join(base, "out");
+  mkdirSync(join(ui, "_next/static/chunks"), { recursive: true });
+  writeFileSync(join(ui, "index.html"), "<!doctype html><title>devbox hub</title>");
+  writeFileSync(join(ui, "_next/static/chunks/app.js"), "console.log(1)");
+  writeFileSync(join(base, "secret.txt"), "outside the page");
+  return ui;
+};
+
+/** A path sent as written, because fetch would resolve the dots before it left. */
+const rawStatus = (port: number, path: string) =>
+  new Promise<number>((done, fail) => {
+    http
+      .get({ host: "127.0.0.1", port, path }, (response) => {
+        response.resume();
+        done(response.statusCode ?? 0);
+      })
+      .on("error", fail);
+  });
+
 describe("devbox hub", async () => {
   const m = sneakyComputer();
   const port = await Effect.runPromise(freePort);
-  const running = start({ HOME: m.home }, ["hub", "--port", String(port)], { host: m.host });
+  const running = start({ HOME: m.home }, ["hub", "--port", String(port), "--ui", builtPage()], {
+    host: m.host,
+  });
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
   afterAll(() => running.stop());
@@ -81,19 +109,26 @@ describe("devbox hub", async () => {
     });
   });
 
-  test("/ serves the page with the same snapshot, and a label cannot close its script tag", async () => {
+  test("/ serves the built page", async () => {
     const response = await fetch(`${base}/`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(response.headers.get("cache-control")).toBe("no-store");
-    const html = await response.text();
-    expect(html).not.toContain("__DEVBOX_SNAPSHOT__");
-    expect(html).not.toContain("<script>alert(1)");
-    const embedded = /<script id="snapshot" type="application\/json">([\s\S]*?)<\/script>/.exec(
-      html,
-    )?.[1];
-    const api = await (await fetch(`${base}/api/machines`)).json();
-    expect(JSON.parse(embedded ?? "null")).toEqual(api);
+    expect(await response.text()).toContain("<title>devbox hub</title>");
+  });
+
+  test("a file Next named by its content may be kept for good", async () => {
+    const response = await fetch(`${base}/_next/static/chunks/app.js`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(await response.text()).toBe("console.log(1)");
+  });
+
+  test("a path cannot climb out of the built page", async () => {
+    expect(await rawStatus(port, "/../secret.txt")).toBe(404);
+    expect(await rawStatus(port, "/%2e%2e/secret.txt")).toBe(404);
+    expect(await rawStatus(port, "/_next/..%2f..%2fsecret.txt")).toBe(404);
   });
 
   test("any other path is 404 and any other method is 405", async () => {
@@ -109,6 +144,21 @@ describe("devbox hub", async () => {
     await fetch(`${base}/`);
     expect(m.fetches.length).toBe(before);
   });
+});
+
+test("without a built page, / says how to build it and the JSON still answers", async () => {
+  const port = await Effect.runPromise(freePort);
+  const empty = mkdtempSync(join(tmpdir(), "devbox-hub-empty-"));
+  const running = start({}, ["hub", "--port", String(port), "--ui", empty]);
+  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
+  try {
+    const page = await fetch(`http://127.0.0.1:${port}/`);
+    expect(page.status).toBe(404);
+    expect(await page.text()).toContain("bun run build");
+    expect((await fetch(`http://127.0.0.1:${port}/api/machines`)).status).toBe(200);
+  } finally {
+    await running.stop();
+  }
 });
 
 test("the hub closes its port when stopped", async () => {
