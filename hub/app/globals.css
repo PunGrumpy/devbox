@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-soft: var(--soft);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-rule: var(--rule);
+  --color-wash: var(--wash);
+  --color-hover: var(--hover);
+  --color-accent: var(--accent);
+  --color-focus: var(--focus);
+
+  --text-display: 2.75rem;
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.035em;
+  --text-title: 1.75rem;
+  --text-title--line-height: 1.15;
+  --text-title--letter-spacing: -0.02em;
+  --text-heading: 1.125rem;
+  --text-heading--line-height: 1.3;
+  --text-heading--letter-spacing: -0.015em;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.5;
+  --text-body--letter-spacing: 0;
+  --text-nav: 0.875rem;
+  --text-nav--line-height: 1.2;
+  --text-nav--letter-spacing: -0.01em;
+  --text-detail: 0.8125rem;
+  --text-detail--line-height: 1.35;
+  --text-detail--letter-spacing: 0;
+
+  --radius-panel: 0.75rem;
+
+  --ease-rex: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-press: cubic-bezier(0.23, 1, 0.32, 1);
+
+  --animate-rise: rise 320ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-turn: turn 500ms cubic-bezier(0.77, 0, 0.175, 1);
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
+  @keyframes turn {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+:root {
+  color-scheme: light dark;
+
+  --ink: light-dark(#181d16, #ececea);
+  --paper: light-dark(#f5f5f4, #10120f);
+  --surface: light-dark(#ffffff, #191c17);
+  --soft: light-dark(#181d169e, #ececea9e);
+  --muted: light-dark(#8f958c, #737b6f);
+  --faint: light-dark(#d1d1d0, #3d423a);
+  --rule: light-dark(#181d161f, #ececea24);
+  --wash: light-dark(#181d160d, #ececea12);
+  --accent: light-dark(#e2622f, #ff8b5d);
+  --focus: light-dark(#873ac2, #c989fe);
+  --hover: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  --edge-top: light-dark(#181d160a, #ececea0a);
+  --edge-bottom: light-dark(#181d1621, #ececea21);
+  --shadow-surface:
+    light-dark(0 1px 1px #181d1608, 0 1px 1px #0003),
+    light-dark(0 2px 2px -1px #181d1608, 0 2px 2px -1px #0003),
+    light-dark(0 4px 6px -3px #181d160a, 0 4px 6px -3px #0000003d);
+}
+
+@utility pane {
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(to bottom, var(--edge-top), var(--edge-bottom)) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-panel);
+  corner-shape: squircle;
+  box-shadow: var(--shadow-surface);
+}
+
+@layer base {
+  html {
+    font-kerning: normal;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-paper text-ink text-body min-h-dvh font-sans;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 55%, var(--paper));
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  :where(a, button) {
+    border-radius: 0.25rem;
+  }
+
+  p,
+  dd {
+    text-wrap: pretty;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 1ms !important;
+      animation-delay: 0ms !important;
+      transition-duration: 1ms !important;
+    }
+  }
+}

@@ -179,13 +179,23 @@ That link is for agents. The T3 Code app keeps its own list, so `--app` also sen
 
 It reads `tailscale status --json`, or `tailscale.exe` under WSL, and asks each online machine for T3's `/.well-known/t3/environment` on port 3773 (`--t3-port`). Links come from `t3 environment list --json`. `--t3` picks the `t3` binary, which is otherwise `t3` on PATH or the T3 server that is running. Without Tailscale it lists only this machine and its links.
 
-`devbox hub` serves the same data as a page at `http://127.0.0.1:3780/` and as JSON at `/api/machines`. It checks every minute and keeps the last 24 hours in memory. A request never starts a check. To open the page from your other devices, listen on the Tailscale address:
+`devbox hub` serves the same data as JSON at `/api/machines`, and the page in [`hub/`](hub) at `/`. It checks every minute and keeps the last 24 hours in memory. A request never starts a check. To open the page from your other devices, listen on the Tailscale address:
 
 ```sh
 devbox hub --host "$(tailscale ip -4)"
 ```
 
 The page has no login. Keep it on `127.0.0.1` or a Tailscale address.
+
+The page is a Next.js app that builds to static files, so the hub needs no Node server. Build it once on the machine that runs the hub, and again after an update:
+
+```sh
+cd hub && bun install --frozen-lockfile && bun run build
+```
+
+`devbox hub` then serves `hub/out` from this checkout. `--ui <dir>` serves another build, which a compiled `devbox` binary needs. Without a build, `/` answers 404 with this command and the JSON still works.
+
+To work on the page, run `devbox hub` and then `bun run dev` in `hub/`. Next serves the page on port 3790 and forwards `/api/machines` to the hub at `DEVBOX_HUB_URL` (default `http://127.0.0.1:3780`). `hub/` is its own package with its own lockfile: `bun run check` runs [Ultracite](https://www.ultracite.dev), `bun run typecheck` runs [tsrs](https://github.com/oxc-project/tsrs), and `bun test` runs its tests.
 
 ## Back up agent memory
 
