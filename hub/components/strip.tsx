@@ -6,7 +6,7 @@ const BAR_IDS = Array.from({ length: BAR_COUNT }, (_, bar) => `bar-${bar}`);
 const BAR_CLASS = {
   offline: "bg-rule",
   online: "bg-muted",
-  t3: "bg-(image:--tile)",
+  t3: "bg-accent",
   unknown: "shadow-[inset_0_-1px_0_var(--rule)]",
 } satisfies Record<BarState, string>;
 

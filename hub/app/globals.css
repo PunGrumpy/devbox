@@ -16,6 +16,7 @@
   --color-muted: var(--muted);
   --color-rule: var(--rule);
   --color-wash: var(--wash);
+  --color-accent: var(--accent);
 
   --text-title: 1.75rem;
   --text-title--line-height: 1.15;
@@ -99,9 +100,11 @@
       rgb(35 55 0) 100%
     )
   );
-  --tile: linear-gradient(100deg, #8a5cff 0%, #ff5c8d 55%, #ffb648 100%);
-  --plate-from: light-dark(#fdfbff, #33246f);
-  --plate-to: light-dark(#e9e2ff, #1a1338);
+  --accent: #ff8b5d;
+  --logo-plate: light-dark(#fbfbfc, #262a72);
+  --logo-warm: light-dark(#f9d8fd, #5a1f66);
+  --logo-cool: light-dark(#c8f1f6, #1f4a70);
+  --logo-pill: light-dark(#fcfbff, #223261);
   --shadow-icon:
     light-dark(0 0 0 0.5px #181d160f, 0 0 0 0.5px #ececea14),
     light-dark(0 1px 1px -0.5px #181d160d, 0 1px 1px -0.5px #0003),

@@ -1,4 +1,4 @@
-import { AppIcon, SearchIcon } from "@/components/icons";
+import { HubLogo, SearchIcon } from "@/components/icons";
 import { FILTERS } from "@/lib/machines";
 import type { FilterKey, Machine } from "@/lib/machines";
 
@@ -52,7 +52,7 @@ export const Sidebar = ({
   status,
 }: SidebarProps) => (
   <aside className="max-side:hidden fixed top-0 left-[clamp(0.5rem,calc(50vw-33rem),4rem)] flex h-dvh w-50 flex-col pt-20 pr-2 pb-8 pl-4">
-    <AppIcon className="size-12" />
+    <HubLogo className="size-12" />
     <label className="edge text-nav text-muted focus-within:outline-focus mt-7 -ml-3 flex w-[calc(100%+0.75rem)] items-center gap-2 rounded-full px-2.5 py-1.5 [--fill:var(--paper)] focus-within:outline-2 focus-within:outline-offset-2">
       <SearchIcon className="size-3.5 shrink-0" />
       <span className="sr-only">Filter machines by name</span>

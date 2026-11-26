@@ -191,77 +191,141 @@ const KindGlyph = ({ kind }: { kind: MachineKind }) => {
   return kind === "remote" ? <RemoteGlyph /> : <ComputerGlyph />;
 };
 
-const STATE_CLASS = {
-  offline: "opacity-40 grayscale",
-  online: "opacity-75 grayscale",
-  t3: "shadow-(--shadow-icon)",
+const TILE_CLASS = {
+  offline: "border-rule text-muted border",
+  online: "bg-wash text-soft",
+  t3: "bg-wash text-ink",
 } satisfies Record<MachineState, string>;
 
-interface TileProps {
-  className?: string;
-  kind?: MachineKind;
-  state?: MachineState;
+interface KindIconProps {
+  kind: MachineKind;
+  state: MachineState;
 }
 
 /**
- * An app icon in the manner of the Rex one: a soft plate, a figure in a warm gradient and a
- * layered shadow. Without a kind it draws the hub's own mark. With one it draws that kind of
- * machine, with Hugeicons glyphs. It is in full color when T3 Code answers, and gray otherwise.
+ * The kind of a machine as a plain glyph on a quiet tile, the way Rex draws every icon that is
+ * not an app. Hugeicons, at the 1.5 stroke the docs use.
  */
-export const AppIcon = ({ className = "", kind, state = "t3" }: TileProps) => {
+export const KindIcon = ({ kind, state }: KindIconProps) => (
+  <span
+    className={`squircle grid size-14 shrink-0 place-items-center rounded-(--radius-icon) ${TILE_CLASS[state]}`}
+  >
+    <svg
+      aria-hidden="true"
+      className="size-7"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      viewBox="0 0 24 24"
+    >
+      <KindGlyph kind={kind} />
+    </svg>
+  </span>
+);
+
+/**
+ * The hub's app icon, built like the Rex one: a pale plate with a pink and a cyan tint, a figure
+ * that runs from yellow through orange and pink to violet, and a name on a pill. The colors are
+ * the ones sampled from the Rex icon. The figure is the hub's own.
+ */
+export const HubLogo = ({ className = "" }: { className?: string }) => {
   const id = useId();
-  const plate = `${id}-plate`;
-  const figure = `url(#${id}-figure)`;
+  const url = (name: string) => `url(#${id}-${name})`;
 
   return (
     <span
-      className={`squircle block shrink-0 overflow-hidden rounded-(--radius-icon) ${STATE_CLASS[state]} ${className}`}
+      className={`squircle block shrink-0 overflow-hidden rounded-(--radius-icon) shadow-(--shadow-icon) ${className}`}
     >
-      <svg aria-hidden="true" className="block size-full" viewBox="0 0 56 56">
+      <svg aria-hidden="true" className="block size-full" viewBox="0 0 256 256">
         <defs>
-          <linearGradient id={plate} x1="0" x2="1" y1="0" y2="1">
-            <stop className="[stop-color:var(--plate-from)]" offset="0" />
-            <stop className="[stop-color:var(--plate-to)]" offset="1" />
-          </linearGradient>
+          <radialGradient cx="1" cy="0" id={`${id}-warm`} r="0.9">
+            <stop className="[stop-color:var(--logo-warm)]" offset="0" />
+            <stop
+              className="[stop-color:var(--logo-warm)]"
+              offset="1"
+              stopOpacity="0"
+            />
+          </radialGradient>
+          <radialGradient cx="0" cy="1" id={`${id}-cool`} r="0.9">
+            <stop className="[stop-color:var(--logo-cool)]" offset="0" />
+            <stop
+              className="[stop-color:var(--logo-cool)]"
+              offset="1"
+              stopOpacity="0"
+            />
+          </radialGradient>
           <linearGradient
             gradientUnits="userSpaceOnUse"
             id={`${id}-figure`}
-            x1="45"
-            x2="11"
-            y1="9"
-            y2="49"
+            x1="196"
+            x2="84"
+            y1="36"
+            y2="176"
           >
-            <stop offset="0" stopColor="#ffb648" />
-            <stop offset="0.5" stopColor="#ff5c8d" />
-            <stop offset="1" stopColor="#8a5cff" />
+            <stop offset="0" stopColor="#ffdd57" />
+            <stop offset="0.3" stopColor="#ff8338" />
+            <stop offset="0.58" stopColor="#df6e99" />
+            <stop offset="0.8" stopColor="#df8aff" />
+            <stop offset="1" stopColor="#b47aff" />
           </linearGradient>
-        </defs>
-        <rect fill={`url(#${plate})`} height="56" width="56" />
-        {kind === undefined ? (
-          <>
-            <path
-              d="M28 30 16.5 18M28 30l11.5-12M28 30v14"
-              fill="none"
-              stroke={figure}
-              strokeLinecap="round"
-              strokeWidth="5.5"
-            />
-            <g fill={figure}>
-              <circle cx="28" cy="30" r="7.5" />
-              <circle cx="16.5" cy="18" r="5" />
-              <circle cx="39.5" cy="18" r="5" />
-              <circle cx="28" cy="44" r="5" />
-            </g>
-          </>
-        ) : (
-          <g
-            stroke={figure}
-            strokeWidth="1.75"
-            transform="translate(12 12) scale(1.3333)"
+          <linearGradient id={`${id}-word`} x1="0" x2="1">
+            <stop offset="0" stopColor="#ff8338" />
+            <stop offset="0.4" stopColor="#df6e99" />
+            <stop offset="0.7" stopColor="#b47aff" />
+            <stop offset="1" stopColor="#5c8dff" />
+          </linearGradient>
+          <filter
+            height="150%"
+            id={`${id}-lift`}
+            width="140%"
+            x="-20%"
+            y="-20%"
           >
-            <KindGlyph kind={kind} />
-          </g>
-        )}
+            <feDropShadow
+              dx="0"
+              dy="6"
+              floodColor="#1e015a"
+              floodOpacity="0.26"
+              stdDeviation="7"
+            />
+          </filter>
+        </defs>
+        <rect className="fill-(--logo-plate)" height="256" width="256" />
+        <rect fill={url("warm")} height="256" width="256" />
+        <rect fill={url("cool")} height="256" width="256" />
+        <g filter={url("lift")}>
+          <path
+            d="M128 106 88 66M128 106l40-40M128 106v50"
+            fill="none"
+            stroke={url("figure")}
+            strokeLinecap="round"
+            strokeWidth="46"
+          />
+          <circle cx="128" cy="106" fill={url("figure")} r="36" />
+        </g>
+        <circle cx="128" cy="108" fill="#1e015a" r="13" />
+        <circle cx="132.5" cy="103.5" fill="#ffffff" opacity="0.85" r="3.6" />
+        <g filter={url("lift")}>
+          <rect
+            className="fill-(--logo-pill)"
+            height="46"
+            rx="23"
+            width="132"
+            x="62"
+            y="182"
+          />
+        </g>
+        <text
+          fill={url("word")}
+          fontFamily="ui-rounded, 'SF Pro Rounded', system-ui, sans-serif"
+          fontSize="30"
+          fontWeight="800"
+          letterSpacing="3"
+          textAnchor="middle"
+          x="128"
+          y="215"
+        >
+          HUB
+        </text>
       </svg>
     </span>
   );

@@ -4,7 +4,7 @@ import { useState, useSyncExternalStore } from "react";
 
 import { CodeBlock } from "@/components/copy";
 import { Field } from "@/components/field";
-import { AppIcon, OsIcon } from "@/components/icons";
+import { HubLogo, OsIcon } from "@/components/icons";
 import { MachineCard } from "@/components/machine-card";
 import { Filters, Sidebar } from "@/components/sidebar";
 import { ago, bars, FILTERS, groupByOs, lead, summarize } from "@/lib/machines";
@@ -100,7 +100,7 @@ export const Hub = () => {
       />
       <main className="side:px-0 side:pt-20 mx-auto w-full max-w-xl px-6 pt-10 pb-24">
         <div className="side:hidden text-nav text-soft mb-10 flex items-center justify-between gap-4">
-          <AppIcon className="size-9" />
+          <HubLogo className="size-9" />
           <output className="truncate tabular-nums">{status}</output>
         </div>
         <h1 className="text-title min-h-[63px] pb-2">Machines</h1>

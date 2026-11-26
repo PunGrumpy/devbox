@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from "react";
 
 import { CopyLink } from "@/components/copy";
-import { AppIcon } from "@/components/icons";
+import { KindIcon } from "@/components/icons";
 import { Strip } from "@/components/strip";
 import { linkSentence, STATE_LABEL, t3Sentence } from "@/lib/machines";
 import type { BarState, Machine } from "@/lib/machines";
@@ -39,11 +39,7 @@ export const MachineCard = ({ bars, machine, now }: MachineCardProps) => {
     <li className="animate-rise">
       <div className="edge squircle rounded-card @container mt-4 p-4">
         <div className="flex items-center gap-4 @max-md:flex-wrap">
-          <AppIcon
-            className="size-14"
-            kind={machine.kind}
-            state={machine.state}
-          />
+          <KindIcon kind={machine.kind} state={machine.state} />
           <div className="min-w-0 flex-[1_1_9rem]">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate">{machine.name}</span>
