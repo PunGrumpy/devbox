@@ -48,7 +48,7 @@ export const SummaryPane = ({ machines, now }: SummaryPaneProps) => {
         <span className="text-display tabular-nums">{online}</span>
         <span className="text-soft">of {total} online</span>
       </p>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 xl:grid-cols-4">
         <Stat term="T3 Code" value={`${ready} ready`} />
         <Stat term="Linked for agents" value={String(linked)} />
         <Stat
