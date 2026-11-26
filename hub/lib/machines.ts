@@ -116,55 +116,6 @@ export const bars = (states: string, sampleSeconds: number) => {
   });
 };
 
-const hostOf = (url: string) => {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-};
-
-/** The second line of the "where" cell: the Tailscale IP, or the host of the link's URL. */
-export const whereDetail = (machine: Machine) => {
-  if (machine.tailscale) {
-    return machine.tailscale.ip;
-  }
-
-  const [url] = machine.t3?.link?.urls ?? [];
-
-  return url === undefined ? "" : hostOf(url);
-};
-
-export const linkText = (link: Link | null | undefined) => {
-  if (!link) {
-    return "Not linked";
-  }
-
-  return link.status === "reachable" ? "Linked" : `Linked, ${link.status}`;
-};
-
-export const stateText = (machine: Machine, now: number) => {
-  const latency = machine.t3?.latencyMs;
-
-  if (machine.state === "t3" && latency !== null && latency !== undefined) {
-    return `T3 Code ready · ${Math.round(latency)} ms`;
-  }
-
-  const lastSeen = machine.tailscale?.lastSeen ?? null;
-
-  if (machine.state === "offline" && lastSeen !== null) {
-    return `Offline · seen ${ago(lastSeen, now)}`;
-  }
-
-  const text = {
-    offline: "Offline",
-    online: "Online",
-    t3: "T3 Code ready",
-  } satisfies Record<MachineState, string>;
-
-  return text[machine.state];
-};
-
 export const FILTERS = [
   { key: "all", label: "All", test: () => true },
   { key: "t3", label: "T3 Code", test: (m: Machine) => m.state === "t3" },
@@ -182,27 +133,78 @@ export const FILTERS = [
 
 export type FilterKey = (typeof FILTERS)[number]["key"];
 
-export const summarize = (machines: readonly Machine[]) => {
-  const ready = machines.filter((m) => m.state === "t3");
+export const summarize = (machines: readonly Machine[]) => ({
+  linked: machines.filter((m) => m.t3?.link).length,
+  ready: machines.filter((m) => m.state === "t3").length,
+});
 
-  const linked = machines.flatMap((m) =>
-    m.t3?.link
-      ? [{ expiresAt: Date.parse(m.t3.link.expiresAt), name: m.name }]
-      : []
-  );
+export const STATE_LABEL = {
+  offline: "Offline",
+  online: "Online",
+  t3: "T3 Code ready",
+} satisfies Record<MachineState, string>;
 
-  const answered = ready.flatMap((m) =>
-    m.t3 && m.t3.latencyMs !== null
-      ? [{ latencyMs: m.t3.latencyMs, name: m.name }]
-      : []
-  );
+const t3Sentence = (machine: Machine, now: number) => {
+  const { state, t3, tailscale } = machine;
 
-  return {
-    linked: linked.length,
-    nextExpiry: linked.toSorted((a, b) => a.expiresAt - b.expiresAt)[0],
-    online: machines.filter((m) => m.state !== "offline").length,
-    ready: ready.length,
-    slowest: answered.toSorted((a, b) => b.latencyMs - a.latencyMs)[0],
-    total: machines.length,
-  };
+  if (state === "t3" && t3 !== null && t3.latencyMs !== null) {
+    const version = t3.version === null ? "" : ` ${t3.version}`;
+
+    return `T3 Code${version} answered in ${Math.round(t3.latencyMs)} ms.`;
+  }
+
+  if (state === "t3") {
+    return "T3 Code answers through its link.";
+  }
+
+  if (state === "online") {
+    return "On the tailnet, with no T3 Code found.";
+  }
+
+  const lastSeen = tailscale?.lastSeen ?? null;
+
+  return lastSeen === null
+    ? "Not answering."
+    : `Last seen ${ago(lastSeen, now)}.`;
+};
+
+const linkSentence = (link: Link | null, now: number) => {
+  if (link === null) {
+    return "Not linked for agents.";
+  }
+
+  const left = `${span(Date.parse(link.expiresAt) - now)} left`;
+
+  return link.status === "reachable"
+    ? `Linked for agents with ${link.access}, ${left}.`
+    : `Linked for agents but ${link.status}, ${left}.`;
+};
+
+/** What a person would say about a machine, in two short sentences. */
+export const describe = (machine: Machine, now: number) =>
+  `${t3Sentence(machine, now)} ${linkSentence(machine.t3?.link ?? null, now)}`;
+
+/** The page's opening line, split where its last words take the gradient. */
+export const headline = (
+  machines: readonly Machine[] | null,
+  failing: boolean
+) => {
+  if (machines === null) {
+    return failing
+      ? { accent: "not answering.", lead: "The hub is" }
+      : { accent: "its machines.", lead: "Asking the hub for" };
+  }
+
+  if (machines.length === 0) {
+    return { accent: "no machines.", lead: "The hub knows" };
+  }
+
+  const online = machines.filter((m) => m.state !== "offline").length;
+  const noun = machines.length === 1 ? "machine is" : "machines are";
+
+  if (online === machines.length) {
+    return { accent: "online.", lead: `All ${machines.length} ${noun}` };
+  }
+
+  return { accent: "online.", lead: `${online} of ${machines.length} ${noun}` };
 };

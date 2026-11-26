@@ -4,10 +4,10 @@ import type { BarState } from "@/lib/machines";
 const BAR_IDS = Array.from({ length: BAR_COUNT }, (_, bar) => `bar-${bar}`);
 
 const BAR_CLASS = {
-  offline: "bg-faint",
-  online: "bg-muted",
-  t3: "bg-accent",
-  unknown: "shadow-[inset_0_0_0_1px_var(--rule)]",
+  offline: "bg-rule",
+  online: "bg-muted/60",
+  t3: "gradient-fill",
+  unknown: "shadow-[inset_0_-1px_0_var(--rule)]",
 } satisfies Record<BarState, string>;
 
 interface StripProps {
@@ -18,11 +18,11 @@ interface StripProps {
 export const Strip = ({ bars }: StripProps) => (
   <span
     aria-hidden="true"
-    className="grid h-5 grid-cols-[repeat(48,minmax(0,1fr))] gap-0.5"
+    className="grid h-3 grid-cols-[repeat(48,minmax(0,1fr))] gap-px sm:gap-0.5"
   >
     {BAR_IDS.map((id, bar) => (
       <span
-        className={`rounded-[1.5px] transition-colors duration-200 ${BAR_CLASS[bars[bar] ?? "unknown"]}`}
+        className={`transition-colors duration-200 ${BAR_CLASS[bars[bar] ?? "unknown"]}`}
         key={id}
       />
     ))}

@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { CheckIcon, CopyIcon } from "@/components/icons";
 import { copyText } from "@/lib/clipboard";
 
 const COPIED_MS = 1600;
@@ -37,24 +36,37 @@ interface CopyProps {
   text: string;
 }
 
-/** The round button beside a command. Its icon turns into a check for a moment. */
-export const CopyButton = ({ text }: CopyProps) => {
+/** A command in a pill. Pressing it copies the command, and the action says so for a moment. */
+export const CommandPill = ({ text }: CopyProps) => {
   const { copied, copy } = useCopied(text);
 
   return (
     <button
       aria-label={copied ? "Copied" : `Copy ${text}`}
-      className="text-soft hover:text-ink ease-press relative grid size-7 shrink-0 cursor-pointer place-items-center rounded-full transition-[color,transform] duration-150 active:scale-[0.94]"
+      className="border-rule/60 hover:border-rule ease-press flex w-full cursor-copy items-center gap-4 rounded-[28px] border py-3 pr-6 pl-5 text-left transition-[border-color,background-color,transform] duration-150 hover:bg-white/25 active:scale-[0.99] dark:hover:bg-white/5"
       onClick={() => {
         void copy();
       }}
       type="button"
     >
-      <CopyIcon className={SWAP} data-shown={!copied} />
-      <CheckIcon
-        className={`text-accent absolute ${SWAP}`}
-        data-shown={copied}
-      />
+      <code className="text-caption min-w-0 flex-1 truncate font-mono">
+        <span aria-hidden="true" className="text-muted select-none">
+          ${" "}
+        </span>
+        {text}
+      </code>
+      <span className="text-caption relative shrink-0">
+        <span className={`gradient-text block ${SWAP}`} data-shown={!copied}>
+          Copy
+        </span>
+        <span
+          aria-hidden="true"
+          className={`gradient-text absolute inset-y-0 right-0 ${SWAP}`}
+          data-shown={copied}
+        >
+          Copied
+        </span>
+      </span>
     </button>
   );
 };
@@ -66,7 +78,7 @@ export const CopyText = ({ text }: CopyProps) => {
   return (
     <button
       aria-label={copied ? "Copied" : `Copy ${text}`}
-      className="text-detail hover:bg-wash ease-press relative -mx-1.5 block max-w-[calc(100%+0.75rem)] cursor-copy rounded-md px-1.5 py-0.5 text-left font-mono transition-[background-color,transform] duration-150 active:scale-[0.98]"
+      className="decoration-rule hover:decoration-muted ease-press relative max-w-full cursor-copy text-left underline underline-offset-4 transition-[text-decoration-color,transform] duration-150 active:scale-[0.98]"
       onClick={() => {
         void copy();
       }}
@@ -77,7 +89,7 @@ export const CopyText = ({ text }: CopyProps) => {
       </span>
       <span
         aria-hidden="true"
-        className={`text-accent absolute inset-y-0 left-1.5 flex items-center font-sans ${SWAP}`}
+        className={`gradient-text absolute inset-y-0 left-0 font-sans ${SWAP}`}
         data-shown={copied}
       >
         Copied

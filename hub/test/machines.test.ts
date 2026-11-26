@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import { bars, BAR_COUNT, span, stateText, summarize } from "@/lib/machines";
+import {
+  bars,
+  BAR_COUNT,
+  describe as describeMachine,
+  headline,
+  span,
+  summarize,
+} from "@/lib/machines";
 import type { Machine } from "@/lib/machines";
 
 const base: Machine = {
@@ -51,10 +58,10 @@ describe("bars", () => {
   });
 });
 
-describe("stateText", () => {
+describe("describe", () => {
   const now = Date.parse("2026-11-27T12:00:00Z");
 
-  test("a machine that answered shows how long it took", () => {
+  test("a machine that answered says its version and how long it took", () => {
     const answered = machine({
       state: "t3",
       t3: {
@@ -67,10 +74,35 @@ describe("stateText", () => {
       },
     });
 
-    expect(stateText(answered, now)).toBe("T3 Code ready · 42 ms");
+    expect(describeMachine(answered, now)).toBe(
+      "T3 Code 0.1.13 answered in 42 ms. Not linked for agents."
+    );
   });
 
-  test("an offline machine shows when it was last seen", () => {
+  test("a machine known only through its link says so, with the time left", () => {
+    const linked = machine({
+      state: "t3",
+      t3: {
+        environmentId: "id",
+        label: "laptop",
+        latencyMs: null,
+        link: {
+          access: "full-access",
+          expiresAt: "2026-12-06T12:00:00Z",
+          status: "reachable",
+          urls: [],
+        },
+        url: null,
+        version: null,
+      },
+    });
+
+    expect(describeMachine(linked, now)).toBe(
+      "T3 Code answers through its link. Linked for agents with full-access, 9d left."
+    );
+  });
+
+  test("an offline machine says when it was last seen", () => {
     const offline = machine({
       state: "offline",
       tailscale: {
@@ -82,43 +114,59 @@ describe("stateText", () => {
       },
     });
 
-    expect(stateText(offline, now)).toBe("Offline · seen 10h ago");
+    expect(describeMachine(offline, now)).toBe(
+      "Last seen 10h ago. Not linked for agents."
+    );
+  });
+});
+
+describe("headline", () => {
+  test("counts the machines that are online", () => {
+    expect(
+      headline(
+        [machine({}), machine({ name: "gone", state: "offline" })],
+        false
+      )
+    ).toEqual({
+      accent: "online.",
+      lead: "1 of 2 machines are",
+    });
+    expect(headline([machine({})], false)).toEqual({
+      accent: "online.",
+      lead: "All 1 machine is",
+    });
+  });
+
+  test("before the first answer it says what it is waiting for", () => {
+    expect(headline(null, false).lead).toBe("Asking the hub for");
+    expect(headline(null, true).lead).toBe("The hub is");
+    expect(headline([], false).accent).toBe("no machines.");
   });
 });
 
 describe("summarize", () => {
-  test("counts states and finds the link that expires first", () => {
-    const linked = (name: string, expiresAt: string) =>
-      machine({
-        name,
-        state: "t3",
-        t3: {
-          environmentId: name,
-          label: name,
-          latencyMs: null,
-          link: {
-            expiresAt,
-            access: "full-access",
-            status: "reachable",
-            urls: [],
-          },
-          url: null,
-          version: null,
+  test("counts the machines that run T3 Code and the ones linked for agents", () => {
+    const linked = machine({
+      name: "linked",
+      state: "t3",
+      t3: {
+        environmentId: "id",
+        label: "linked",
+        latencyMs: null,
+        link: {
+          access: "full-access",
+          expiresAt: "2026-12-25T00:00:00Z",
+          status: "reachable",
+          urls: [],
         },
-      });
+        url: null,
+        version: null,
+      },
+    });
 
-    const result = summarize([
-      linked("late", "2026-12-25T00:00:00Z"),
-      linked("soon", "2026-12-01T00:00:00Z"),
-      machine({ name: "plain" }),
-      machine({ name: "gone", state: "offline" }),
-    ]);
-
-    expect(result.total).toBe(4);
-    expect(result.online).toBe(3);
-    expect(result.ready).toBe(2);
-    expect(result.linked).toBe(2);
-    expect(result.nextExpiry?.name).toBe("soon");
-    expect(result.slowest).toBeUndefined();
+    expect(summarize([linked, machine({ name: "plain" })])).toEqual({
+      linked: 1,
+      ready: 1,
+    });
   });
 });

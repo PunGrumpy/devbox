@@ -2,10 +2,10 @@
 
 import { useState, useSyncExternalStore } from "react";
 
-import { HubGlyph, RefreshIcon } from "@/components/icons";
-import { MachineRow } from "@/components/machine-row";
-import { AgentsPane, SummaryPane } from "@/components/panes";
-import { ago, bars, FILTERS } from "@/lib/machines";
+import { CommandPill } from "@/components/copy";
+import { HubGlyph } from "@/components/icons";
+import { MachineItem } from "@/components/machine-item";
+import { ago, bars, FILTERS, headline, summarize } from "@/lib/machines";
 import type { FilterKey, Snapshot } from "@/lib/machines";
 import {
   getHubState,
@@ -16,8 +16,21 @@ import {
   subscribe,
 } from "@/lib/store";
 
-const COLUMNS =
-  "[--cols:minmax(9.5rem,1fr)_minmax(13.5rem,1.6fr)_minmax(8.5rem,1.1fr)_minmax(9rem,0.95fr)_12rem]";
+const FALLBACK_ORIGIN = "http://127.0.0.1:3780";
+const getOrigin = () => window.location.origin;
+const getServerOrigin = () => FALLBACK_ORIGIN;
+
+const Field = () => (
+  <div
+    aria-hidden="true"
+    className="gradient-fill pointer-events-none fixed top-3 right-1.5 z-20 h-[calc(100dvh-24px)] w-1.5 overflow-hidden rounded-[14px] sm:right-3 sm:w-14 lg:w-[calc(var(--field)-12px)]"
+  >
+    <div className="animate-drift absolute -top-1/4 -right-1/4 size-[90%] rounded-full bg-[rgb(209_182_254)] opacity-70 blur-3xl" />
+    <div className="animate-drift absolute -bottom-1/4 -left-1/4 size-[80%] rounded-full bg-[rgb(253_147_113)] opacity-60 blur-3xl [animation-delay:-14s]" />
+    <div className="field-grain absolute inset-0 opacity-60" />
+    <div className="absolute inset-0 rounded-[14px] shadow-[inset_0_0_0_1px_rgb(0_0_0/0.06),inset_0_1px_0_rgb(255_255_255/0.3)]" />
+  </div>
+);
 
 const statusText = (
   snapshot: Snapshot | null,
@@ -28,48 +41,63 @@ const statusText = (
     return failing ? "The hub is not answering" : "Checking";
   }
 
-  const checked = `checked ${ago(snapshot.generatedAt, now)}`;
+  const checked = ago(snapshot.generatedAt, now);
 
-  return failing
-    ? `The hub is not answering · ${checked}`
-    : `C${checked.slice(1)}`;
+  return failing ? `Not answering · checked ${checked}` : `Checked ${checked}`;
 };
 
-interface MachinesPaneProps {
+interface MachinesProps {
   filter: FilterKey;
   now: number;
+  onFilter: (filter: FilterKey) => void;
   snapshot: Snapshot | null;
 }
 
-const MachinesPane = ({ filter, now, snapshot }: MachinesPaneProps) => {
+const Machines = ({ filter, now, onFilter, snapshot }: MachinesProps) => {
   const machines = snapshot?.machines ?? [];
   const test = FILTERS.find((candidate) => candidate.key === filter)?.test;
   const shown = machines.filter((machine) => test?.(machine) ?? true).length;
 
   return (
     <section
-      aria-label="Machines"
-      className={`pane flex min-w-0 flex-col overflow-hidden sm:col-span-2 ${COLUMNS}`}
+      aria-labelledby="machines-title"
+      className="my-10 max-w-[72ch] md:my-14"
     >
+      <div className="mb-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <h2 className="text-muted" id="machines-title">
+          Machines
+        </h2>
+        <nav
+          aria-label="Filter machines"
+          className="flex flex-wrap gap-x-5 gap-y-1"
+        >
+          {FILTERS.map(({ key, label, test: matches }) => (
+            <button
+              aria-pressed={key === filter}
+              className="text-muted hover:text-ink aria-pressed:text-ink ease-press cursor-pointer transition-[color,transform] duration-150 active:scale-[0.97]"
+              key={key}
+              onClick={() => {
+                onFilter(key);
+              }}
+              type="button"
+            >
+              {label}{" "}
+              <span className="tabular-nums">
+                {machines.filter(matches).length}
+              </span>
+            </button>
+          ))}
+        </nav>
+      </div>
       {snapshot && !snapshot.tailscale ? (
-        <p className="bg-wash text-nav text-soft m-3 mb-0 rounded-lg px-3 py-2.5">
+        <p className="text-muted mb-6">
           Tailscale did not answer on the hub machine, so this list holds only
           that machine and its links.
         </p>
       ) : null}
-      <div
-        aria-hidden="true"
-        className="text-detail text-soft hidden grid-cols-(--cols) gap-x-6 px-5 pt-3.5 pb-3 lg:grid"
-      >
-        <span>Machine</span>
-        <span>Where</span>
-        <span>T3 Code</span>
-        <span>Agent link</span>
-        <span className="text-right">Last 24 h</span>
-      </div>
-      <ul className="flex-1">
+      <ol>
         {machines.map((machine, index) => (
-          <MachineRow
+          <MachineItem
             bars={bars(
               snapshot?.history.states[machine.name] ?? "",
               snapshot?.history.sampleSeconds ?? 60
@@ -81,21 +109,35 @@ const MachinesPane = ({ filter, now, snapshot }: MachinesPaneProps) => {
             now={now}
           />
         ))}
-      </ul>
-      {shown === 0 ? (
-        <p className="border-rule text-soft border-t px-5 py-8">
-          {snapshot
-            ? "No machine matches this filter."
-            : "Asking the hub for its machines."}
-        </p>
+      </ol>
+      {snapshot && shown === 0 ? (
+        <p className="text-muted">No machine matches this filter.</p>
       ) : null}
-      <footer className="border-rule text-muted flex flex-wrap items-center justify-between gap-x-6 gap-y-1 border-t px-5 py-2.5 font-mono text-xs">
-        <span>devbox hub</span>
-        <span>
-          {snapshot?.history.sampleSeconds ?? 60}s checks · 30 min per bar · 24
-          h in memory
-        </span>
-      </footer>
+    </section>
+  );
+};
+
+const Agents = () => {
+  const origin = useSyncExternalStore(subscribe, getOrigin, getServerOrigin);
+
+  return (
+    <section
+      aria-labelledby="agents-title"
+      className="my-10 max-w-[72ch] md:my-14"
+    >
+      <h2 className="text-muted mb-4" id="agents-title">
+        For agents
+      </h2>
+      <div className="flex flex-col gap-5">
+        <p>
+          The same list is available as JSON. An agent reads it before it picks
+          a machine, then reaches a linked one by its environment id.
+        </p>
+        <div className="flex flex-col gap-2">
+          <CommandPill text="devbox machines --json" />
+          <CommandPill text={`curl -s ${origin}/api/machines`} />
+        </div>
+      </div>
     </section>
   );
 };
@@ -109,63 +151,58 @@ export const Hub = () => {
 
   const now = useSyncExternalStore(subscribe, getNow, getServerNow);
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [turns, setTurns] = useState(0);
-  const machines = snapshot?.machines ?? [];
+  const { accent, lead } = headline(snapshot?.machines ?? null, failing);
+  const { linked, ready } = summarize(snapshot?.machines ?? []);
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-[88rem] flex-col gap-2 p-2 sm:p-3">
-      <header className="flex h-10 items-center gap-1 pr-0.5 pl-1.5">
-        <h1 className="text-nav mr-3 flex shrink-0 items-center gap-2.5">
-          <HubGlyph />
-          hub
+    <div className="min-h-dvh">
+      <Field />
+      <div className="relative z-10 my-8 flex flex-col px-6 pr-9 sm:my-10 sm:px-10 sm:pr-[calc(80px+2.5rem)] lg:my-12 lg:px-16 lg:pr-[calc(var(--field)+4rem)]">
+        <header className="animate-rise flex h-6 items-center justify-between gap-6">
+          <span className="flex items-center gap-3 font-medium">
+            <HubGlyph className="size-6" />
+            devbox hub
+          </span>
+          <output
+            className={`text-caption truncate tabular-nums transition-colors duration-200 ${failing ? "text-ink" : "text-muted"}`}
+          >
+            {statusText(snapshot, failing, now)}
+          </output>
+        </header>
+
+        <h1 className="text-h1 animate-rise mt-24 mb-12 max-w-[18ch] font-medium text-balance [animation-delay:40ms] md:mt-36 md:mb-16">
+          {lead} <span className="gradient-text">{accent}</span>
         </h1>
-        <nav
-          aria-label="Filter machines"
-          className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
-        >
-          {FILTERS.map(({ key, label, test }) => (
-            <button
-              aria-pressed={key === filter}
-              className="text-nav text-soft hover:text-ink aria-pressed:bg-wash aria-pressed:text-ink ease-press flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-md px-2.5 transition-[color,background-color,transform] duration-150 active:scale-[0.97]"
-              key={key}
-              onClick={() => {
-                setFilter(key);
-              }}
-              type="button"
-            >
-              {label}
-              <span className="text-muted tabular-nums">
-                {machines.filter(test).length}
-              </span>
-            </button>
-          ))}
-        </nav>
-        <output
-          className={`text-detail ml-auto hidden truncate pl-3 tabular-nums transition-colors duration-200 sm:block ${failing ? "text-accent" : "text-soft"}`}
-        >
-          {statusText(snapshot, failing, now)}
-        </output>
+
         <button
-          aria-label="Refresh"
-          className="text-soft hover:text-ink hover:bg-wash ease-press ml-auto grid size-8 shrink-0 cursor-pointer place-items-center rounded-full transition-[color,background-color,transform] duration-150 active:scale-[0.94] sm:ml-1"
+          className="border-rule/60 hover:border-rule ease-press animate-rise flex max-w-[72ch] cursor-pointer items-center gap-4 rounded-[28px] border p-4 pr-6 text-left transition-[border-color,background-color,transform] duration-150 [animation-delay:80ms] hover:bg-white/25 active:scale-[0.99] dark:hover:bg-white/5"
           onClick={() => {
-            setTurns((count) => count + 1);
             void refresh();
           }}
           type="button"
         >
-          <RefreshIcon
-            className={turns > 0 ? "animate-turn" : undefined}
-            key={turns}
-          />
+          <HubGlyph className="size-14 shrink-0 drop-shadow-[0_10px_12px_rgb(0_0_0/0.08)]" />
+          <span className="flex flex-1 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <span>
+              T3 Code answers on {ready}. {linked} linked for agents.
+            </span>
+            <span className="gradient-text shrink-0">Check again</span>
+          </span>
         </button>
-      </header>
 
-      <main className="grid flex-1 content-start gap-2 sm:grid-cols-2">
-        <SummaryPane machines={machines} now={now} />
-        <AgentsPane />
-        <MachinesPane filter={filter} now={now} snapshot={snapshot} />
-      </main>
+        <Machines
+          filter={filter}
+          now={now}
+          onFilter={setFilter}
+          snapshot={snapshot}
+        />
+        <Agents />
+
+        <footer className="text-caption text-muted mt-6 mb-4 max-w-[72ch]">
+          The hub checks every {snapshot?.history.sampleSeconds ?? 60} seconds
+          and keeps the last 24 hours in memory. Each bar is 30 minutes.
+        </footer>
+      </div>
     </div>
   );
 };
