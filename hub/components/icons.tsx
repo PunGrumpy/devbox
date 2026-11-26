@@ -1,7 +1,7 @@
 import { useId } from "react";
 import type { SVGProps } from "react";
 
-import type { MachineState } from "@/lib/machines";
+import type { MachineKind, MachineState } from "@/lib/machines";
 
 type IconProps = SVGProps<SVGSVGElement>;
 
@@ -121,25 +121,97 @@ export const OsIcon = ({ os, ...props }: IconProps & { os: string }) => {
   return <ComputerIcon {...props} />;
 };
 
+const ComputerGlyph = () => (
+  <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 4H5c-.932 0-1.398 0-1.765.152a2 2 0 0 0-1.083 1.083C2 5.602 2 6.068 2 7s0 1.398.152 1.765a2 2 0 0 0 1.083 1.083C3.602 10 4.068 10 5 10h14c.932 0 1.398 0 1.765-.152a2 2 0 0 0 1.083-1.083C22 8.398 22 7.932 22 7s0-1.398-.152-1.765a2 2 0 0 0-1.083-1.083C20.398 4 19.932 4 19 4m0 10H5c-.932 0-1.398 0-1.765.152a2 2 0 0 0-1.083 1.083C2 15.602 2 16.068 2 17s0 1.398.152 1.765a2 2 0 0 0 1.083 1.083C3.602 20 4.068 20 5 20h14c.932 0 1.398 0 1.765-.152a2 2 0 0 0 1.083-1.083C22 18.398 22 17.932 22 17s0-1.398-.152-1.765a2 2 0 0 0-1.083-1.083C20.398 14 19.932 14 19 14" />
+    <path d="M6.125 7H6m.25 0a.25.25 0 1 1-.5 0a.25.25 0 0 1 .5 0m3.875 0H10m.25 0a.25.25 0 1 1-.5 0a.25.25 0 0 1 .5 0M6.125 17H6m.25 0a.25.25 0 1 1-.5 0a.25.25 0 0 1 .5 0m3.875 0H10m.25 0a.25.25 0 1 1-.5 0a.25.25 0 0 1 .5 0" />
+  </g>
+);
+
+const MacGlyph = () => (
+  <path
+    fill="none"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    d="M20.5 16.5v-8c0-2.357 0-3.536-.732-4.268C19.035 3.5 17.857 3.5 15.5 3.5h-7c-2.357 0-3.536 0-4.268.732S3.5 6.143 3.5 8.5v8m18.484 4H2.016c-.383 0-.632-.391-.461-.724L3.5 16.5h17l1.945 3.276a.5.5 0 0 1-.46.724"
+  />
+);
+
+const RemoteGlyph = () => (
+  <path
+    fill="none"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    d="M17.478 10h.022a4.5 4.5 0 1 1 0 9H7a5 5 0 0 1-.48-9.977M17.478 10q.021-.247.022-.5a5.5 5.5 0 0 0-10.98-.477M17.478 10a5.5 5.5 0 0 1-1.235 3M6.52 9.023Q6.757 9 7 9c1.126 0 2.165.372 3 1"
+  />
+);
+
+const VmGlyph = () => (
+  <path
+    fill="none"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    d="M12 2.5a6 6 0 0 1 6 6c0 .552.455.987.99 1.123A4.002 4.002 0 0 1 18 17.5H7a5 5 0 0 1-1.616-9.733a1.3 1.3 0 0 0 .833-.873A6 6 0 0 1 12 2.5m0 15v4m0 0H6m6 0h6"
+  />
+);
+
+const WindowsGlyph = () => (
+  <path
+    fill="none"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    d="M14 21h2m-2 0a1.5 1.5 0 0 1-1.5-1.5V17H12m2 4h-4m0 0H8m2 0a1.5 1.5 0 0 0 1.5-1.5V17h.5m0 0v4m4-18H8c-2.828 0-4.243 0-5.121.879C2 4.757 2 6.172 2 9v2c0 2.828 0 4.243.879 5.121C3.757 17 5.172 17 8 17h8c2.828 0 4.243 0 5.121-.879C22 15.243 22 13.828 22 11V9c0-2.828 0-4.243-.879-5.121C20.243 3 18.828 3 16 3"
+  />
+);
+
+const WslGlyph = () => (
+  <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m7.5 7.5l1.227 1.057c.515.445.773.667.773.943s-.258.498-.773.943L7.5 11.5m4 1h4" />
+    <path d="M12 21c3.75 0 5.625 0 6.939-.955a5 5 0 0 0 1.106-1.106C21 17.625 21 15.749 21 12s0-5.625-.955-6.939a5 5 0 0 0-1.106-1.106C17.625 3 15.749 3 12 3s-5.625 0-6.939.955A5 5 0 0 0 3.955 5.06C3 6.375 3 8.251 3 12s0 5.625.955 6.939a5 5 0 0 0 1.106 1.106C6.375 21 8.251 21 12 21" />
+  </g>
+);
+
+const KindGlyph = ({ kind }: { kind: MachineKind }) => {
+  if (kind === "mac") {
+    return <MacGlyph />;
+  }
+
+  if (kind === "windows") {
+    return <WindowsGlyph />;
+  }
+
+  if (kind === "wsl") {
+    return <WslGlyph />;
+  }
+
+  if (kind === "vm") {
+    return <VmGlyph />;
+  }
+
+  return kind === "remote" ? <RemoteGlyph /> : <ComputerGlyph />;
+};
+
 const STATE_CLASS = {
   offline: "opacity-40 grayscale",
   online: "opacity-75 grayscale",
   t3: "shadow-(--shadow-icon)",
 } satisfies Record<MachineState, string>;
 
-interface AppIconProps {
+interface TileProps {
   className?: string;
+  kind?: MachineKind;
   state?: MachineState;
 }
 
 /**
- * The hub drawn as an app icon: a soft plate, a figure in a warm gradient and a layered shadow.
- * A machine's card shows it in full color when T3 Code answers, and in gray otherwise.
+ * An app icon in the manner of the Rex one: a soft plate, a figure in a warm gradient and a
+ * layered shadow. Without a kind it draws the hub's own mark. With one it draws that kind of
+ * machine, with Hugeicons glyphs. It is in full color when T3 Code answers, and gray otherwise.
  */
-export const AppIcon = ({ className = "", state = "t3" }: AppIconProps) => {
+export const AppIcon = ({ className = "", kind, state = "t3" }: TileProps) => {
   const id = useId();
   const plate = `${id}-plate`;
-  const figure = `${id}-figure`;
+  const figure = `url(#${id}-figure)`;
 
   return (
     <span
@@ -153,7 +225,7 @@ export const AppIcon = ({ className = "", state = "t3" }: AppIconProps) => {
           </linearGradient>
           <linearGradient
             gradientUnits="userSpaceOnUse"
-            id={figure}
+            id={`${id}-figure`}
             x1="45"
             x2="11"
             y1="9"
@@ -165,19 +237,31 @@ export const AppIcon = ({ className = "", state = "t3" }: AppIconProps) => {
           </linearGradient>
         </defs>
         <rect fill={`url(#${plate})`} height="56" width="56" />
-        <path
-          d="M28 30 16.5 18M28 30l11.5-12M28 30v14"
-          fill="none"
-          stroke={`url(#${figure})`}
-          strokeLinecap="round"
-          strokeWidth="5.5"
-        />
-        <g fill={`url(#${figure})`}>
-          <circle cx="28" cy="30" r="7.5" />
-          <circle cx="16.5" cy="18" r="5" />
-          <circle cx="39.5" cy="18" r="5" />
-          <circle cx="28" cy="44" r="5" />
-        </g>
+        {kind === undefined ? (
+          <>
+            <path
+              d="M28 30 16.5 18M28 30l11.5-12M28 30v14"
+              fill="none"
+              stroke={figure}
+              strokeLinecap="round"
+              strokeWidth="5.5"
+            />
+            <g fill={figure}>
+              <circle cx="28" cy="30" r="7.5" />
+              <circle cx="16.5" cy="18" r="5" />
+              <circle cx="39.5" cy="18" r="5" />
+              <circle cx="28" cy="44" r="5" />
+            </g>
+          </>
+        ) : (
+          <g
+            stroke={figure}
+            strokeWidth="1.75"
+            transform="translate(12 12) scale(1.3333)"
+          >
+            <KindGlyph kind={kind} />
+          </g>
+        )}
       </svg>
     </span>
   );

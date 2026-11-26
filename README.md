@@ -179,6 +179,8 @@ That link is for agents. The T3 Code app keeps its own list, so `--app` also sen
 
 It reads `tailscale status --json`, or `tailscale.exe` under WSL, and asks each online machine for T3's `/.well-known/t3/environment` on port 3773 (`--t3-port`). Links come from `t3 environment list --json`. `--t3` picks the `t3` binary, which is otherwise `t3` on PATH or the T3 server that is running. Without Tailscale it lists only this machine and its links.
 
+Each machine has a `kind`: `mac`, `windows`, `wsl`, `vm`, `computer` or `remote`. Tailscale tells a peer only a machine's name and system, so `vm` shows only for the machine the command runs on, from `systemd-detect-virt`. `wsl` is a Windows machine whose T3 Code says it runs on Linux, and `remote` is a linked machine that is not on the tailnet.
+
 `devbox hub` serves the same data as JSON at `/api/machines`, and the page in [`hub/`](hub) at `/`. It checks every minute and keeps the last 24 hours in memory. A request never starts a check. To open the page from your other devices, listen on the Tailscale address:
 
 ```sh

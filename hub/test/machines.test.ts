@@ -14,6 +14,7 @@ import type { Machine } from "@/lib/machines";
 
 const base: Machine = {
   here: false,
+  kind: "computer",
   name: "edge-7",
   state: "online",
   t3: null,

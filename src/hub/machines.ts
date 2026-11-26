@@ -31,9 +31,13 @@ export type T3 = {
   readonly link: LinkSummary | null;
 };
 
+/** What a machine is, as far as this computer can tell without asking it. */
+export type MachineKind = "mac" | "windows" | "wsl" | "vm" | "computer" | "remote";
+
 export type Machine = {
   readonly name: string;
   readonly here: boolean;
+  readonly kind: MachineKind;
   readonly state: MachineState;
   readonly tailscale: Tailnet | null;
   readonly t3: T3 | null;
@@ -69,6 +73,7 @@ const Descriptor = Schema.fromJsonString(
     environmentId: Schema.String,
     label: Schema.String,
     serverVersion: Schema.optional(Schema.String),
+    platform: Schema.optional(Schema.Struct({ os: Schema.optional(Schema.String) })),
   }),
 );
 
@@ -90,6 +95,28 @@ export type Seen = {
   readonly here: boolean;
   readonly tailscale: Tailnet | null;
   readonly t3: (Omit<T3, "link" | "latencyMs"> & { readonly latencyMs: number }) | null;
+  /** The system T3 Code says it runs on, which under WSL is not the one Tailscale reports. */
+  readonly platform: string | null;
+};
+
+/** `systemd-detect-virt` when this machine is not virtual, or has no such command. */
+export const BARE_METAL = "none";
+
+/**
+ * Tailscale tells a peer only a machine's name and system, so a virtual machine can be told
+ * apart only when it is this one.
+ */
+const kindOf = (
+  machine: Pick<Machine, "here" | "tailscale">,
+  platform: string | null,
+  virt: string,
+): MachineKind => {
+  const os = machine.tailscale?.os.toLowerCase();
+  if (machine.here && virt === "wsl") return "wsl";
+  if (os === "windows") return platform === "linux" ? "wsl" : "windows";
+  if (os === "macos") return "mac";
+  if (machine.here) return virt === BARE_METAL ? "computer" : "vm";
+  return machine.tailscale === null ? "remote" : "computer";
 };
 
 // They cannot run T3 Code.
@@ -107,7 +134,7 @@ const summary = (link: T3Link): LinkSummary => ({
   urls: link.urls,
 });
 
-const stateOf = (machine: Omit<Machine, "state">): MachineState => {
+const stateOf = (machine: Pick<Machine, "here" | "tailscale" | "t3">): MachineState => {
   if (
     machine.t3 !== null &&
     (machine.t3.latencyMs !== null || machine.t3.link?.status === "reachable")
@@ -123,10 +150,13 @@ const stateOf = (machine: Omit<Machine, "state">): MachineState => {
 export const merge = (
   seen: ReadonlyArray<Seen>,
   links: ReadonlyArray<T3Link>,
+  virt: string = BARE_METAL,
 ): ReadonlyArray<Machine> => {
-  const drafts: Array<{ -readonly [K in keyof Omit<Machine, "state">]: Machine[K] }> = seen.map(
-    (s) => ({ ...s, t3: s.t3 === null ? null : { ...s.t3, link: null } }),
-  );
+  const drafts: Array<
+    { -readonly [K in keyof Omit<Machine, "state" | "kind">]: Machine[K] } & {
+      readonly platform: string | null;
+    }
+  > = seen.map((s) => ({ ...s, t3: s.t3 === null ? null : { ...s.t3, link: null } }));
   const unmatched: Array<T3Link> = [];
   for (const link of links) {
     const owner = drafts.find((d) => d.t3?.environmentId === link.environmentId);
@@ -145,13 +175,15 @@ export const merge = (
     const node = drafts.find(
       (d) => d.tailscale !== null && d.t3 === null && compareNames(d.name, link.label) === 0,
     );
-    if (node === undefined) drafts.push({ name: link.label, here: false, tailscale: null, t3 });
+    if (node === undefined)
+      drafts.push({ name: link.label, here: false, tailscale: null, t3, platform: null });
     else node.t3 = t3;
   }
   return drafts
     .map((d): Machine => ({
       name: d.name,
       here: d.here,
+      kind: kindOf(d, d.platform, virt),
       state: stateOf(d),
       tailscale: d.tailscale,
       t3: d.t3,
@@ -171,6 +203,7 @@ const tailnetOf = (node: TailscaleNode, here: boolean): Seen => {
     name: node.HostName,
     here,
     t3: null,
+    platform: null,
     tailscale: {
       ip: ips.find((ip) => ip.includes(".")) ?? ips[0] ?? "",
       dns: node.DNSName.replace(/\.$/, ""),
@@ -233,6 +266,7 @@ const probe = (seen: Seen, port: number) =>
         onNone: () => seen,
         onSome: (d): Seen => ({
           ...seen,
+          platform: d.platform?.os ?? null,
           t3: {
             environmentId: d.environmentId,
             label: d.label,
@@ -278,19 +312,22 @@ export const takeSnapshot = ({ t3, t3Port }: SnapshotOptions) =>
     const host = yield* Host;
     const nodes = yield* tailnet;
     const listed = Option.getOrElse(nodes, (): ReadonlyArray<Seen> => [
-      { name: host.hostname, here: true, tailscale: null, t3: null },
+      { name: host.hostname, here: true, tailscale: null, t3: null, platform: null },
     ]);
-    const [seen, links] = yield* Effect.all(
+    const [seen, links, virt] = yield* Effect.all(
       [
         Effect.forEach(listed, (node) => probe(node, t3Port), { concurrency: "unbounded" }),
         linksOf(t3),
+        Effect.map(host.run(["systemd-detect-virt"], { timeoutMs: 3000 }), (ran) =>
+          ran.code === 0 ? ran.stdout.trim() || BARE_METAL : BARE_METAL,
+        ),
       ],
-      { concurrency: 2 },
+      { concurrency: 3 },
     );
     const snapshot: Snapshot = {
       generatedAt: DateTime.formatIso(yield* DateTime.now),
       tailscale: Option.isSome(nodes),
-      machines: merge(seen, links),
+      machines: merge(seen, links, virt),
     };
     return snapshot;
   });
@@ -317,6 +354,7 @@ const COLUMNS: ReadonlyArray<Column<Machine>> = [
     header: "machine",
     cell: (m) => (m.here ? [m.name, { text: " (here)", tone: "dim" }] : m.name),
   },
+  { header: "kind", cell: (m) => m.kind },
   { header: "state", cell: (m) => ({ text: m.state, tone: TONE[m.state] }) },
   {
     header: "where",

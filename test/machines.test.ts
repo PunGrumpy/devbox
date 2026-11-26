@@ -95,6 +95,7 @@ describe("devbox machines --json", () => {
       {
         name: "edge-7",
         here: true,
+        kind: "computer",
         state: "t3",
         tailscale: {
           ip: "100.64.0.21",
@@ -115,6 +116,7 @@ describe("devbox machines --json", () => {
       {
         name: "edge-8",
         here: false,
+        kind: "computer",
         state: "t3",
         tailscale: {
           ip: "100.64.0.22",
@@ -140,6 +142,7 @@ describe("devbox machines --json", () => {
       {
         name: "laptop-3",
         here: false,
+        kind: "remote",
         state: "t3",
         tailscale: null,
         t3: {
@@ -159,6 +162,7 @@ describe("devbox machines --json", () => {
       {
         name: "EDGE-9",
         here: false,
+        kind: "computer",
         state: "online",
         tailscale: {
           ip: "100.64.0.23",
@@ -284,6 +288,7 @@ describe("devbox machines --json", () => {
       {
         name: "box-1.example.internal",
         here: true,
+        kind: "computer",
         state: "t3",
         tailscale: null,
         t3: {
@@ -305,8 +310,8 @@ describe("devbox machines --json", () => {
     expect(r.code).toBe(0);
     expect(r.out).toBe("");
     expect(r.err).toContain("Tailscale did not answer");
-    expect(r.err).toMatch(/machine\s+state\s+where\s+T3 Code\s+agent link/);
-    expect(r.err).toMatch(/box-1\.example\.internal \(here\)\s+online/);
+    expect(r.err).toMatch(/machine\s+kind\s+state\s+where\s+T3 Code\s+agent link/);
+    expect(r.err).toMatch(/box-1\.example\.internal \(here\)\s+computer\s+online/);
   });
 
   test("--json says nothing on stderr when Tailscale does not answer", async () => {
@@ -362,5 +367,47 @@ describe("which t3 lists the links", () => {
     m.binaries.add("t3");
     m.respond = (argv) => (argv[1] === "environment" ? ok("Not signed in") : undefined);
     expect(await linkedNames(m)).toEqual(["box-1.example.internal"]);
+  });
+});
+
+describe("the kind of a machine", () => {
+  const withPlatform = (environmentId: string, label: string, os: string) =>
+    JSON.stringify({ environmentId, label, serverVersion: "0.2.0", platform: { os } });
+
+  test("comes from the system Tailscale reports, and WSL from what T3 Code says it runs on", async () => {
+    const m = computer({
+      tailscale: status(node("studio", "100.64.0.10", { OS: "macOS" }), [
+        node("tower", "100.64.0.11", { OS: "windows" }),
+        node("wsl-pc", "100.64.0.12", { OS: "windows" }),
+        node("edge-7", "100.64.0.21"),
+      ]),
+      links: [t3Link("env-cloud", "cloud-box")],
+      pages: { [page("100.64.0.12")]: withPlatform("env-wsl", "wsl-pc", "linux") },
+    });
+    const { json } = await machinesJson(m);
+    expect(
+      Object.fromEntries(
+        json.machines.map((x: { name: string; kind: string }) => [x.name, x.kind]),
+      ),
+    ).toEqual({
+      studio: "mac",
+      tower: "windows",
+      "wsl-pc": "wsl",
+      "edge-7": "computer",
+      "cloud-box": "remote",
+    });
+  });
+
+  test("a virtual machine is told apart only when it is this one", async () => {
+    const m = computer({
+      tailscale: status(node("edge-7", "100.64.0.21"), [node("edge-8", "100.64.0.22")]),
+    });
+    const respond = m.respond;
+    m.respond = (argv) => (argv[0] === "systemd-detect-virt" ? ok("kvm\n") : respond(argv));
+    const { json } = await machinesJson(m);
+    expect(json.machines.map((x: { name: string; kind: string }) => [x.name, x.kind])).toEqual([
+      ["edge-7", "vm"],
+      ["edge-8", "computer"],
+    ]);
   });
 });

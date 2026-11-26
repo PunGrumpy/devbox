@@ -188,6 +188,7 @@ const sample = (generatedAt: string, states: Record<string, MachineState>): Snap
   machines: Object.entries(states).map(([name, state]) => ({
     name,
     here: false,
+    kind: "computer",
     state,
     tailscale: null,
     t3: null,

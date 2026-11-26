@@ -26,6 +26,9 @@ const t3Schema = z.object({
 
 const machineSchema = z.object({
   here: z.boolean(),
+  kind: z
+    .enum(["mac", "windows", "wsl", "vm", "computer", "remote"])
+    .catch("computer"),
   name: z.string(),
   state: z.enum(["t3", "online", "offline"]),
   t3: t3Schema.nullable(),
@@ -46,6 +49,8 @@ export const snapshotSchema = z.object({
 export type Machine = z.infer<typeof machineSchema>;
 
 export type MachineState = Machine["state"];
+
+export type MachineKind = Machine["kind"];
 
 export type Link = z.infer<typeof linkSchema>;
 
