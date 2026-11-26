@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -20,6 +20,9 @@ export type FakeMachine = {
   binaries: Set<string>;
   calls: Array<ReadonlyArray<string>>;
   probes: Array<{ readonly address: string; readonly port: number }>;
+  /** URL to the body it answers with 200. Any other URL does not answer. */
+  pages: Map<string, string>;
+  fetches: Array<string>;
   runs: Array<{
     argv: ReadonlyArray<string>;
     env: Readonly<Record<string, string>> | undefined;
@@ -66,6 +69,8 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     binaries: new Set(["npm"]),
     calls: [],
     probes: [],
+    pages: new Map(),
+    fetches: [],
     runs: [],
     stdin: new Map(),
     brokenInstallers: new Set(),
@@ -185,6 +190,11 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
           m.processes.some((p) => p.argv.includes("serve")) ||
           [...m.units.values()].some((u) => u.active)
         );
+      }),
+    fetchText: (url) =>
+      Effect.sync(() => {
+        m.fetches.push(url);
+        return Option.map(Option.fromUndefinedOr(m.pages.get(url)), (body) => ({ body, ms: 12 }));
       }),
     readLine: Effect.sync(() => {
       m.calls.push(["<enter>"]);

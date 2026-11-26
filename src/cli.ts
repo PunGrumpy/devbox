@@ -5,6 +5,8 @@ import { CliConfig, CliError, CliOutput, Command, GlobalFlag } from "effect/cli"
 import packageJson from "../package.json" with { type: "json" };
 import { backup } from "./backup/command.ts";
 import { hintOf } from "./errors.ts";
+import { hub } from "./hub/hub.ts";
+import { machines } from "./hub/machines.ts";
 import { Host } from "./machine/host.ts";
 import { link } from "./machine/link.ts";
 import { pair } from "./machine/pair.ts";
@@ -28,6 +30,8 @@ export const devbox = Command.make("devbox").pipe(
     serve,
     pair,
     link,
+    machines,
+    hub,
     migrateRoot.pipe(Command.withSubcommands([doctor, moveThreads, renameRoot])),
   ]),
 );

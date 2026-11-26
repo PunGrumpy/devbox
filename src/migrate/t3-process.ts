@@ -22,9 +22,12 @@ const RuntimeFile = Schema.fromJsonString(
   }),
 );
 
+// A T3 server on Linux: `t3 serve`, or the WSL runtime the Windows app starts.
+export const LINUX_T3_SERVER = "(^|/)t3 (serve|--bootstrap-fd)";
+
 const PROCESS_PATTERNS: Partial<Record<NodeJS.Platform, string>> = {
   darwin: "T3 Code.*/Contents/MacOS/T3 Code",
-  linux: "(^|/)t3 (serve|--bootstrap-fd)",
+  linux: LINUX_T3_SERVER,
 };
 
 const pidAlive = (pid: number): boolean => {

@@ -1,5 +1,5 @@
 import { BunServices } from "@effect/platform-bun";
-import { ConfigProvider, Effect, Layer, Option } from "effect";
+import { ConfigProvider, Effect, Fiber, Layer, Option } from "effect";
 import { runCli } from "../../src/cli.ts";
 import { Host } from "../../src/machine/host.ts";
 import { Locations } from "../../src/migrate/locations.ts";
@@ -49,7 +49,18 @@ export const devbox = async (
   } = {},
 ): Promise<Result> => {
   const { out, err, asked, output } = capture(options.pick);
-  const layer = Layer.mergeAll(
+  const code = await Effect.runPromise(
+    runCli(args).pipe(Effect.provide(layerFor(env, output, options))),
+  );
+  return { code, out: out.join(""), err: err.join(""), asked };
+};
+
+const layerFor = (
+  env: Record<string, string>,
+  output: Output["Service"],
+  options: { t3?: RunningServer; host?: Host["Service"] },
+) =>
+  Layer.mergeAll(
     Layer.succeed(Output, output),
     Locations.layer,
     Layer.succeed(Host, options.host ?? makeMachine().host),
@@ -58,8 +69,20 @@ export const devbox = async (
     Layer.provideMerge(BunServices.layer),
     Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
   );
-  const code = await Effect.runPromise(runCli(args).pipe(Effect.provide(layer)));
-  return { code, out: out.join(""), err: err.join(""), asked };
+
+/** Starts a command that runs until stopped, such as `hub`. */
+export const start = (
+  env: Record<string, string>,
+  args: ReadonlyArray<string>,
+  options: { host?: Host["Service"] } = {},
+) => {
+  const { out, err, output } = capture();
+  const fiber = Effect.runFork(runCli(args).pipe(Effect.provide(layerFor(env, output, options))));
+  return {
+    out: () => out.join(""),
+    err: () => err.join(""),
+    stop: () => Effect.runPromise(Fiber.interrupt(fiber)),
+  };
 };
 
 export const migrate = (env: Record<string, string>, ...args: Array<string>) =>

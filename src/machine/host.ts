@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
@@ -18,6 +18,8 @@ export const TIMED_OUT = 124;
 
 export type Proc = { readonly pid: number; readonly argv: ReadonlyArray<string> };
 
+export type Fetched = { readonly body: string; readonly ms: number };
+
 export class Host extends Context.Service<
   Host,
   {
@@ -36,6 +38,8 @@ export class Host extends Context.Service<
     ) => Effect.Effect<number>;
     readonly stop: (pid: number) => Effect.Effect<void>;
     readonly answers: (port: number, address: string) => Effect.Effect<boolean>;
+    /** The body of a 200 answer and how long it took, or none for anything else. */
+    readonly fetchText: (url: string, timeoutMs: number) => Effect.Effect<Option.Option<Fetched>>;
     readonly readLine: Effect.Effect<string>;
   }
 >()("devbox/machine/Host") {
@@ -115,6 +119,21 @@ export class Host extends Context.Service<
           () => false,
         ),
       ),
+    fetchText: (url, timeoutMs) =>
+      Effect.promise(async (): Promise<Option.Option<Fetched>> => {
+        const started = performance.now();
+        try {
+          const response = await fetch(url, {
+            redirect: "manual",
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (response.status !== 200) return Option.none();
+          const body = await response.text();
+          return Option.some({ body, ms: Math.round(performance.now() - started) });
+        } catch {
+          return Option.none();
+        }
+      }),
     readLine: Effect.promise(
       () =>
         new Promise<string>((resolve) => {
