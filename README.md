@@ -173,6 +173,20 @@ That link is for agents. The T3 Code app keeps its own list, so `--app` also sen
 
 `devbox pair [--label <name>] [--url <origin>] [--json]` prints the machine's T3 URL and a one-time pairing token that lasts 15 minutes. `--json` prints `{"url", "token"}`. The URL is `--url` when you pass it, for example the hostname of a [tunnel](#reach-t3-without-tailscale). Without it, the URL is `--public-url` when the machine has one. Otherwise, on a machine on Tailscale, it is `http://<MagicDNS name>:<port>`, because `t3 environment link` refuses plain http to anything but a Tailscale address. With neither it is `http://<hostname>:<port>`.
 
+## See your machines
+
+`devbox machines` lists every machine on your tailnet and every T3 environment linked here. For each it shows where the machine is, whether T3 Code answers there, and whether agents here have a link to it. Phones and TVs are left out. `--json` prints the same list on stdout for scripts and agents.
+
+It reads `tailscale status --json`, or `tailscale.exe` under WSL, and asks each online machine for T3's `/.well-known/t3/environment` on port 3773 (`--t3-port`). Links come from `t3 environment list --json`. `--t3` picks the `t3` binary, which is otherwise `t3` on PATH or the T3 server that is running. Without Tailscale it lists only this machine and its links.
+
+`devbox hub` serves the same data as a page at `http://127.0.0.1:3780/` and as JSON at `/api/machines`. It checks every minute and keeps the last 24 hours in memory. A request never starts a check. To open the page from your other devices, listen on the Tailscale address:
+
+```sh
+devbox hub --host "$(tailscale ip -4)"
+```
+
+The page has no login. Keep it on `127.0.0.1` or a Tailscale address.
+
 ## Back up agent memory
 
 Agents keep their memory and threads in files under `~`. `devbox backup` copies them every night to an encrypted [restic](https://restic.net) repository. The repository can be a Cloudflare R2 bucket.
