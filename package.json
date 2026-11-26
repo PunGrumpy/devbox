@@ -13,8 +13,8 @@
     "build": "bun build src/cli.ts --compile --minify --outfile dist/devbox",
     "test": "bun test",
     "typecheck": "tsrs --noEmit",
-    "check": "oxlint --disable-nested-config && oxfmt --check",
-    "fix": "oxlint --disable-nested-config --fix && oxfmt"
+    "check": "oxlint --disable-nested-config && oxfmt --disable-nested-config --check",
+    "fix": "oxlint --disable-nested-config --fix && oxfmt --disable-nested-config"
   },
   "dependencies": {
     "@effect/platform-bun": "4.1.4",
