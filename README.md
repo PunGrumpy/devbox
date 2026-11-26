@@ -93,6 +93,42 @@ devbox up --host "$(tailscale ip -4)"
 
 `devbox up` and `devbox serve` pass `--host` to `t3 serve`. `devbox up` also probes that address, not `127.0.0.1`, to see whether T3 answers, and a changed `--host` restarts `devbox serve`. `--host 0.0.0.0` or `::` listens on every interface. Run `devbox up` after Tailscale is up, because T3 cannot bind an address the machine does not have yet.
 
+### Reach T3 without Tailscale
+
+A phone without Tailscale can reach T3 through your own [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/). T3 keeps listening on the Tailscale address, and Tailscale keeps working. You need a domain on Cloudflare. The T3 sign-in page becomes public, so do not do this on a machine that must stay private.
+
+1. Create a tunnel in the Cloudflare dashboard, and copy its token. Do not add a route yet.
+2. Put `cloudflared` at `~/.local/bin/cloudflared`: run `mise use -g cloudflared`, then `ln -sfn "$(mise which cloudflared)" ~/.local/bin/cloudflared`.
+3. Save the token to `~/.config/cloudflared/token` with mode 600.
+4. Write `~/.config/systemd/user/cloudflared-t3.service`:
+
+   ```ini
+   [Unit]
+   Description=Cloudflare Tunnel for T3 Code
+
+   [Service]
+   ExecStart=%h/.local/bin/cloudflared tunnel --no-autoupdate run --token-file %h/.config/cloudflared/token
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=default.target
+   ```
+
+5. Add a WAF custom rule that blocks `/mcp` and `/oauth/mcp` on the hostname. T3 matches `/mcp` without regard to case, so compare in lower case:
+
+   ```text
+   (http.host eq "t3.example.com" and (starts_with(lower(http.request.uri.path), "/mcp") or starts_with(lower(http.request.uri.path), "/oauth/mcp")))
+   ```
+
+6. Start the tunnel: `systemctl --user daemon-reload`, then `systemctl --user enable --now cloudflared-t3`. To keep it running after you log out, run `sudo loginctl enable-linger "$USER"` once.
+7. Add a published application route from the hostname to `http://<tailscale ip>:3773`. T3 is public from this step.
+8. Pair each device with its own code: `devbox pair --label iphone --url https://t3.example.com`. For a machine that the app already has, paste the pairing URL into **Add route**.
+
+Use one tunnel and one hostname for each machine. T3 answers at the root of its origin, so a path cannot select a machine. Cloudflare's free certificate covers `t3-2.example.com` but not `2.t3.example.com`. Do not put Cloudflare Access or a challenge on the hostname, because the T3 app sends no Access headers.
+
+`devbox link` needs `/mcp`, so keep linking machines over Tailscale. `t3 auth session revoke` on a Mac or PC session also ends that device's other sessions, so pair it again after you use the command.
+
 ### Upstash Box
 
 Only `/workspace` survives a rebuild, so the box sets itself up on every start. In the Upstash Console, under **Settings → Init Command**, paste:
@@ -135,7 +171,7 @@ It runs `devbox pair --json` on each machine over SSH, then `t3 environment link
 
 That link is for agents. The T3 Code app keeps its own list, so `--app` also sends each machine to the app here. On macOS and Linux it opens a `t3code://` link that the app asks you to confirm. From WSL the Windows app ignores those links, so it copies each pairing URL to the clipboard and waits for Enter while you paste it in Settings → Connections → Add environment.
 
-`devbox pair [--label <name>] [--json]` prints the machine's T3 URL and a one-time pairing token that lasts 15 minutes. `--json` prints `{"url", "token"}`. The URL is `--public-url` when the machine has one. Otherwise, on a machine on Tailscale, it is `http://<MagicDNS name>:<port>`, because `t3 environment link` refuses plain http to anything but a Tailscale address. With neither it is `http://<hostname>:<port>`.
+`devbox pair [--label <name>] [--url <origin>] [--json]` prints the machine's T3 URL and a one-time pairing token that lasts 15 minutes. `--json` prints `{"url", "token"}`. The URL is `--url` when you pass it, for example the hostname of a [tunnel](#reach-t3-without-tailscale). Without it, the URL is `--public-url` when the machine has one. Otherwise, on a machine on Tailscale, it is `http://<MagicDNS name>:<port>`, because `t3 environment link` refuses plain http to anything but a Tailscale address. With neither it is `http://<hostname>:<port>`.
 
 ## Back up agent memory
 

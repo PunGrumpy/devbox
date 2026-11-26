@@ -21,6 +21,14 @@ export const PublicUrl = Schema.String.pipe(
   ),
 );
 
+export const originFlag = (name: string, description: string) =>
+  Flag.String(name).pipe(
+    Flag.withDescription(description),
+    Flag.withSchema(PublicUrl),
+    Flag.map((url) => url.replace(/\/$/, "")),
+    Flag.optional,
+  );
+
 export const BindHost = Schema.String.pipe(
   Schema.check(
     Schema.isPattern(/^[A-Za-z0-9._:-]+$/, {
@@ -73,12 +81,7 @@ export const serveFlags = {
     Flag.withSchema(BindHost),
     Flag.optional,
   ),
-  publicUrl: Flag.String("public-url").pipe(
-    Flag.withDescription("public origin an edge proxy serves this machine on"),
-    Flag.withSchema(PublicUrl),
-    Flag.map((url) => url.replace(/\/$/, "")),
-    Flag.optional,
-  ),
+  publicUrl: originFlag("public-url", "public origin an edge proxy serves this machine on"),
   setup: Flag.Boolean("setup").pipe(
     Flag.withDescription(
       "after T3 starts, install browser libraries, Go, Rust and agent skills (default on, --no-setup skips)",
