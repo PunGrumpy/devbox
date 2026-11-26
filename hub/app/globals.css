@@ -99,12 +99,16 @@
       rgb(35 55 0) 100%
     )
   );
-  --tile: linear-gradient(
-    160deg,
-    rgb(216 180 254) 0%,
-    rgb(243 159 180) 38%,
-    rgb(255 140 94) 100%
-  );
+  --tile: linear-gradient(100deg, #8a5cff 0%, #ff5c8d 55%, #ffb648 100%);
+  --plate-from: light-dark(#fdfbff, #33246f);
+  --plate-to: light-dark(#e9e2ff, #1a1338);
+  --shadow-icon:
+    light-dark(0 0 0 0.5px #181d160f, 0 0 0 0.5px #ececea14),
+    light-dark(0 1px 1px -0.5px #181d160d, 0 1px 1px -0.5px #0003),
+    light-dark(0 2px 2px -1px #181d160d, 0 2px 2px -1px #0003),
+    light-dark(0 4px 4px -2px #181d160d, 0 4px 4px -2px #0003),
+    light-dark(0 8px 8px -4px #181d160a, 0 8px 8px -4px #00000029),
+    light-dark(0 12px 12px -6px #181d1608, 0 12px 12px -6px #0000001f);
 }
 
 @utility edge {

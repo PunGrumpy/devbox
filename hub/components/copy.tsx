@@ -51,7 +51,11 @@ export const CodeBlock = ({ text }: CopyProps) => {
         }}
         type="button"
       >
-        {copied ? <CheckIcon /> : <CopyIcon />}
+        {copied ? (
+          <CheckIcon className="size-4" />
+        ) : (
+          <CopyIcon className="size-4" />
+        )}
       </button>
     </div>
   );

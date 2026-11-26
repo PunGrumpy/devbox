@@ -1,16 +1,10 @@
 import type { PropsWithChildren } from "react";
 
 import { CopyLink } from "@/components/copy";
-import { MachineIcon } from "@/components/icons";
+import { AppIcon } from "@/components/icons";
 import { Strip } from "@/components/strip";
 import { linkSentence, STATE_LABEL, t3Sentence } from "@/lib/machines";
-import type { BarState, Machine, MachineState } from "@/lib/machines";
-
-const TILE_CLASS = {
-  offline: "border-rule text-muted border",
-  online: "bg-wash text-soft",
-  t3: "bg-(image:--tile) text-[#181d16]",
-} satisfies Record<MachineState, string>;
+import type { BarState, Machine } from "@/lib/machines";
 
 export const Badge = ({ children }: PropsWithChildren) => (
   <span className="bg-wash text-nav text-soft inline-block shrink-0 rounded-full px-2.5 py-0.5 tracking-normal">
@@ -45,11 +39,7 @@ export const MachineCard = ({ bars, machine, now }: MachineCardProps) => {
     <li className="animate-rise">
       <div className="edge squircle rounded-card @container mt-4 p-4">
         <div className="flex items-center gap-4 @max-md:flex-wrap">
-          <span
-            className={`grid size-14 shrink-0 place-items-center rounded-(--radius-icon) ${TILE_CLASS[machine.state]}`}
-          >
-            <MachineIcon className="size-7" />
-          </span>
+          <AppIcon className="size-14" state={machine.state} />
           <div className="min-w-0 flex-[1_1_9rem]">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate">{machine.name}</span>

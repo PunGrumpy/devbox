@@ -197,6 +197,8 @@ cd hub && bun install --frozen-lockfile && bun run build
 
 To work on the page, run `devbox hub` and then `bun run dev` in `hub/`. Next serves the page on port 3790 and forwards `/api/machines` to the hub at `DEVBOX_HUB_URL` (default `http://127.0.0.1:3780`). `hub/` is its own package with its own lockfile: `bun run check` runs [Ultracite](https://www.ultracite.dev), `bun run typecheck` runs [tsrs](https://github.com/oxc-project/tsrs), and `bun test` runs its tests.
 
+The page's line icons come from [Hugeicons](https://hugeicons.com) (MIT) and its Linux mark from [Unicons](https://github.com/Iconscout/unicons) (Apache 2.0).
+
 ## Back up agent memory
 
 Agents keep their memory and threads in files under `~`. `devbox backup` copies them every night to an encrypted [restic](https://restic.net) repository. The repository can be a Cloudflare R2 bucket.
