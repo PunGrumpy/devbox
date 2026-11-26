@@ -3,10 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
   bars,
   BAR_COUNT,
-  describe as describeMachine,
-  headline,
+  groupByOs,
+  lead,
+  linkSentence,
   span,
   summarize,
+  t3Sentence,
 } from "@/lib/machines";
 import type { Machine } from "@/lib/machines";
 
@@ -58,7 +60,7 @@ describe("bars", () => {
   });
 });
 
-describe("describe", () => {
+describe("what the page says about a machine", () => {
   const now = Date.parse("2026-11-27T12:00:00Z");
 
   test("a machine that answered says its version and how long it took", () => {
@@ -74,31 +76,23 @@ describe("describe", () => {
       },
     });
 
-    expect(describeMachine(answered, now)).toBe(
-      "T3 Code 0.1.13 answered in 42 ms. Not linked for agents."
-    );
+    expect(t3Sentence(answered, now)).toBe("T3 Code 0.1.13 answered in 42 ms");
+    expect(linkSentence(null, now)).toBe("Not linked for agents.");
   });
 
-  test("a machine known only through its link says so, with the time left", () => {
-    const linked = machine({
-      state: "t3",
-      t3: {
-        environmentId: "id",
-        label: "laptop",
-        latencyMs: null,
-        link: {
-          access: "full-access",
-          expiresAt: "2026-12-06T12:00:00Z",
-          status: "reachable",
-          urls: [],
-        },
-        url: null,
-        version: null,
-      },
-    });
+  test("a link says its access and the time it has left", () => {
+    const link = {
+      access: "full-access",
+      expiresAt: "2026-12-06T12:00:00Z",
+      status: "reachable",
+      urls: [],
+    };
 
-    expect(describeMachine(linked, now)).toBe(
-      "T3 Code answers through its link. Linked for agents with full-access, 9d left."
+    expect(linkSentence(link, now)).toBe(
+      "Linked for agents with full-access, 9d left."
+    );
+    expect(linkSentence({ ...link, status: "unreachable" }, now)).toBe(
+      "Linked for agents but unreachable, 9d left."
     );
   });
 
@@ -114,33 +108,55 @@ describe("describe", () => {
       },
     });
 
-    expect(describeMachine(offline, now)).toBe(
-      "Last seen 10h ago. Not linked for agents."
-    );
+    expect(t3Sentence(offline, now)).toBe("Last seen 10h ago");
   });
 });
 
-describe("headline", () => {
+describe("lead", () => {
   test("counts the machines that are online", () => {
     expect(
-      headline(
-        [machine({}), machine({ name: "gone", state: "offline" })],
-        false
-      )
-    ).toEqual({
-      accent: "online.",
-      lead: "1 of 2 machines are",
-    });
-    expect(headline([machine({})], false)).toEqual({
-      accent: "online.",
-      lead: "All 1 machine is",
-    });
+      lead([machine({}), machine({ name: "gone", state: "offline" })], false)
+    ).toBe("1 of 2 machines are online.");
+    expect(lead([machine({})], false)).toBe("All 1 machine is online.");
   });
 
   test("before the first answer it says what it is waiting for", () => {
-    expect(headline(null, false).lead).toBe("Asking the hub for");
-    expect(headline(null, true).lead).toBe("The hub is");
-    expect(headline([], false).accent).toBe("no machines.");
+    expect(lead(null, false)).toBe("Asking the hub for its machines.");
+    expect(lead(null, true)).toBe("The hub is not answering.");
+    expect(lead([], false)).toBe("The hub knows no machines.");
+  });
+});
+
+describe("groupByOs", () => {
+  test("lists macOS, Windows and Linux in that order, then machines off the tailnet", () => {
+    const on = (name: string, os: string) =>
+      machine({
+        name,
+        tailscale: {
+          dns: `${name}.tail1234.ts.net`,
+          ip: "ip",
+          lastSeen: null,
+          online: true,
+          os,
+        },
+      });
+
+    const groups = groupByOs([
+      on("box", "linux"),
+      machine({ name: "cloud", tailscale: null }),
+      on("pc", "windows"),
+      on("laptop", "macOS"),
+      on("nas", "linux"),
+    ]);
+
+    expect(
+      groups.map(({ label, machines }) => [label, machines.map((m) => m.name)])
+    ).toEqual([
+      ["macOS", ["laptop"]],
+      ["Windows", ["pc"]],
+      ["Linux", ["box", "nas"]],
+      ["Elsewhere", ["cloud"]],
+    ]);
   });
 });
 

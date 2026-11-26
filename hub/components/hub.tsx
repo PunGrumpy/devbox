@@ -2,11 +2,13 @@
 
 import { useState, useSyncExternalStore } from "react";
 
-import { CommandPill } from "@/components/copy";
-import { HubGlyph } from "@/components/icons";
-import { MachineItem } from "@/components/machine-item";
-import { ago, bars, FILTERS, headline, summarize } from "@/lib/machines";
-import type { FilterKey, Snapshot } from "@/lib/machines";
+import { CodeBlock } from "@/components/copy";
+import { Field } from "@/components/field";
+import { HubGlyph, OsIcon } from "@/components/icons";
+import { MachineCard } from "@/components/machine-card";
+import { Filters, Sidebar } from "@/components/sidebar";
+import { ago, bars, FILTERS, groupByOs, lead, summarize } from "@/lib/machines";
+import type { FilterKey, Machine, Snapshot } from "@/lib/machines";
 import {
   getHubState,
   getNow,
@@ -20,100 +22,31 @@ const FALLBACK_ORIGIN = "http://127.0.0.1:3780";
 const getOrigin = () => window.location.origin;
 const getServerOrigin = () => FALLBACK_ORIGIN;
 
-const Field = () => (
-  <div
-    aria-hidden="true"
-    className="gradient-fill pointer-events-none fixed top-3 right-1.5 z-20 h-[calc(100dvh-24px)] w-1.5 overflow-hidden rounded-[14px] sm:right-3 sm:w-14 lg:w-[calc(var(--field)-12px)]"
-  >
-    <div className="animate-drift absolute -top-1/4 -right-1/4 size-[90%] rounded-full bg-[rgb(209_182_254)] opacity-70 blur-3xl" />
-    <div className="animate-drift absolute -bottom-1/4 -left-1/4 size-[80%] rounded-full bg-[rgb(253_147_113)] opacity-60 blur-3xl [animation-delay:-14s]" />
-    <div className="field-grain absolute inset-0 opacity-60" />
-    <div className="absolute inset-0 rounded-[14px] shadow-[inset_0_0_0_1px_rgb(0_0_0/0.06),inset_0_1px_0_rgb(255_255_255/0.3)]" />
-  </div>
-);
-
 const statusText = (
   snapshot: Snapshot | null,
   failing: boolean,
   now: number
 ) => {
   if (!snapshot) {
-    return failing ? "The hub is not answering" : "Checking";
+    return failing ? "Not answering" : "Checking";
   }
 
   const checked = ago(snapshot.generatedAt, now);
 
-  return failing ? `Not answering · checked ${checked}` : `Checked ${checked}`;
+  return failing ? `Not answering, checked ${checked}` : `Checked ${checked}`;
 };
 
-interface MachinesProps {
-  filter: FilterKey;
-  now: number;
-  onFilter: (filter: FilterKey) => void;
-  snapshot: Snapshot | null;
-}
-
-const Machines = ({ filter, now, onFilter, snapshot }: MachinesProps) => {
-  const machines = snapshot?.machines ?? [];
+const matching = (
+  machines: readonly Machine[],
+  filter: FilterKey,
+  query: string
+) => {
   const test = FILTERS.find((candidate) => candidate.key === filter)?.test;
-  const shown = machines.filter((machine) => test?.(machine) ?? true).length;
+  const needle = query.trim().toLowerCase();
 
-  return (
-    <section
-      aria-labelledby="machines-title"
-      className="my-10 max-w-[72ch] md:my-14"
-    >
-      <div className="mb-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-        <h2 className="text-muted" id="machines-title">
-          Machines
-        </h2>
-        <nav
-          aria-label="Filter machines"
-          className="flex flex-wrap gap-x-5 gap-y-1"
-        >
-          {FILTERS.map(({ key, label, test: matches }) => (
-            <button
-              aria-pressed={key === filter}
-              className="text-muted hover:text-ink aria-pressed:text-ink ease-press cursor-pointer transition-[color,transform] duration-150 active:scale-[0.97]"
-              key={key}
-              onClick={() => {
-                onFilter(key);
-              }}
-              type="button"
-            >
-              {label}{" "}
-              <span className="tabular-nums">
-                {machines.filter(matches).length}
-              </span>
-            </button>
-          ))}
-        </nav>
-      </div>
-      {snapshot && !snapshot.tailscale ? (
-        <p className="text-muted mb-6">
-          Tailscale did not answer on the hub machine, so this list holds only
-          that machine and its links.
-        </p>
-      ) : null}
-      <ol>
-        {machines.map((machine, index) => (
-          <MachineItem
-            bars={bars(
-              snapshot?.history.states[machine.name] ?? "",
-              snapshot?.history.sampleSeconds ?? 60
-            )}
-            hidden={!(test?.(machine) ?? true)}
-            index={index}
-            key={machine.name}
-            machine={machine}
-            now={now}
-          />
-        ))}
-      </ol>
-      {snapshot && shown === 0 ? (
-        <p className="text-muted">No machine matches this filter.</p>
-      ) : null}
-    </section>
+  return machines.filter(
+    (machine) =>
+      (test?.(machine) ?? true) && machine.name.toLowerCase().includes(needle)
   );
 };
 
@@ -121,23 +54,16 @@ const Agents = () => {
   const origin = useSyncExternalStore(subscribe, getOrigin, getServerOrigin);
 
   return (
-    <section
-      aria-labelledby="agents-title"
-      className="my-10 max-w-[72ch] md:my-14"
-    >
-      <h2 className="text-muted mb-4" id="agents-title">
+    <section>
+      <h2 className="text-heading scroll-mt-10 pt-10" id="agents">
         For agents
       </h2>
-      <div className="flex flex-col gap-5">
-        <p>
-          The same list is available as JSON. An agent reads it before it picks
-          a machine, then reaches a linked one by its environment id.
-        </p>
-        <div className="flex flex-col gap-2">
-          <CommandPill text="devbox machines --json" />
-          <CommandPill text={`curl -s ${origin}/api/machines`} />
-        </div>
-      </div>
+      <p className="text-soft mt-4">
+        The same list is available as JSON. An agent reads it before it picks a
+        machine, then reaches a linked one by its environment id.
+      </p>
+      <CodeBlock text="devbox machines --json" />
+      <CodeBlock text={`curl -s ${origin}/api/machines`} />
     </section>
   );
 };
@@ -151,58 +77,94 @@ export const Hub = () => {
 
   const now = useSyncExternalStore(subscribe, getNow, getServerNow);
   const [filter, setFilter] = useState<FilterKey>("all");
-  const { accent, lead } = headline(snapshot?.machines ?? null, failing);
-  const { linked, ready } = summarize(snapshot?.machines ?? []);
+  const [query, setQuery] = useState("");
+  const machines = snapshot?.machines ?? [];
+  const groups = groupByOs(matching(machines, filter, query));
+  const { linked, ready } = summarize(machines);
+  const status = statusText(snapshot, failing, now);
 
   return (
-    <div className="min-h-dvh">
+    <>
       <Field />
-      <div className="relative z-10 my-8 flex flex-col px-6 pr-9 sm:my-10 sm:px-10 sm:pr-[calc(80px+2.5rem)] lg:my-12 lg:px-16 lg:pr-[calc(var(--field)+4rem)]">
-        <header className="animate-rise flex h-6 items-center justify-between gap-6">
-          <span className="flex items-center gap-3 font-medium">
-            <HubGlyph className="size-6" />
-            devbox hub
-          </span>
-          <output
-            className={`text-caption truncate tabular-nums transition-colors duration-200 ${failing ? "text-ink" : "text-muted"}`}
-          >
-            {statusText(snapshot, failing, now)}
-          </output>
-        </header>
-
-        <h1 className="text-h1 animate-rise mt-24 mb-12 max-w-[18ch] font-medium text-balance [animation-delay:40ms] md:mt-36 md:mb-16">
-          {lead} <span className="gradient-text">{accent}</span>
-        </h1>
-
-        <button
-          className="border-rule/60 hover:border-rule ease-press animate-rise flex max-w-[72ch] cursor-pointer items-center gap-4 rounded-[28px] border p-4 pr-6 text-left transition-[border-color,background-color,transform] duration-150 [animation-delay:80ms] hover:bg-white/25 active:scale-[0.99] dark:hover:bg-white/5"
-          onClick={() => {
-            void refresh();
-          }}
-          type="button"
-        >
-          <HubGlyph className="size-14 shrink-0 drop-shadow-[0_10px_12px_rgb(0_0_0/0.08)]" />
-          <span className="flex flex-1 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <span>
-              T3 Code answers on {ready}. {linked} linked for agents.
-            </span>
-            <span className="gradient-text shrink-0">Check again</span>
-          </span>
-        </button>
-
-        <Machines
-          filter={filter}
-          now={now}
-          onFilter={setFilter}
-          snapshot={snapshot}
-        />
-        <Agents />
-
-        <footer className="text-caption text-muted mt-6 mb-4 max-w-[72ch]">
+      <Sidebar
+        filter={filter}
+        machines={machines}
+        onFilter={setFilter}
+        onQuery={setQuery}
+        onRefresh={() => {
+          void refresh();
+        }}
+        query={query}
+        sections={groups}
+        status={status}
+      />
+      <main className="side:px-0 side:pt-20 mx-auto w-full max-w-xl px-6 pt-10 pb-24">
+        <div className="side:hidden text-nav text-soft mb-10 flex items-center justify-between gap-4">
+          <HubGlyph className="size-9 rounded-(--radius-icon)" />
+          <output className="truncate tabular-nums">{status}</output>
+        </div>
+        <h1 className="text-title min-h-[63px] pb-2">Machines</h1>
+        <p className="text-soft mt-4">
+          <strong className="text-ink font-normal">
+            {lead(snapshot?.machines ?? null, failing)}
+            {snapshot
+              ? ` T3 Code answers on ${ready}, and ${linked} ${linked === 1 ? "is" : "are"} linked for agents.`
+              : ""}
+          </strong>
+        </p>
+        <p className="text-soft mt-4">
           The hub checks every {snapshot?.history.sampleSeconds ?? 60} seconds
-          and keeps the last 24 hours in memory. Each bar is 30 minutes.
-        </footer>
-      </div>
-    </div>
+          and keeps the last 24 hours in memory. Each bar under a machine is 30
+          minutes.
+        </p>
+        {snapshot && !snapshot.tailscale ? (
+          <p className="border-rule rounded-panel text-nav text-soft mt-4 border p-4">
+            Tailscale did not answer on the hub machine, so this list holds only
+            that machine and its links.
+          </p>
+        ) : null}
+        <div className="side:hidden text-nav mt-6">
+          <Filters filter={filter} machines={machines} onFilter={setFilter} />
+        </div>
+
+        {groups.map(({ key, label, machines: members }) => (
+          <section key={key}>
+            <h2
+              className="text-heading flex scroll-mt-10 items-center pt-10"
+              id={key}
+            >
+              <OsIcon
+                className="-mt-0.5 mr-1.5 size-[22px] shrink-0"
+                os={key}
+              />
+              {label}
+              <span className="text-nav text-soft ml-auto tracking-normal tabular-nums">
+                {members.length}
+              </span>
+            </h2>
+            <ul>
+              {members.map((machine) => (
+                <MachineCard
+                  bars={bars(
+                    snapshot?.history.states[machine.name] ?? "",
+                    snapshot?.history.sampleSeconds ?? 60
+                  )}
+                  key={machine.name}
+                  machine={machine}
+                  now={now}
+                />
+              ))}
+            </ul>
+          </section>
+        ))}
+        {snapshot && groups.length === 0 ? (
+          <p className="border-rule rounded-panel text-nav text-soft mt-10 border p-4">
+            No machine matches this filter.
+          </p>
+        ) : null}
+
+        <Agents />
+      </main>
+    </>
   );
 };

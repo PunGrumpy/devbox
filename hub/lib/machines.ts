@@ -144,31 +144,33 @@ export const STATE_LABEL = {
   t3: "T3 Code ready",
 } satisfies Record<MachineState, string>;
 
-const t3Sentence = (machine: Machine, now: number) => {
+/** Whether T3 Code answers on a machine, as the line under its name. */
+export const t3Sentence = (machine: Machine, now: number) => {
   const { state, t3, tailscale } = machine;
 
   if (state === "t3" && t3 !== null && t3.latencyMs !== null) {
     const version = t3.version === null ? "" : ` ${t3.version}`;
 
-    return `T3 Code${version} answered in ${Math.round(t3.latencyMs)} ms.`;
+    return `T3 Code${version} answered in ${Math.round(t3.latencyMs)} ms`;
   }
 
   if (state === "t3") {
-    return "T3 Code answers through its link.";
+    return "T3 Code answers through its link";
   }
 
   if (state === "online") {
-    return "On the tailnet, with no T3 Code found.";
+    return "On the tailnet, with no T3 Code found";
   }
 
   const lastSeen = tailscale?.lastSeen ?? null;
 
   return lastSeen === null
-    ? "Not answering."
-    : `Last seen ${ago(lastSeen, now)}.`;
+    ? "Not answering"
+    : `Last seen ${ago(lastSeen, now)}`;
 };
 
-const linkSentence = (link: Link | null, now: number) => {
+/** Whether agents on the hub machine hold a link to a machine. */
+export const linkSentence = (link: Link | null, now: number) => {
   if (link === null) {
     return "Not linked for agents.";
   }
@@ -180,31 +182,60 @@ const linkSentence = (link: Link | null, now: number) => {
     : `Linked for agents but ${link.status}, ${left}.`;
 };
 
-/** What a person would say about a machine, in two short sentences. */
-export const describe = (machine: Machine, now: number) =>
-  `${t3Sentence(machine, now)} ${linkSentence(machine.t3?.link ?? null, now)}`;
-
-/** The page's opening line, split where its last words take the gradient. */
-export const headline = (
-  machines: readonly Machine[] | null,
-  failing: boolean
-) => {
+/** The first sentence of the page. */
+export const lead = (machines: readonly Machine[] | null, failing: boolean) => {
   if (machines === null) {
     return failing
-      ? { accent: "not answering.", lead: "The hub is" }
-      : { accent: "its machines.", lead: "Asking the hub for" };
+      ? "The hub is not answering."
+      : "Asking the hub for its machines.";
   }
 
   if (machines.length === 0) {
-    return { accent: "no machines.", lead: "The hub knows" };
+    return "The hub knows no machines.";
   }
 
   const online = machines.filter((m) => m.state !== "offline").length;
   const noun = machines.length === 1 ? "machine is" : "machines are";
 
-  if (online === machines.length) {
-    return { accent: "online.", lead: `All ${machines.length} ${noun}` };
+  return online === machines.length
+    ? `All ${machines.length} ${noun} online.`
+    : `${online} of ${machines.length} ${noun} online.`;
+};
+
+const OS_LABELS = new Map([
+  ["freebsd", "FreeBSD"],
+  ["linux", "Linux"],
+  ["macos", "macOS"],
+  ["windows", "Windows"],
+]);
+
+const OS_ORDER = ["macos", "windows", "linux", "freebsd"];
+const ELSEWHERE = "elsewhere";
+
+const rank = (key: string) => {
+  if (key === ELSEWHERE) {
+    return OS_ORDER.length + 1;
   }
 
-  return { accent: "online.", lead: `${online} of ${machines.length} ${noun}` };
+  const index = OS_ORDER.indexOf(key);
+
+  return index === -1 ? OS_ORDER.length : index;
+};
+
+/** Machines under the system they run, in the order the page lists them. */
+export const groupByOs = (machines: readonly Machine[]) => {
+  const groups = new Map<string, Machine[]>();
+
+  for (const machine of machines) {
+    const key = machine.tailscale?.os.toLowerCase() ?? ELSEWHERE;
+    groups.set(key, [...(groups.get(key) ?? []), machine]);
+  }
+
+  return [...groups.entries()]
+    .toSorted(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+    .map(([key, members]) => ({
+      key,
+      label: key === ELSEWHERE ? "Elsewhere" : (OS_LABELS.get(key) ?? key),
+      machines: members,
+    }));
 };

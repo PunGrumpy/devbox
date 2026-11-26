@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { CheckIcon, CopyIcon } from "@/components/icons";
 import { copyText } from "@/lib/clipboard";
 
 const COPIED_MS = 1600;
@@ -29,71 +30,47 @@ const useCopied = (text: string) => {
   return { copied, copy };
 };
 
-const SWAP =
-  "transition-[opacity,filter] duration-200 data-[shown=false]:opacity-0 data-[shown=false]:blur-[2px]";
-
 interface CopyProps {
   text: string;
 }
 
-/** A command in a pill. Pressing it copies the command, and the action says so for a moment. */
-export const CommandPill = ({ text }: CopyProps) => {
+/** A command in a panel, with the round copy button the Rex docs put on a code block. */
+export const CodeBlock = ({ text }: CopyProps) => {
   const { copied, copy } = useCopied(text);
 
   return (
-    <button
-      aria-label={copied ? "Copied" : `Copy ${text}`}
-      className="border-rule/60 hover:border-rule ease-press flex w-full cursor-copy items-center gap-4 rounded-[28px] border py-3 pr-6 pl-5 text-left transition-[border-color,background-color,transform] duration-150 hover:bg-white/25 active:scale-[0.99] dark:hover:bg-white/5"
-      onClick={() => {
-        void copy();
-      }}
-      type="button"
-    >
-      <code className="text-caption min-w-0 flex-1 truncate font-mono">
-        <span aria-hidden="true" className="text-muted select-none">
-          ${" "}
-        </span>
-        {text}
-      </code>
-      <span className="text-caption relative shrink-0">
-        <span className={`gradient-text block ${SWAP}`} data-shown={!copied}>
-          Copy
-        </span>
-        <span
-          aria-hidden="true"
-          className={`gradient-text absolute inset-y-0 right-0 ${SWAP}`}
-          data-shown={copied}
-        >
-          Copied
-        </span>
-      </span>
-    </button>
+    <div className="relative mt-4">
+      <pre className="edge squircle rounded-panel overflow-x-auto py-[calc(0.625rem-1px)] pr-11 pl-[calc(1rem-1px)]">
+        <code className="font-mono text-[0.8125rem]">{text}</code>
+      </pre>
+      <button
+        aria-label={copied ? "Copied" : `Copy ${text}`}
+        className="bg-surface text-muted hover:text-ink absolute top-1.5 right-1.5 grid size-7 cursor-pointer place-items-center rounded-full transition-colors duration-100"
+        onClick={() => {
+          void copy();
+        }}
+        type="button"
+      >
+        {copied ? <CheckIcon /> : <CopyIcon />}
+      </button>
+    </div>
   );
 };
 
-/** A value that copies itself when pressed, such as a machine's address. */
-export const CopyText = ({ text }: CopyProps) => {
+/** A value that copies itself when pressed, drawn as a link in the text. */
+export const CopyLink = ({ text }: CopyProps) => {
   const { copied, copy } = useCopied(text);
 
   return (
     <button
       aria-label={copied ? "Copied" : `Copy ${text}`}
-      className="decoration-rule hover:decoration-muted ease-press relative max-w-full cursor-copy text-left underline underline-offset-4 transition-[text-decoration-color,transform] duration-150 active:scale-[0.98]"
+      className="text-ink decoration-rule cursor-copy underline underline-offset-[3px] transition-[text-decoration-color] duration-100 hover:decoration-current"
       onClick={() => {
         void copy();
       }}
       type="button"
     >
-      <span className={`block truncate ${SWAP}`} data-shown={!copied}>
-        {text}
-      </span>
-      <span
-        aria-hidden="true"
-        className={`gradient-text absolute inset-y-0 left-0 font-sans ${SWAP}`}
-        data-shown={copied}
-      >
-        Copied
-      </span>
+      {copied ? "Copied" : text}
     </button>
   );
 };
