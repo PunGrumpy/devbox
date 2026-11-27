@@ -110,7 +110,7 @@ const agentOf = (id: AgentId) => {
   return agent;
 };
 
-const isAgentId = (word: string): word is AgentId =>
+export const isAgentId = (word: string): word is AgentId =>
   AGENTS.some((agent) => agent.id === word);
 
 const KNOWN = AGENTS.map((agent) => agent.id).join(", ");
@@ -179,6 +179,10 @@ export const remembered = (choice: AgentChoice) =>
 export const agentsFile = (data: string) =>
   path.join(data, ".config", "devbox", "agents.json");
 
+/**
+ * Whether an agent installed is judged by this file, not by the installer's exit code: Devin's
+ * installer ends with a login that fails without a terminal.
+ */
 export const agentBin = (data: string, id: AgentId) =>
   path.join(data, ".local", "bin", agentOf(id).bin);
 

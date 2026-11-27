@@ -13,11 +13,11 @@ import {
   agentName,
   chooseAgents,
   installAgent,
+  isAgentId,
   loginHint,
   presentAgents,
   readSavedAgents,
 } from "./agents.ts";
-import type { AgentId } from "./agents.ts";
 import {
   machineConfig,
   machineFile,
@@ -74,43 +74,39 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
       (r) => r.code === 0
     );
 
-    switch (config.supervisor) {
-      case "detached": {
-        return Supervisor.Detached();
-      }
-
-      case "system": {
-        if (host.systemd && sudo) {
-          return Supervisor.Systemd({ scope: "system" });
-        }
-
-        return yield* new UpFailed({
-          message: "a system unit needs systemd and passwordless sudo",
-        });
-      }
-
-      case "user": {
-        if (yield* userBus) {
-          return Supervisor.Systemd({ scope: "user" });
-        }
-
-        return yield* new UpFailed({
-          message: "systemctl --user does not answer here",
-        });
-      }
-
-      case "auto": {
-        if (host.systemd && sudo) {
-          return Supervisor.Systemd({ scope: "system" });
-        }
-
-        if (yield* userBus) {
-          return Supervisor.Systemd({ scope: "user" });
-        }
-
-        return Supervisor.Detached();
-      }
+    if (config.supervisor === "detached") {
+      return Supervisor.Detached();
     }
+
+    if (config.supervisor === "system") {
+      if (host.systemd && sudo) {
+        return Supervisor.Systemd({ scope: "system" });
+      }
+
+      return yield* new UpFailed({
+        message: "a system unit needs systemd and passwordless sudo",
+      });
+    }
+
+    if (config.supervisor === "user") {
+      if (yield* userBus) {
+        return Supervisor.Systemd({ scope: "user" });
+      }
+
+      return yield* new UpFailed({
+        message: "systemctl --user does not answer here",
+      });
+    }
+
+    if (host.systemd && sudo) {
+      return Supervisor.Systemd({ scope: "system" });
+    }
+
+    if (yield* userBus) {
+      return Supervisor.Systemd({ scope: "user" });
+    }
+
+    return Supervisor.Detached();
   });
 
 const resolveNpm = (config: MachineConfig) =>
@@ -288,7 +284,7 @@ const gather = (
           }
 
           return ours.length === 1 &&
-            ours[0]!.argv.join("\0") === want.join("\0")
+            ours[0]?.argv.join("\0") === want.join("\0")
             ? ServeState.Running({ pids })
             : ServeState.Stale({ pids });
         }),
@@ -348,17 +344,21 @@ const gather = (
 
                 return BackupFact.On({
                   missing,
-                  apt: yield* host.which("apt-get"),
                   timer,
+                  apt: yield* host.which("apt-get"),
                 });
               }),
       }
     );
 
-    const checkout =
+    const script =
       ctx.self.length === 2
-        ? Option.some(path.resolve(path.dirname(ctx.self[1]!), "../../.."))
+        ? Option.fromUndefinedOr(ctx.self[1])
         : Option.none<string>();
+
+    const checkout = Option.map(script, (file) =>
+      path.resolve(path.dirname(file), "../../..")
+    );
 
     const running = (unit: string) =>
       Supervisor.$match(supervisor, {
@@ -375,23 +375,43 @@ const gather = (
         Detached: () => Effect.succeed(false),
       });
 
-    const hubRunning = running(HUB_UNIT);
+    const checkHubRunning = running(HUB_UNIT);
 
-    const hubBuilt = Option.match(checkout, {
+    const checkHubBuilt = Option.match(checkout, {
       onNone: () => Effect.succeed(false),
       onSome: (dir) =>
         Effect.map(
-          Effect.all([read(hubStamp(dir)), hubTree(dir)]),
+          Effect.all([read(hubStamp(dir)), hubSourceTree(dir)]),
           ([stamp, tree]) =>
             Option.isSome(stamp) &&
             (Option.isNone(tree) || stamp.value.trim() === tree.value)
         ),
     });
 
-    // Without --hub nothing asks systemd or git about it.
     const hub = config.hub
-      ? { running: yield* hubRunning, built: yield* hubBuilt, checkout }
+      ? {
+          running: yield* checkHubRunning,
+          built: yield* checkHubBuilt,
+          checkout,
+        }
       : { running: false, built: false, checkout };
+
+    const lingering = yield* linger;
+
+    const spoke = {
+      running: config.spoke ? yield* running(SPOKE_UNIT) : false,
+    };
+
+    const tunnel = config.tunnel
+      ? {
+          running: yield* running(TUNNEL_UNIT),
+          cloudflared: yield* fs
+            .exists(cloudflaredPath(ctx.home))
+            .pipe(Effect.orElseSucceed(() => false)),
+        }
+      : { running: false, cloudflared: false };
+
+    const agents = { saved, present: yield* presentAgents(config.data) };
 
     return {
       sudo,
@@ -400,31 +420,24 @@ const gather = (
       links,
       dataIsHome,
       ghLoginSaved,
-      t3: { installed, latest },
       supervisor,
       serve,
-      linger: yield* linger,
       backup,
       hub,
-      spoke: { running: config.spoke ? yield* running(SPOKE_UNIT) : false },
-      tunnel: config.tunnel
-        ? {
-            running: yield* running(TUNNEL_UNIT),
-            cloudflared: yield* fs
-              .exists(cloudflaredPath(ctx.home))
-              .pipe(Effect.orElseSucceed(() => false)),
-          }
-        : { running: false, cloudflared: false },
-      agents: { saved, present: yield* presentAgents(config.data) },
+      spoke,
+      tunnel,
+      agents,
+      t3: { installed, latest },
+      linger: lingering,
     } satisfies Facts;
   });
 
 const HUB_DIR = path.join("apps", "hub");
+
 const hubStamp = (checkout: string) =>
   path.join(checkout, HUB_DIR, "out", ".built");
 
-/** The git tree of `apps/hub`, which names what a build of the page was made from. */
-const hubTree = (checkout: string) =>
+const hubSourceTree = (checkout: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
 
@@ -441,12 +454,12 @@ const hubTree = (checkout: string) =>
       : Option.none<string>();
   });
 
-const describe = (change: Change): string =>
+const describe = (change: Change) =>
   Change.$match(change, {
-    Write: ({ path }) => `wrote ${path}`,
+    Write: ({ path: file }) => `wrote ${file}`,
     Git: ({ key, values }) =>
       `git config --global ${key} = ${values.map((v) => JSON.stringify(v)).join(", ")}`,
-    Link: ({ path, target }) => `linked ${path} -> ${target}`,
+    Link: ({ path: file, target }) => `linked ${file} -> ${target}`,
     InstallT3: ({ from, to }) =>
       `t3 ${Option.getOrElse(from, () => "none")} -> ${to}`,
     InstallAgent: ({ id }) =>
@@ -461,8 +474,8 @@ const describe = (change: Change): string =>
     RemoveHub: () => `removed ${HUB_UNIT}, because --hub is off`,
     EnableSpoke: ({ address }) => `enabled ${SPOKE_UNIT} on ${address}`,
     RemoveSpoke: () => `removed ${SPOKE_UNIT}, because --spoke is off`,
-    InstallCloudflared: ({ path }) =>
-      `installed cloudflared at ${path} with mise`,
+    InstallCloudflared: ({ path: file }) =>
+      `installed cloudflared at ${file} with mise`,
     EnableTunnel: () => `enabled ${TUNNEL_UNIT}`,
     RemoveTunnel: () => `removed ${TUNNEL_UNIT}, because --tunnel is off`,
   });
@@ -618,7 +631,6 @@ const apply = (
         ),
       InstallAgent: ({ id }) =>
         installAgent(id, config.data, npm).pipe(
-          // Judged by the binary, not the exit code: Devin's installer ends with a login that fails without a terminal.
           Effect.flatMap((ran) =>
             Effect.flatMap(
               fs
@@ -755,7 +767,7 @@ const apply = (
             }
           }
 
-          const tree = yield* hubTree(checkout);
+          const tree = yield* hubSourceTree(checkout);
           yield* fs
             .writeFileString(
               hubStamp(checkout),
@@ -803,8 +815,10 @@ export const up = Command.make("up", upFlags, (flags) =>
     ]);
 
     if (agents.from === "default") {
+      const dataFlag = config.data === home ? "" : ` --data ${config.data}`;
+
       yield* out.note(
-        `no terminal to ask which agent CLIs to install, so using the defaults. Run \`devbox up${config.data === home ? "" : ` --data ${config.data}`} --agents pick\` on a terminal to choose`
+        `no terminal to ask which agent CLIs to install, so using the defaults. Run \`devbox up${dataFlag} --agents pick\` on a terminal to choose`
       );
     }
 
@@ -847,7 +861,7 @@ export const up = Command.make("up", upFlags, (flags) =>
         Effect.catchTag("AgentInstallFailed", (error) =>
           out.check(
             false,
-            `${agentName(error.id as AgentId)} did not install. The next devbox up tries again`,
+            `${isAgentId(error.id) ? agentName(error.id) : error.id} did not install. The next devbox up tries again`,
             error.detail
           )
         )
