@@ -34,14 +34,25 @@ const request = (
 
 interface Request {
   body: string;
-  key: string | undefined;
-  signature: string | undefined;
+  key?: string;
+  signature?: string;
 }
+
+interface BadBodyRest {
+  do?: string | number;
+}
+
+const isValidPublicKey = (text: string) => Schema.is(PublicKey)(text);
 
 const handedOut = handOut(new Map(), NONCE, NOW);
 
 const verdict = (r: Request, challenges: Challenges = handedOut, now = NOW) =>
-  verifyRequest(r, [KEY], now, challenges);
+  verifyRequest(
+    { body: r.body, key: r.key, signature: r.signature },
+    [KEY],
+    now,
+    challenges
+  );
 
 const nonceNumber = (n: number) => `nonce-${String(n).padStart(16, "0")}`;
 
@@ -156,9 +167,10 @@ describe("a signed request", () => {
   });
 
   test("is refused without a signature, or with one that is not base64url", () => {
-    expect(verdict({ ...request(), signature: undefined }).ok).toBe(false);
-    expect(verdict({ ...request(), signature: "!!!" }).ok).toBe(false);
-    expect(verdict({ ...request(), key: undefined }).ok).toBe(false);
+    const r = request();
+    expect(verdict({ body: r.body, key: r.key }).ok).toBe(false);
+    expect(verdict({ ...r, signature: "!!!" }).ok).toBe(false);
+    expect(verdict({ body: r.body, signature: r.signature }).ok).toBe(false);
   });
 
   test("is refused once it is older or newer than the window", () => {
@@ -172,13 +184,9 @@ describe("a signed request", () => {
   });
 
   test("is refused when it names no time, a nonce that is too short, or nothing to do", () => {
-    const bad = (
-      at: string,
-      nonce: string,
-      rest: object = { do: "update" }
-    ) => {
+    const bad = (at: string, nonce: string, rest?: BadBodyRest) => {
       const signed = signRequest(hub, new Date(NOW), NONCE, "update");
-      const body = JSON.stringify({ at, nonce, ...rest });
+      const body = JSON.stringify({ at, nonce, ...(rest ?? { do: "update" }) });
       const signature = sign(null, Buffer.from(body), hub);
 
       return verdict({
@@ -193,15 +201,15 @@ describe("a signed request", () => {
       why: "the request is too old or too new",
     });
 
-    const shapeless = {
+    const malformed = {
       ok: false,
       why: "the body is not a signed request",
     } as const;
 
-    expect(bad(new Date(NOW).toISOString(), "short")).toEqual(shapeless);
-    expect(bad(new Date(NOW).toISOString(), NONCE, {})).toEqual(shapeless);
+    expect(bad(new Date(NOW).toISOString(), "short")).toEqual(malformed);
+    expect(bad(new Date(NOW).toISOString(), NONCE, {})).toEqual(malformed);
     expect(bad(new Date(NOW).toISOString(), NONCE, { do: 7 })).toEqual(
-      shapeless
+      malformed
     );
   });
 });
@@ -239,14 +247,12 @@ describe("the challenges a spoke hands out", () => {
 });
 
 describe("a hub key on the command line", () => {
-  const valid = (text: string) => Schema.is(PublicKey)(text);
-
   test("is the 32 raw bytes of an Ed25519 key in base64url", () => {
-    expect(valid(KEY)).toBe(true);
-    expect(valid(`${KEY}=`)).toBe(false);
-    expect(valid(KEY.slice(1))).toBe(false);
-    expect(valid(Buffer.alloc(32).toString("base64"))).toBe(false);
-    expect(valid("--hub")).toBe(false);
+    expect(isValidPublicKey(KEY)).toBe(true);
+    expect(isValidPublicKey(`${KEY}=`)).toBe(false);
+    expect(isValidPublicKey(KEY.slice(1))).toBe(false);
+    expect(isValidPublicKey(Buffer.alloc(32).toString("base64"))).toBe(false);
+    expect(isValidPublicKey("--hub")).toBe(false);
   });
 });
 

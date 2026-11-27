@@ -1,25 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import type { Ran } from "../src/machine/host.ts";
 import { makeMachine } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
-const ok = (stdout = ""): Ran => ({ code: 0, stdout, stderr: "" });
+const ok = (stdout = "") => ({ stdout, code: 0, stderr: "" }) satisfies Ran;
 
-/**
- * A machine with a systemd user bus whose devbox is a checkout inside its own temp directory, so
- * the stamp of a build lands somewhere a test may write. `tree` is what git says `hub/` is.
- */
-const machine = (options: { tree?: string; buildFails?: boolean } = {}) => {
+const machineWithTempCheckout = (
+  options: { hubGitTree?: string; buildFails?: boolean } = {}
+) => {
   const m = makeMachine({ userBus: true });
-  const checkout = join(m.base, "devbox");
-  const state = { tree: options.tree ?? "tree-1" };
-  mkdirSync(join(checkout, "apps", "hub", "out"), { recursive: true });
+  const checkout = path.join(m.base, "devbox");
+  const state = { tree: options.hubGitTree ?? "tree-1" };
+  mkdirSync(path.join(checkout, "apps", "hub", "out"), { recursive: true });
   m.host = {
     ...m.host,
-    self: ["/opt/bun", join(checkout, "apps", "cli", "src", "cli.ts")],
+    self: ["/opt/bun", path.join(checkout, "apps", "cli", "src", "cli.ts")],
   };
   m.respond = (argv) => {
     if (argv[0] === "git" && argv[3] === "rev-parse") {
@@ -31,17 +29,17 @@ const machine = (options: { tree?: string; buildFails?: boolean } = {}) => {
     }
 
     if (argv[0] === "/opt/bun" && argv[1] === "run") {
-      return options.buildFails ? { code: 1, stdout: "", stderr: "" } : ok();
+      return options.buildFails === true
+        ? { code: 1, stdout: "", stderr: "" }
+        : ok();
     }
-
-    return undefined;
   };
 
   return { m, checkout, state };
 };
 
-const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
+const up = async (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
+  await devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });
 
@@ -51,11 +49,11 @@ const builds = (m: ReturnType<typeof makeMachine>, from = 0) =>
     .filter((argv) => argv[0] === "/opt/bun" && argv[1] === "run").length;
 
 const unitPath = (m: ReturnType<typeof makeMachine>) =>
-  join(m.home, ".config/systemd/user/devbox-hub.service");
+  path.join(m.home, ".config/systemd/user/devbox-hub.service");
 
 describe("devbox up --hub", () => {
   test("keeps the hub running on loopback, builds its page once, and then has nothing to do", async () => {
-    const { m, checkout } = machine();
+    const { m, checkout } = machineWithTempCheckout();
     const first = await up(m, "--hub");
     expect(first.code).toBe(0);
     const unit = readFileSync(unitPath(m), "utf-8");
@@ -80,17 +78,18 @@ describe("devbox up --hub", () => {
       "--filter",
       "hub",
     ]);
-    expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf-8")).toBe(
-      "tree-1\n"
-    );
+    expect(
+      readFileSync(path.join(checkout, "apps/hub/out/.built"), "utf-8")
+    ).toBe("tree-1\n");
 
     const before = m.calls.length;
-    expect((await up(m, "--hub")).err).toContain("No changes.");
+    const second = await up(m, "--hub");
+    expect(second.err).toContain("No changes.");
     expect(builds(m, before)).toBe(0);
   });
 
   test("listens on --host when that is one address", async () => {
-    const { m } = machine();
+    const { m } = machineWithTempCheckout();
     await up(m, "--hub", "--host", "100.64.0.21");
     expect(readFileSync(unitPath(m), "utf-8")).toContain(
       "hub --host 100.64.0.21 --port 3780"
@@ -98,16 +97,16 @@ describe("devbox up --hub", () => {
   });
 
   test("builds the page again when hub/ has changed", async () => {
-    const { m, checkout, state } = machine();
+    const { m, checkout, state } = machineWithTempCheckout();
     await up(m, "--hub");
     state.tree = "tree-2";
     const before = m.calls.length;
     const second = await up(m, "--hub");
     expect(second.err).toContain("built the hub page");
     expect(builds(m, before)).toBe(1);
-    expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf-8")).toBe(
-      "tree-2\n"
-    );
+    expect(
+      readFileSync(path.join(checkout, "apps/hub/out/.built"), "utf-8")
+    ).toBe("tree-2\n");
     expect(m.units.get("user:devbox-hub.service")).toEqual({
       active: true,
       enabled: true,
@@ -115,7 +114,7 @@ describe("devbox up --hub", () => {
   });
 
   test("without --hub it stops the hub and removes its unit", async () => {
-    const { m } = machine();
+    const { m } = machineWithTempCheckout();
     await up(m, "--hub");
     const second = await up(m);
     expect(second.code).toBe(0);
@@ -125,11 +124,12 @@ describe("devbox up --hub", () => {
       active: false,
       enabled: false,
     });
-    expect((await up(m)).err).toContain("No changes.");
+    const third = await up(m);
+    expect(third.err).toContain("No changes.");
   });
 
   test("a page that does not build fails the run, and the hub still runs for its JSON", async () => {
-    const { m, checkout } = machine({ buildFails: true });
+    const { m, checkout } = machineWithTempCheckout({ buildFails: true });
     const r = await up(m, "--hub");
     expect(r.code).not.toBe(0);
     expect(r.err).toContain("the hub page did not build");
@@ -137,7 +137,7 @@ describe("devbox up --hub", () => {
       active: true,
       enabled: true,
     });
-    expect(existsSync(join(checkout, "apps/hub/out/.built"))).toBe(false);
+    expect(existsSync(path.join(checkout, "apps/hub/out/.built"))).toBe(false);
   });
 
   test("without systemd it says to run the hub yourself", async () => {
