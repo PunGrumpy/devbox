@@ -12,23 +12,19 @@ import { runCli } from "../src/cli.ts";
 import { hintOf } from "../src/errors.ts";
 import {
   bearerOf,
-  type CloudflareAccount,
   cloudflareFile,
   saveCloudflare,
 } from "../src/hub/cloudflare-auth.ts";
+import type { CloudflareAccount } from "../src/hub/cloudflare-auth.ts";
 import { saveLogin } from "../src/hub/cloudflare-command.ts";
-import {
-  type Answer,
-  CLOUDFLARE_FLOW,
-  loginCommand,
-  type PostForm,
-} from "../src/hub/cloudflare-oauth.ts";
-import {
-  type HubMachine,
-  type HubRequest,
-  type HubSnapshot,
-  type Reply,
-  route,
+import { CLOUDFLARE_FLOW, loginCommand } from "../src/hub/cloudflare-oauth.ts";
+import type { Answer, PostForm } from "../src/hub/cloudflare-oauth.ts";
+import { route } from "../src/hub/hub.ts";
+import type {
+  HubMachine,
+  HubRequest,
+  HubSnapshot,
+  Reply,
 } from "../src/hub/hub.ts";
 import { tunnelsFile } from "../src/hub/tunnel.ts";
 import { Host } from "../src/machine/host.ts";
@@ -40,7 +36,6 @@ import { fingerprint, handOut, verifyRequest } from "../src/spoke/signed.ts";
 import {
   ACCOUNT,
   CLOUDFLARE_TOKEN,
-  type FakeCloudflare,
   makeCloudflare,
   OAUTH_ACCESS,
   OAUTH_REFRESH,
@@ -48,7 +43,9 @@ import {
   TUNNEL_TOKEN,
   ZONE,
 } from "./support/cloudflare.ts";
-import { type FakeMachine, makeMachine } from "./support/host.ts";
+import type { FakeCloudflare } from "./support/cloudflare.ts";
+import { makeMachine } from "./support/host.ts";
+import type { FakeMachine } from "./support/host.ts";
 import { devbox, runWith, start } from "./support/run.ts";
 
 const piped = async (

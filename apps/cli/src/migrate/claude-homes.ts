@@ -11,7 +11,8 @@ import {
 } from "effect";
 
 import { Locations } from "./locations.ts";
-import { type AbsolutePath, absolutePath } from "./paths.ts";
+import { absolutePath } from "./paths.ts";
+import type { AbsolutePath } from "./paths.ts";
 
 export type ClaudeHome = {
   readonly instances: readonly string[];

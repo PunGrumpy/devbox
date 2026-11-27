@@ -6,12 +6,12 @@ import { Effect, Option } from "effect";
 
 import {
   AGENTS,
-  type AgentId,
   currentAgents,
   normalize,
   parseAgentsFlag,
   skillsAgentsOf,
 } from "../src/machine/agents.ts";
+import type { AgentId } from "../src/machine/agents.ts";
 import { serveConfig } from "../src/machine/config.ts";
 import { postStart, installSkills } from "../src/machine/setup.ts";
 import {

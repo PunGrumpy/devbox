@@ -7,12 +7,12 @@ import { join } from "node:path";
 
 import { Effect } from "effect";
 
-import {
-  type HubMachine,
-  type HubRequest,
-  type HubSnapshot,
-  type Reply,
-  route,
+import { route } from "../src/hub/hub.ts";
+import type {
+  HubMachine,
+  HubRequest,
+  HubSnapshot,
+  Reply,
 } from "../src/hub/hub.ts";
 import type { Machine } from "../src/hub/machines.ts";
 import { freePort } from "../src/machine/proxy.ts";

@@ -4,8 +4,10 @@ import { Command, Flag } from "effect/cli";
 import { Port } from "../machine/config.ts";
 import { Host } from "../machine/host.ts";
 import { LINUX_T3_SERVER } from "../migrate/t3-process.ts";
-import { type Column, Output, type Tone } from "../output.ts";
-import { SPOKE_PORT, SpokeAnswer, type Vitals } from "../spoke/vitals.ts";
+import { Output } from "../output.ts";
+import type { Column, Tone } from "../output.ts";
+import { SPOKE_PORT, SpokeAnswer } from "../spoke/vitals.ts";
+import type { Vitals } from "../spoke/vitals.ts";
 
 export type { Vitals } from "../spoke/vitals.ts";
 

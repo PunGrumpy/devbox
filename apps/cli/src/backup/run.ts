@@ -9,9 +9,9 @@ import { Locations } from "../migrate/locations.ts";
 import { AbsolutePath, absolutePath, isUnderRoot } from "../migrate/paths.ts";
 import { Output, plural } from "../output.ts";
 import { backupPaths, ensureConfig, parseEnv } from "./config.ts";
-import { type Excluded, excludedBy } from "./exclude.ts";
+import { excludedBy } from "./exclude.ts";
+import type { Excluded } from "./exclude.ts";
 import {
-  type BackupPlan,
   backupArgs,
   BACKUP_TIMEOUT_MS,
   entriesFromStage,
@@ -19,7 +19,6 @@ import {
   forgetArgs,
   hasSqliteHeader,
   Manifest,
-  type ManifestEntry,
   MANIFEST,
   manifestOf,
   parseSources,
@@ -28,12 +27,16 @@ import {
   sidecars,
   snapshotOf,
   SnapshotId,
-  type Source,
-  type SqliteSnapshot,
   sqliteBackupArgs,
   SQLITE_HEADER,
   stagedEntry,
   vacuumIntoArgs,
+} from "./model.ts";
+import type {
+  BackupPlan,
+  ManifestEntry,
+  Source,
+  SqliteSnapshot,
 } from "./model.ts";
 
 export class BackupFailed extends Schema.TaggedError<BackupFailed>()(

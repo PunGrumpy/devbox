@@ -10,14 +10,10 @@ import {
   loadCloudflare,
   saveCloudflare,
 } from "./cloudflare-auth.ts";
-import { loginCommand, type SignedIn } from "./cloudflare-oauth.ts";
-import {
-  ApiToken,
-  cloudflareApi,
-  type PickOne,
-  placeOf,
-  saveToken,
-} from "./cloudflare.ts";
+import { loginCommand } from "./cloudflare-oauth.ts";
+import type { SignedIn } from "./cloudflare-oauth.ts";
+import { ApiToken, cloudflareApi, placeOf, saveToken } from "./cloudflare.ts";
+import type { PickOne } from "./cloudflare.ts";
 import { loadTunnels } from "./tunnel.ts";
 
 const MAX_TOKEN_CHARS = 1024;

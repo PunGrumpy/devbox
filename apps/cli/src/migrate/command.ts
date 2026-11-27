@@ -5,7 +5,8 @@ import packageJson from "../../package.json" with { type: "json" };
 import { Output } from "../output.ts";
 import { ClaudeFiles } from "./claude-files.ts";
 import { ClaudeHomes } from "./claude-homes.ts";
-import { type DbTarget, resolveTarget } from "./database.ts";
+import { resolveTarget } from "./database.ts";
+import type { DbTarget } from "./database.ts";
 
 export const migrateRoot = Command.make("migrate").pipe(
   Command.withSharedFlags({

@@ -1,11 +1,11 @@
 import {
   createHash,
   createPublicKey,
-  type KeyObject,
   randomBytes,
   sign,
   verify,
 } from "node:crypto";
+import type { KeyObject } from "node:crypto";
 
 import { Option, Schema } from "effect";
 

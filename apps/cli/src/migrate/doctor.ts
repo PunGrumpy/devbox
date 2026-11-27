@@ -3,7 +3,8 @@ import { Command, Flag } from "effect/cli";
 import { SqlClient } from "effect/sql";
 
 import { Output, plural } from "../output.ts";
-import { type StrandedMemory, strandedMemory } from "./claude-files.ts";
+import { strandedMemory } from "./claude-files.ts";
+import type { StrandedMemory } from "./claude-files.ts";
 import { CLAUDE_DRIVER, ClaudeHomes } from "./claude-homes.ts";
 import { inMigrate } from "./command.ts";
 import {
@@ -13,12 +14,13 @@ import {
   databaseLayer,
   eventCount,
   listProjects,
-  type Project,
   quickCheck,
   schemaGaps,
   Tables,
 } from "./database.ts";
-import { type RunningServer, T3Process } from "./t3-process.ts";
+import type { Project } from "./database.ts";
+import { T3Process } from "./t3-process.ts";
+import type { RunningServer } from "./t3-process.ts";
 
 type ProjectRow = Project & {
   readonly threads: number;

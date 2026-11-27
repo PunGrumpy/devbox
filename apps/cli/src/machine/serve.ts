@@ -4,13 +4,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
-import {
-  pathsOf,
-  probeHost,
-  type ServeConfig,
-  serveConfig,
-  serveFlags,
-} from "./config.ts";
+import { pathsOf, probeHost, serveConfig, serveFlags } from "./config.ts";
+import type { ServeConfig } from "./config.ts";
 import { Host } from "./host.ts";
 import { freePort, proxy } from "./proxy.ts";
 import { processEnv, settingsFor } from "./settings.ts";

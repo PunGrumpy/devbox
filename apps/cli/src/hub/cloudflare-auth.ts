@@ -2,12 +2,8 @@ import { dirname, join } from "node:path";
 
 import { Clock, Effect, FileSystem, Option, Schema, Semaphore } from "effect";
 
-import {
-  type IsoTimestamp,
-  type PostForm,
-  postForm,
-  renew,
-} from "./cloudflare-oauth.ts";
+import { postForm, renew } from "./cloudflare-oauth.ts";
+import type { IsoTimestamp, PostForm } from "./cloudflare-oauth.ts";
 
 export type OAuthLogin = {
   readonly kind: "oauth";

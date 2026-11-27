@@ -9,25 +9,27 @@ import { Command } from "effect/cli";
 
 import { hintOf } from "../src/errors.ts";
 import {
-  type Answer,
   authorizeUrl,
   CALLBACK_PORT,
   challengeOf,
   CLOUDFLARE,
   CLOUDFLARE_FLOW,
   exchange,
-  type Flow,
   loginCommand,
   makePkce,
   makeState,
   OAuthFailed,
   parseTokens,
-  type PostForm,
   readCallback,
   redirectUri,
   renew,
   SCOPES,
-  type SignedIn,
+} from "../src/hub/cloudflare-oauth.ts";
+import type {
+  Answer,
+  Flow,
+  PostForm,
+  SignedIn,
 } from "../src/hub/cloudflare-oauth.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { Output } from "../src/output.ts";

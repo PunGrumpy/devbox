@@ -20,44 +20,33 @@ import { Output } from "../output.ts";
 import {
   admit,
   answer,
-  type Ask,
   CLOUDFLARE_PATH,
   cloudflareAsk,
   MAX_CLOUDFLARE_BYTES,
   machineAction,
 } from "./ask.ts";
-import { type CloudflareLogin, loadCloudflare } from "./cloudflare-auth.ts";
+import type { Ask } from "./ask.ts";
+import { loadCloudflare } from "./cloudflare-auth.ts";
+import type { CloudflareLogin } from "./cloudflare-auth.ts";
 import { cloudflareCommand } from "./cloudflare-command.ts";
 import { header, listen, readBody } from "./listen.ts";
 import {
   crossSite,
-  type HubRequest,
   LOGGED_OUT,
   loggedIn,
   login,
   logout,
   MAX_LOGIN_BYTES,
-  type Reply,
   refuse,
 } from "./login.ts";
-import {
-  type Machine,
-  type MachineState,
-  origin,
-  type Snapshot,
-  snapshotFlags,
-  takeSnapshot,
-} from "./machines.ts";
+import type { HubRequest, Reply } from "./login.ts";
+import { origin, snapshotFlags, takeSnapshot } from "./machines.ts";
+import type { Machine, MachineState, Snapshot } from "./machines.ts";
 import { restore, serialize } from "./saved.ts";
 import { hubSecrets, keyCommand, tokenCommand } from "./secrets.ts";
 import { loadTunnels, tunnelOf } from "./tunnel.ts";
-import {
-  nextWatch,
-  type Notice,
-  sentence,
-  type Watch,
-  webhookBody,
-} from "./watch.ts";
+import { nextWatch, sentence, webhookBody } from "./watch.ts";
+import type { Notice, Watch } from "./watch.ts";
 
 export type History = {
   readonly sampleSeconds: number;

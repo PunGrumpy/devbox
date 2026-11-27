@@ -6,11 +6,8 @@ import { join } from "node:path";
 
 import { Effect, Option } from "effect";
 
-import {
-  HISTORY_LIMIT,
-  type HubSnapshot,
-  nextHistory,
-} from "../src/hub/hub.ts";
+import { HISTORY_LIMIT, nextHistory } from "../src/hub/hub.ts";
+import type { HubSnapshot } from "../src/hub/hub.ts";
 import type { Machine, MachineState, Snapshot } from "../src/hub/machines.ts";
 import { restore, serialize } from "../src/hub/saved.ts";
 import { freePort } from "../src/machine/proxy.ts";

@@ -11,10 +11,10 @@ import {
   BASE_SCHEMA,
   count,
   databaseLayer,
-  type Project,
   resolveProject,
   Tables,
 } from "./database.ts";
+import type { Project } from "./database.ts";
 import { applyPlan, Change } from "./plan.ts";
 import { assertT3Closed } from "./t3-process.ts";
 

@@ -4,7 +4,6 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { Schema } from "effect";
 
 import {
-  type Challenges,
   fingerprint,
   handOut,
   KEY_HEADER,
@@ -16,6 +15,7 @@ import {
   verifyRequest,
   WINDOW_MS,
 } from "../src/spoke/signed.ts";
+import type { Challenges } from "../src/spoke/signed.ts";
 import { vitalsOf } from "../src/spoke/vitals.ts";
 
 const hub = generateKeyPairSync("ed25519").privateKey;

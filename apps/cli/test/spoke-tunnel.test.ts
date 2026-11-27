@@ -14,13 +14,8 @@ import { Effect } from "effect";
 
 import type { Ran } from "../src/machine/host.ts";
 import { freePort } from "../src/machine/proxy.ts";
-import {
-  type Do,
-  type Fields,
-  publicKeyOf,
-  type Signed,
-  signRequest,
-} from "../src/spoke/signed.ts";
+import { publicKeyOf, signRequest } from "../src/spoke/signed.ts";
+import type { Do, Fields, Signed } from "../src/spoke/signed.ts";
 import { makeMachine, SELF } from "./support/host.ts";
 import { devbox, start } from "./support/run.ts";
 

@@ -15,12 +15,8 @@ import {
   resolveProject,
   Tables,
 } from "./database.ts";
-import {
-  type AbsolutePath,
-  absolutePath,
-  isUnderRoot,
-  rebase,
-} from "./paths.ts";
+import { absolutePath, isUnderRoot, rebase } from "./paths.ts";
+import type { AbsolutePath } from "./paths.ts";
 import { applyPlan, Change } from "./plan.ts";
 import { assertT3Closed } from "./t3-process.ts";
 

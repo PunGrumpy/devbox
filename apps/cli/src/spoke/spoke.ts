@@ -18,9 +18,6 @@ import {
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
 import {
-  type Challenges,
-  type Do,
-  type Fields,
   fingerprint,
   handOut,
   KEY_HEADER,
@@ -29,7 +26,9 @@ import {
   SIGNATURE_HEADER,
   verifyRequest,
 } from "./signed.ts";
-import { type SelfKind, SPOKE_PORT } from "./vitals.ts";
+import type { Challenges, Do, Fields } from "./signed.ts";
+import { SPOKE_PORT } from "./vitals.ts";
+import type { SelfKind } from "./vitals.ts";
 
 /** What this machine is, from what it can see of itself. */
 export const kindHere = Effect.gen(function* () {

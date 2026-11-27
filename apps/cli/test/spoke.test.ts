@@ -8,13 +8,12 @@ import { Effect } from "effect";
 
 import { freePort } from "../src/machine/proxy.ts";
 import {
-  type Do,
   fingerprint,
   newNonce,
   publicKeyOf,
-  type Signed,
   signRequest,
 } from "../src/spoke/signed.ts";
+import type { Do, Signed } from "../src/spoke/signed.ts";
 import { makeMachine, SELF } from "./support/host.ts";
 import { devbox, start } from "./support/run.ts";
 

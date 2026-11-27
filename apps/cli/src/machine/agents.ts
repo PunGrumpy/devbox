@@ -2,9 +2,11 @@ import { join } from "node:path";
 
 import { Data, Effect, FileSystem, Option, Result, Schema } from "effect";
 
-import { type Aborted, UsageError } from "../errors.ts";
+import { UsageError } from "../errors.ts";
+import type { Aborted } from "../errors.ts";
 import { Output } from "../output.ts";
-import { Host, type Ran } from "./host.ts";
+import { Host } from "./host.ts";
+import type { Ran } from "./host.ts";
 import { processEnv, settingsFor } from "./settings.ts";
 
 /** How an agent gets onto the machine without sudo. It also says who keeps it current. */

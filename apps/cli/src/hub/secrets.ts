@@ -1,9 +1,9 @@
 import {
   createPrivateKey,
   generateKeyPairSync,
-  type KeyObject,
   randomBytes,
 } from "node:crypto";
+import type { KeyObject } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import { Effect, FileSystem, Option, Schema } from "effect";

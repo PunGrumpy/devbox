@@ -1,44 +1,26 @@
-import {
-  Effect,
-  type FileSystem,
-  Option,
-  Schema,
-  type Semaphore,
-} from "effect";
+import { Effect, Option, Schema } from "effect";
+import type { FileSystem, Semaphore } from "effect";
 
 import { Host } from "../machine/host.ts";
-import { type Do, type Fields, Nonce, signRequest } from "../spoke/signed.ts";
+import { Nonce, signRequest } from "../spoke/signed.ts";
+import type { Do, Fields } from "../spoke/signed.ts";
 import { PAIR_MS } from "../spoke/spoke.ts";
 import { bearerOf, forgetCloudflare } from "./cloudflare-auth.ts";
-import {
-  ApiToken,
-  cloudflareApi,
-  type PickOne,
-  saveToken,
-} from "./cloudflare.ts";
-import {
-  type HubRequest,
-  json,
-  LOGGED_OUT,
-  loggedIn,
-  type Reply,
-  refuse,
-} from "./login.ts";
-import {
-  type Machine,
-  origin,
-  type Snapshot,
-  spokeAddresses,
-} from "./machines.ts";
+import { ApiToken, cloudflareApi, saveToken } from "./cloudflare.ts";
+import type { PickOne } from "./cloudflare.ts";
+import { json, LOGGED_OUT, loggedIn, refuse } from "./login.ts";
+import type { HubRequest, Reply } from "./login.ts";
+import { origin, spokeAddresses } from "./machines.ts";
+import type { Machine, Snapshot } from "./machines.ts";
 import type { HubSecrets } from "./secrets.ts";
 import {
   NO_LOGIN,
   publish,
   StepFailed,
   TUNNEL_MS,
-  type TunnelJob,
   unpublish,
 } from "./tunnel.ts";
+import type { TunnelJob } from "./tunnel.ts";
 
 const Paired = Schema.fromJsonString(
   Schema.Struct({

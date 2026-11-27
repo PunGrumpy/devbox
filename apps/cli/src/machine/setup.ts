@@ -6,7 +6,8 @@ import { Effect, FileSystem, Option } from "effect";
 
 import { Output, plural } from "../output.ts";
 import { currentAgents, skillsAgentsOf, updateAgents } from "./agents.ts";
-import { type ServeConfig, pathsOf } from "./config.ts";
+import { pathsOf } from "./config.ts";
+import type { ServeConfig } from "./config.ts";
 import { Host } from "./host.ts";
 import {
   claudeHomes,

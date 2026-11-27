@@ -2,11 +2,13 @@ import { join } from "node:path";
 
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { Data, Effect, Equal, FileSystem, Layer, Option, Schema } from "effect";
-import { SqlClient, type Statement } from "effect/sql";
+import { SqlClient } from "effect/sql";
+import type { Statement } from "effect/sql";
 
 import { formatBytes } from "../output.ts";
 import { Locations } from "./locations.ts";
-import { type AbsolutePath, absolutePath } from "./paths.ts";
+import { absolutePath } from "./paths.ts";
+import type { AbsolutePath } from "./paths.ts";
 
 export const Tables = {
   projects: "projection_projects",

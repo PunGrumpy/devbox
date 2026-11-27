@@ -10,7 +10,8 @@ import {
 import { join } from "node:path";
 
 import { SHELL_DIR, setupShell } from "../src/machine/shell.ts";
-import { type FakeMachine, makeMachine } from "./support/host.ts";
+import { makeMachine } from "./support/host.ts";
+import type { FakeMachine } from "./support/host.ts";
 import { runWith } from "./support/run.ts";
 
 const passwd = (shell: string) => (argv: readonly string[]) =>

@@ -4,15 +4,18 @@ import { Effect, FileSystem, Option, Schema } from "effect";
 
 import type { Host } from "../machine/host.ts";
 import type { Fields } from "../spoke/signed.ts";
-import { type CloudflareAccount, loadCloudflare } from "./cloudflare-auth.ts";
-import {
-  type CloudflareApi,
-  type CloudflareRefused,
-  type DnsRecord,
-  type NewRule,
+import { loadCloudflare } from "./cloudflare-auth.ts";
+import type { CloudflareAccount } from "./cloudflare-auth.ts";
+import type {
+  CloudflareApi,
+  CloudflareRefused,
+  DnsRecord,
+  NewRule,
 } from "./cloudflare.ts";
-import { json, type Reply, refuse } from "./login.ts";
-import { type Machine, origin } from "./machines.ts";
+import { json, refuse } from "./login.ts";
+import type { Reply } from "./login.ts";
+import { origin } from "./machines.ts";
+import type { Machine } from "./machines.ts";
 
 /** The machine name in lower case, with anything outside a-z and 0-9 turned into a dash. */
 export const slugOf = (name: string): string =>

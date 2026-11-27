@@ -7,7 +7,8 @@ import { runCli } from "../../src/cli.ts";
 import { tokenFile } from "../../src/hub/secrets.ts";
 import { Host } from "../../src/machine/host.ts";
 import { Locations } from "../../src/migrate/locations.ts";
-import { type RunningServer, T3Process } from "../../src/migrate/t3-process.ts";
+import { T3Process } from "../../src/migrate/t3-process.ts";
+import type { RunningServer } from "../../src/migrate/t3-process.ts";
 import { Output } from "../../src/output.ts";
 import { makeMachine } from "./host.ts";
 

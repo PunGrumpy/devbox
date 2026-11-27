@@ -1,9 +1,11 @@
 import { Data, Effect, Schema, Scope } from "effect";
-import { SqlClient, type SqlError } from "effect/sql";
+import { SqlClient } from "effect/sql";
+import type { SqlError } from "effect/sql";
 
 import { Aborted } from "../errors.ts";
 import { formatBytes, Output, plural } from "../output.ts";
-import { backup, type DbTarget, quickCheck, restoreHint } from "./database.ts";
+import { backup, quickCheck, restoreHint } from "./database.ts";
+import type { DbTarget } from "./database.ts";
 
 export type Change = Data.TaggedEnum<{
   MoveThreads: { readonly threads: number; readonly into: string };

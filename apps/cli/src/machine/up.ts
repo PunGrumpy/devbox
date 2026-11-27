@@ -8,7 +8,6 @@ import { backupPaths, resticRepositoryOf } from "../backup/config.ts";
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
 import {
-  type AgentId,
   AgentInstallFailed,
   agentBin,
   agentName,
@@ -18,9 +17,9 @@ import {
   presentAgents,
   readSavedAgents,
 } from "./agents.ts";
+import type { AgentId } from "./agents.ts";
 import {
   machineConfig,
-  type MachineConfig,
   machineFile,
   pathsOf,
   probeHost,
@@ -28,6 +27,7 @@ import {
   serveConfig,
   upFlags,
 } from "./config.ts";
+import type { MachineConfig } from "./config.ts";
 import { Host } from "./host.ts";
 import {
   BACKUP_SERVICE,
@@ -35,8 +35,6 @@ import {
   HUB_UNIT,
   BackupFact,
   Change,
-  type Context,
-  type Facts,
   machineInfoPath,
   plan,
   profilePath,
@@ -47,6 +45,7 @@ import {
   t3SettingsPath,
   unitPath,
 } from "./plan.ts";
+import type { Context, Facts } from "./plan.ts";
 import { answering } from "./serve.ts";
 import { gitEntries, processEnv, settingsFor } from "./settings.ts";
 import { ensureMise } from "./setup.ts";

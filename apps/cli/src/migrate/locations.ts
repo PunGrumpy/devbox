@@ -3,7 +3,8 @@ import { join } from "node:path";
 
 import { Config, Context, Effect, Layer, Option } from "effect";
 
-import { type AbsolutePath, absolutePath } from "./paths.ts";
+import { absolutePath } from "./paths.ts";
+import type { AbsolutePath } from "./paths.ts";
 
 const env = (name: string) => Config.option(Config.String(name));
 

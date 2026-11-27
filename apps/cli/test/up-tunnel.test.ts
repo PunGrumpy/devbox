@@ -13,7 +13,8 @@ import {
 import { dirname, join } from "node:path";
 
 import type { Ran } from "../src/machine/host.ts";
-import { type FakeMachine, makeMachine } from "./support/host.ts";
+import { makeMachine } from "./support/host.ts";
+import type { FakeMachine } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
 const TOKEN = Buffer.from(

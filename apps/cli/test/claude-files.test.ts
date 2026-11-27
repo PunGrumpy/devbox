@@ -29,8 +29,8 @@ import {
   query,
   slug,
   snapshot,
-  type World,
 } from "./support/fixture.ts";
+import type { World } from "./support/fixture.ts";
 import { migrate } from "./support/run.ts";
 
 const runIn = (world: World, ...args: string[]) => migrate(world.env, ...args);

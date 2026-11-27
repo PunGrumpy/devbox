@@ -3,29 +3,23 @@ import { join } from "node:path";
 import { Data, Option, Schema } from "effect";
 
 import { SPOKE_PORT } from "../spoke/vitals.ts";
-import {
-  type AgentId,
-  type AgentIds,
-  agentName,
-  agentsJson,
-  remembered,
-  removeHint,
-} from "./agents.ts";
+import { agentName, agentsJson, remembered, removeHint } from "./agents.ts";
+import type { AgentId, AgentIds } from "./agents.ts";
 import {
   ALL_INTERFACES,
-  type MachineConfig,
   machineFile,
   pathsOf,
   serveArgs,
   upArgs,
 } from "./config.ts";
+import type { MachineConfig } from "./config.ts";
 import {
   gitEntries,
   processEnv,
   profileScript,
-  type Setting,
   settingsFor,
 } from "./settings.ts";
+import type { Setting } from "./settings.ts";
 import { cloudflaredPath, TUNNEL_UNIT } from "./tunnel.ts";
 
 export const UNIT = "devbox.service";

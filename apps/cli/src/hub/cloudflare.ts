@@ -1,11 +1,8 @@
 import { Effect, Option, Schema } from "effect";
 
 import { Host } from "../machine/host.ts";
-import {
-  type CloudflareAccount,
-  CloudflareFailed,
-  saveCloudflare,
-} from "./cloudflare-auth.ts";
+import { CloudflareFailed, saveCloudflare } from "./cloudflare-auth.ts";
+import type { CloudflareAccount } from "./cloudflare-auth.ts";
 
 const API = "https://api.cloudflare.com/client/v4";
 const TIMEOUT_MS = 20_000;

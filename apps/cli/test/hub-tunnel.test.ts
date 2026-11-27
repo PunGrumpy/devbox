@@ -13,22 +13,22 @@ import {
   publish,
   RECORD_COMMENT,
   StepFailed,
-  type TunnelJob,
   tunnelsFile,
   unpublish,
 } from "../src/hub/tunnel.ts";
+import type { TunnelJob } from "../src/hub/tunnel.ts";
 import type { Fields } from "../src/spoke/signed.ts";
 import {
   ACCOUNT,
-  type Call,
   CLOUDFLARE_TOKEN,
-  type FakeCloudflare,
   makeCloudflare,
   stateOf,
   TUNNEL_TOKEN,
   ZONE,
 } from "./support/cloudflare.ts";
-import { type FakeMachine, makeMachine } from "./support/host.ts";
+import type { Call, FakeCloudflare } from "./support/cloudflare.ts";
+import { makeMachine } from "./support/host.ts";
+import type { FakeMachine } from "./support/host.ts";
 import { runWith } from "./support/run.ts";
 
 const HOSTNAME = "t3-edge-7.example.com";

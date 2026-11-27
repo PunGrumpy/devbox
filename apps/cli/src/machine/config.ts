@@ -4,14 +4,11 @@ import { Effect, Option, Result, Schema } from "effect";
 import { Flag } from "effect/cli";
 
 import { UsageError } from "../errors.ts";
-import { type AbsolutePath, absolutePath } from "../migrate/paths.ts";
+import { absolutePath } from "../migrate/paths.ts";
+import type { AbsolutePath } from "../migrate/paths.ts";
 import { PublicKey } from "../spoke/signed.ts";
-import {
-  type AgentChoice,
-  type AgentsFlag,
-  agentsFile,
-  parseAgentsFlag,
-} from "./agents.ts";
+import { agentsFile, parseAgentsFlag } from "./agents.ts";
+import type { AgentChoice, AgentsFlag } from "./agents.ts";
 
 export const Name = Schema.String.pipe(
   Schema.check(

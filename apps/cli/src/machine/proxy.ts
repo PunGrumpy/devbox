@@ -1,5 +1,7 @@
-import http, { type IncomingHttpHeaders } from "node:http";
-import net, { type AddressInfo } from "node:net";
+import http from "node:http";
+import type { IncomingHttpHeaders } from "node:http";
+import net from "node:net";
+import type { AddressInfo } from "node:net";
 
 import { Effect } from "effect";
 

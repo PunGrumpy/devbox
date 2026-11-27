@@ -20,7 +20,8 @@ import { dirname } from "node:path";
 
 import { Context, Effect, Layer, Option } from "effect";
 
-import { type Vitals, vitalsOf } from "../spoke/vitals.ts";
+import { vitalsOf } from "../spoke/vitals.ts";
+import type { Vitals } from "../spoke/vitals.ts";
 
 export type Ran = {
   readonly code: number;

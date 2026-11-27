@@ -5,14 +5,10 @@ import { Context, Effect, FileSystem, Layer, Option, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 import { formatBytes, Output, plural } from "../output.ts";
-import { type ClaudeHome, ClaudeHomes } from "./claude-homes.ts";
-import {
-  type AbsolutePath,
-  absolutePath,
-  isUnderRoot,
-  rebase,
-  slugOf,
-} from "./paths.ts";
+import { ClaudeHomes } from "./claude-homes.ts";
+import type { ClaudeHome } from "./claude-homes.ts";
+import { absolutePath, isUnderRoot, rebase, slugOf } from "./paths.ts";
+import type { AbsolutePath } from "./paths.ts";
 
 export class ClaudeFilesError extends Schema.TaggedError<ClaudeFilesError>()(
   "ClaudeFilesError",
