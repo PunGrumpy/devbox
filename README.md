@@ -10,7 +10,7 @@
 curl -fsSL https://raw.githubusercontent.com/PunGrumpy/devbox/main/install.sh | sh -s -- up
 ```
 
-`install.sh` installs Bun when it is missing, clones this repo into `$DEVBOX_HOME` (default `~/.devbox`) or fast-forwards it, installs the dependencies, writes a `devbox` wrapper to `~/.local/bin`, and runs `devbox` with its arguments. Run it again to update. `DEVBOX_REPO` clones from somewhere else.
+`install.sh` installs Bun when it is missing, clones this repo into `$DEVBOX_HOME` (default `~/.devbox`) or fast-forwards it, installs the CLI's dependencies, writes a `devbox` wrapper to `~/.local/bin`, and runs `devbox` with its arguments. Run it again to update. `DEVBOX_REPO` clones from somewhere else.
 
 Bun's installer needs `unzip`. When Bun and `unzip` are both missing, `install.sh` installs `unzip` with `apt-get` if you are root or have passwordless sudo. Otherwise it stops and prints the command for an admin to run: `sudo apt-get install -y unzip`.
 
@@ -32,6 +32,7 @@ devbox up --name edge-7 --data /persist --public-url https://edge-7.example.com
 | `--base-dir`   | `<data>/.t3` | T3 Code's data directory.                                                                                                                 |
 | `--workspace`  | `<data>`     | The working directory for agent sessions.                                                                                                 |
 | `--channel`    | `nightly`    | The npm dist-tag T3 Code installs and updates from.                                                                                       |
+| `--hub`        | off          | Also keeps [`devbox hub`](#see-your-machines) running, on `--host` when that is one address and on `127.0.0.1` otherwise.                 |
 | `--supervisor` | `auto`       | What keeps T3 running: a systemd system unit when systemd and passwordless sudo exist, else a systemd user unit, else a detached process. |
 | `--agents`     | ask once     | The agent CLIs to install: `pick`, `none`, or a list like `claude,codex`. Saved in `<data>`, so later runs ask nothing.                   |
 | `--no-setup`   | setup runs   | Skips the slow setup that runs after T3 starts.                                                                                           |
@@ -173,6 +174,46 @@ That link is for agents. The T3 Code app keeps its own list, so `--app` also sen
 
 `devbox pair [--label <name>] [--url <origin>] [--json]` prints the machine's T3 URL and a one-time pairing token that lasts 15 minutes. `--json` prints `{"url", "token"}`. The URL is `--url` when you pass it, for example the hostname of a [tunnel](#reach-t3-without-tailscale). Without it, the URL is `--public-url` when the machine has one. Otherwise, on a machine on Tailscale, it is `http://<MagicDNS name>:<port>`, because `t3 environment link` refuses plain http to anything but a Tailscale address. With neither it is `http://<hostname>:<port>`.
 
+## See your machines
+
+`devbox machines` lists every machine on your tailnet and every T3 environment linked here. For each it shows where the machine is, whether T3 Code answers there, and whether agents here have a link to it. Phones and TVs are left out. `--json` prints the same list on stdout for scripts and agents.
+
+It reads `tailscale status --json`, or `tailscale.exe` under WSL, and asks each online machine for T3's `/.well-known/t3/environment` on port 3773 (`--t3-port`). Links come from `t3 environment list --json`. `--t3` picks the `t3` binary, which is otherwise `t3` on PATH or the T3 server that is running. Without Tailscale it lists only this machine and its links.
+
+Each machine has a `kind`: `mac`, `windows`, `wsl`, `vm`, `computer` or `remote`. Tailscale tells a peer only a machine's name and system, so `vm` shows only for the machine the command runs on, from `systemd-detect-virt`. `wsl` is a Windows machine whose T3 Code says it runs on Linux, and `remote` is a linked machine that is not on the tailnet.
+
+`devbox hub` serves the same data as JSON at `/api/machines`, and the page in [`apps/hub`](apps/hub) at `/`. It checks every minute and keeps the last 24 hours in memory. A request never starts a check. To open the page from your other devices, listen on the Tailscale address:
+
+```sh
+devbox hub --host "$(tailscale ip -4)"
+```
+
+The page has no login. Keep it on `127.0.0.1` or a Tailscale address.
+
+To keep the hub running without a terminal, pass `--hub` to `devbox up`:
+
+```sh
+devbox up --host "$(tailscale ip -4)" --hub
+```
+
+It writes a `devbox-hub.service` unit beside the one for T3, builds the page in `apps/hub` when it has changed since the last build, and listens on port 3780. The page has no login, so the hub listens on `--host` only when that names one address, and on `127.0.0.1` otherwise. A later `devbox up` without `--hub` stops the hub and removes the unit. The unit reads `~/.config/devbox/hub/env` when it exists, which is where `DEVBOX_HUB_NOTIFY` goes. Without systemd, run `devbox hub` yourself.
+
+The hub saves its history to `~/.local/state/devbox/hub.json` after every check and takes it up again when it starts. The time it was down shows as unknown. Under each machine the page says how much of the last 24 hours it was online, and names a newer T3 Code when the nightly channel has one. Ctrl K, Command K on a Mac, or a slash opens a search over machine names, addresses, systems and states.
+
+To hear when a machine drops off, set `DEVBOX_HUB_NOTIFY` to one webhook URL in the hub's environment. A change is sent once it has held for two checks, so one missed answer is not news. Discord gets `{"content": "edge-7 went offline"}`, Slack gets `{"text": ...}`, and any other address, such as an [ntfy](https://ntfy.sh) topic, gets the sentence as plain text. The address is never logged.
+
+The page is a Next.js app that builds to static files, so the hub needs no Node server. Build it once on the machine that runs the hub, and again after an update:
+
+```sh
+bun install --frozen-lockfile --filter devbox-hub && bun run --cwd apps/hub build
+```
+
+`devbox hub` then serves `apps/hub/out` from this checkout. `--ui <dir>` serves another build, which a compiled `devbox` binary needs. Without a build, `/` answers 404 with this command and the JSON still works.
+
+To work on the page, run `devbox hub` and then `bun run dev` in `apps/hub`. Next serves the page on port 3790 and forwards `/api/machines` to the hub at `DEVBOX_HUB_URL` (default `http://127.0.0.1:3780`). It is checked with [Ultracite](https://www.ultracite.dev) and [tsrs](https://github.com/oxc-project/tsrs). See [Develop](#develop).
+
+The page's line icons come from [Hugeicons](https://hugeicons.com) (MIT) and its Linux mark from [Unicons](https://github.com/Iconscout/unicons) (Apache 2.0).
+
 ## Back up agent memory
 
 Agents keep their memory and threads in files under `~`. `devbox backup` copies them every night to an encrypted [restic](https://restic.net) repository. The repository can be a Cloudflare R2 bucket.
@@ -300,9 +341,21 @@ Output goes to stderr in the style of the Vercel CLI, so a pipe gets only data. 
 
 ## Develop
 
+This repo is a [Turborepo](https://turborepo.dev) workspace on Bun, with one lockfile.
+
+| Package      | Where      | What it is                                               |
+| ------------ | ---------- | -------------------------------------------------------- |
+| `devbox`     | `apps/cli` | The command-line tool, on Bun and Effect.                |
+| `devbox-hub` | `apps/hub` | The hub page, a Next.js app that exports static files.   |
+
 ```sh
-bun test             # runs the commands in-process against fixture databases
+bun install          # every package
+bun run check        # lint and format, in each package
 bun run typecheck    # tsrs --noEmit
-bun run check        # oxlint and oxfmt --check
-bun run build        # dist/devbox
+bun run test         # the commands in-process against fixture databases, and the page's helpers
+bun run build        # apps/cli/dist/devbox and apps/hub/out
 ```
+
+Each command runs through `turbo`, which skips a package whose inputs have not changed. Add `--filter devbox` or `--filter devbox-hub` after `--` to run one package: `bun run test -- --filter devbox`. `turbo` hides `CLAUDE_CONFIG_DIR` from the tests, which must not see it. To run them without `turbo`, use `env -u CLAUDE_CONFIG_DIR bun test` in `apps/cli`.
+
+`install.sh` installs only what the CLI needs (`bun install --production --filter devbox`), so a machine does not download the page's dependencies unless `devbox up --hub` builds the page. `src/cli.ts` at the root hands over to `apps/cli/src/cli.ts`. It is there for wrappers and systemd units written before the CLI moved.

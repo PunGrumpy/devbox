@@ -32,6 +32,8 @@ These rules hold on every machine and in every repo. A workspace's own `CLAUDE.m
 
 - In T3 Code every delegate runs with `runtimeMode: "full-access"`. An approval-required child stalls an unattended run on its first permission request.
 - A read-only role gets a brief that forbids edits, commits and installs.
+- Before you pick a machine to work on, run `devbox machines --json` to see Pun's machines.
+- A machine with `t3.link` is reached through T3's `delegate_task` with its `t3.environmentId`.
 
 ## This machine
 

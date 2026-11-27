@@ -30,14 +30,15 @@ if [ -d "$dir/.git" ]; then
 else
   git clone -q "$repo" "$dir" >&2
 fi
-(cd "$dir" && bun install --frozen-lockfile --production --silent) >&2
+# Only the CLI. The hub page has its own, much larger, dependencies, which `devbox up --hub` installs.
+(cd "$dir" && bun install --frozen-lockfile --production --filter devbox --silent) >&2
 
 bun=$(command -v bun)
 wrapper="#!/bin/sh
-exec '$bun' '$dir/src/cli.ts' \"\$@\""
+exec '$bun' '$dir/apps/cli/src/cli.ts' \"\$@\""
 if [ "$(cat "$HOME/.local/bin/devbox" 2>/dev/null)" != "$wrapper" ]; then
   mkdir -p "$HOME/.local/bin"
   printf '%s\n' "$wrapper" >"$HOME/.local/bin/devbox"
   chmod 755 "$HOME/.local/bin/devbox"
 fi
-exec "$bun" "$dir/src/cli.ts" "$@"
+exec "$bun" "$dir/apps/cli/src/cli.ts" "$@"

@@ -1,37 +1,26 @@
 {
-  "name": "devbox",
-  "version": "0.1.0",
+  "name": "devbox-workspace",
   "private": true,
-  "description": "Set up machines for T3 Code coding agents and maintain T3 Code's local state",
-  "license": "MIT",
-  "bin": {
-    "devbox": "./src/cli.ts"
-  },
+  "workspaces": [
+    "apps/*"
+  ],
   "type": "module",
   "scripts": {
-    "dev": "bun src/cli.ts",
-    "build": "bun build src/cli.ts --compile --minify --outfile dist/devbox",
-    "test": "bun test",
-    "typecheck": "tsrs --noEmit",
-    "check": "oxlint && oxfmt --check",
-    "fix": "oxlint --fix && oxfmt"
-  },
-  "dependencies": {
-    "@effect/platform-bun": "4.1.4",
-    "@effect/sql-sqlite-bun": "4.1.4",
-    "effect": "4.1.4"
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "typecheck": "turbo run typecheck",
+    "check": "turbo run check",
+    "fix": "turbo run fix",
+    "test": "turbo run test"
   },
   "devDependencies": {
-    "@types/bun": "1.4.4",
-    "oxfmt": "0.75.0",
-    "oxlint": "1.90.0",
-    "tsrs": "0.20.1-ts7.1.0-beta"
+    "turbo": "^2.11.13"
   },
   "devEngines": {
     "packageManager": {
       "name": "bun",
       "version": "1.4.4",
-      "onFail": "error"
+      "onFail": "warn"
     }
   }
 }

@@ -1,0 +1,372 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans:
+    "Suisse Intl", var(--font-geist-sans), -apple-system, BlinkMacSystemFont,
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --breakpoint-side: 46rem;
+  --breakpoint-docs: 74rem;
+
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-soft: var(--soft);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-wash: var(--wash);
+  --color-accent: var(--accent);
+  --color-hover: var(--hover);
+  --color-mark: var(--mark);
+  --color-code-function: var(--code-function);
+  --color-code-property: var(--code-property);
+  --color-code-operator: var(--code-operator);
+
+  --text-title: 1.75rem;
+  --text-title--line-height: 1.15;
+  --text-title--letter-spacing: -0.02em;
+  --text-heading: 1.125rem;
+  --text-heading--line-height: 1.3;
+  --text-heading--letter-spacing: -0.015em;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.5;
+  --text-body--letter-spacing: 0;
+  --text-nav: 0.875rem;
+  --text-nav--line-height: 1.2;
+  --text-nav--letter-spacing: -0.01em;
+  --text-menu: 1.375rem;
+  --text-menu--line-height: 1.375;
+
+  --radius-panel: 0.75rem;
+  --radius-card: calc(3.5rem * 0.225 + 1rem + 1px);
+  --radius-icon: 22.5%;
+  --radius-search: 1.5rem;
+
+  --animate-rise: rise 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  /* The docs move the tab pill on a spring. This is that spring, frame by frame. */
+  --ease-spring: linear(
+    0,
+    0.2,
+    0.42,
+    0.602,
+    0.736,
+    0.829,
+    0.891,
+    0.932,
+    0.957,
+    0.974,
+    0.984,
+    0.99,
+    0.994,
+    0.996,
+    0.998,
+    1
+  );
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      filter: blur(3px);
+      transform: translateY(12px);
+    }
+  }
+}
+
+:root {
+  color-scheme: light dark;
+
+  --measure: clamp(38rem, calc(38rem + (100vw - 90rem) * 0.2667), 46rem);
+
+  --ink: light-dark(#181d16, #ececea);
+  --paper: light-dark(#f5f5f4, #10120f);
+  --surface: light-dark(#ffffff, #191c17);
+  --soft: light-dark(#181d169e, #ececea9e);
+  --muted: light-dark(#b3b3b3, #737b6f);
+  --rule: light-dark(#181d161f, #ececea24);
+  --wash: light-dark(#181d160d, #ececea12);
+  --edge-top: light-dark(#181d160a, #ececea2e);
+  --edge-bottom: light-dark(#181d1621, #ececea0f);
+  --accent: #ff8b5d;
+  --focus: light-dark(#873ac2, #c989fe);
+  --focus-wash: light-dark(
+    color-mix(in srgb, #873ac2 9%, transparent),
+    color-mix(in srgb, #c989fe 12%, transparent)
+  );
+  --selection: light-dark(
+    color-mix(in srgb, var(--accent) 55%, var(--paper)),
+    color-mix(in srgb, var(--accent) 45%, var(--paper))
+  );
+  --hover: light-dark(
+    color-mix(in srgb, var(--accent) 9%, var(--surface)),
+    color-mix(in srgb, var(--accent) 8%, var(--surface))
+  );
+  --mark: light-dark(
+    color-mix(in srgb, var(--accent) 20%, transparent),
+    color-mix(in srgb, var(--accent) 22%, transparent)
+  );
+  --backdrop: light-dark(#181d1629, #00000073);
+  --code-function: light-dark(#ca4c04, #ff8b5d);
+  --code-property: light-dark(#5a60fe, #8f9fff);
+  --code-operator: light-dark(#a6667a, #c0909c);
+
+  --shadow-icon:
+    0 0 0 0.5px light-dark(#181d160f, #ececea14),
+    0 1px 1px -0.5px light-dark(#181d160d, #0003),
+    0 2px 2px -1px light-dark(#181d160d, #0003),
+    0 4px 4px -2px light-dark(#181d160d, #0003),
+    0 8px 8px -4px light-dark(#181d160a, #00000029),
+    0 12px 12px -6px light-dark(#181d1608, #0000001f);
+  --shadow-search:
+    0 0 0 1px light-dark(#181d1612, #ececea1a),
+    0 1px 1px light-dark(#181d1608, transparent),
+    inset 0 1px 0 light-dark(transparent, #ececea0d),
+    0 2px 2px -1px light-dark(#181d160a, #0000004d),
+    0 4px 4px -2px light-dark(#181d160a, #0000004d),
+    0 8px 8px -4px light-dark(#181d160d, #0000004d),
+    0 16px 16px -8px light-dark(#181d160f, #0000004d),
+    0 32px 32px -16px light-dark(#181d1612, #0000004d),
+    0 48px 64px -24px light-dark(#181d161a, #0006);
+}
+
+@utility edge {
+  background:
+    linear-gradient(var(--fill, var(--surface)), var(--fill, var(--surface)))
+      padding-box,
+    linear-gradient(to bottom, var(--edge-top), var(--edge-bottom)) border-box;
+  border: 1px solid transparent;
+}
+
+@utility squircle {
+  corner-shape: squircle;
+}
+
+@utility nav-link {
+  display: block;
+  width: calc(100% + 0.375rem);
+  margin-inline-start: -0.375rem;
+  padding: 0.25rem 0.375rem;
+  border-radius: 0.375rem;
+  text-align: start;
+  cursor: pointer;
+  transition: color 100ms;
+
+  &:hover {
+    color: var(--ink);
+  }
+
+  &:focus-visible {
+    outline-offset: -2px;
+    background-color: var(--focus-wash);
+    color: var(--ink);
+  }
+}
+
+@layer base {
+  html {
+    font-kerning: normal;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  html:has(.menu[data-open]) {
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-paper text-ink text-body font-sans;
+  }
+
+  ::selection {
+    background-color: var(--selection);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  :where(a, button) {
+    border-radius: 0.25rem;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  mark {
+    background: none;
+    color: var(--ink);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise {
+      animation: none;
+    }
+
+    * {
+      transition-duration: 1ms !important;
+    }
+  }
+}
+
+/* The search palette grows out of the sidebar button and shrinks back into it. */
+::view-transition-group(search) {
+  overflow: clip;
+  border-radius: 1.5rem;
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+::view-transition-old(search),
+::view-transition-new(search) {
+  block-size: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 280ms;
+}
+
+@layer components {
+  .search-trigger {
+    transition: filter 100ms;
+
+    &:hover {
+      filter: brightness(0.96);
+    }
+
+    &:focus-visible {
+      --fill: color-mix(in srgb, var(--focus) 9%, var(--paper));
+      color: var(--ink);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      &:hover {
+        filter: brightness(1.25);
+      }
+    }
+  }
+
+  .search {
+    box-shadow: var(--shadow-search);
+    transition: box-shadow 220ms ease-out;
+  }
+
+  /* While the palette grows out of its button it has no shadow. The shadow fades in once it lands. */
+  .search[data-landing] {
+    box-shadow: none;
+    transition: none;
+  }
+
+  .search::backdrop {
+    background: var(--backdrop);
+  }
+
+  .search-results {
+    scrollbar-width: thin;
+    scroll-padding-block: 0.5rem;
+  }
+
+  .search-title mark {
+    margin-inline: -0.0625rem;
+    padding-inline: 0.0625rem;
+    border-radius: 0.1875rem;
+    background: var(--mark);
+    box-decoration-break: clone;
+  }
+
+  .command-stack {
+    transition: height 350ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sheen {
+    --sheen: #fff;
+
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: var(--radius-panel);
+    corner-shape: squircle;
+    opacity: 0;
+    pointer-events: none;
+
+    @media (prefers-color-scheme: light) {
+      --sheen: var(--accent);
+
+      mix-blend-mode: multiply;
+    }
+  }
+
+  .sheen-band {
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    transform: skewX(-19.7deg);
+    transform-origin: 0 0;
+  }
+
+  .sheen-edge {
+    position: absolute;
+    inset: 0;
+    border: 1px solid;
+    border-color: color-mix(in srgb, var(--sheen) 76%, transparent)
+      color-mix(in srgb, var(--sheen) 51%, transparent)
+      color-mix(in srgb, var(--sheen) 26%, transparent);
+    border-radius: inherit;
+    corner-shape: inherit;
+    box-shadow:
+      inset 0 0 5px color-mix(in srgb, var(--sheen) 22%, transparent),
+      inset 0 3px 4px -2px color-mix(in srgb, var(--sheen) 20%, transparent);
+    mask-repeat: no-repeat;
+  }
+
+  .menu {
+    visibility: hidden;
+    translate: 100%;
+    transition:
+      translate 320ms cubic-bezier(0.32, 0.72, 0, 1),
+      visibility 320ms;
+
+    &[data-open] {
+      visibility: visible;
+      translate: none;
+    }
+  }
+
+  .menu-scroll {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent calc(2rem + 32px),
+      black calc(2rem + 76px)
+    );
+  }
+
+  .menu-toggle {
+    color: color-mix(in srgb, var(--ink) 62%, var(--paper));
+    transition: color 100ms;
+
+    &:hover {
+      color: var(--ink);
+    }
+
+    & path {
+      transform-box: view-box;
+      transform-origin: 10px 10px;
+      transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    &[aria-expanded="true"] .bar-top {
+      transform: rotate(45deg) translateY(2.75px);
+    }
+
+    &[aria-expanded="true"] .bar-bottom {
+      transform: rotate(-45deg) translateY(-2.75px);
+    }
+  }
+}

@@ -13,27 +13,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: Lint, format, typecheck
+  workspace:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run typecheck
-
-  test:
-    name: Test / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - name: Check
+            command: bun run check
+          - name: Typecheck
+            command: bun run typecheck
+          - name: Test
+            command: bun run test
+          - name: Build
+            command: bun run build && ./apps/cli/dist/devbox --help
     steps:
       - uses: actions/checkout@v5
         with:
@@ -42,6 +36,24 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      - run: ${{ matrix.command }}
+
+  cli-macos:
+    name: CLI / macos-latest
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/cli
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      # What install.sh runs on a machine, so this also proves the CLI needs nothing more.
+      - run: bun install --frozen-lockfile --production --filter devbox
+        working-directory: .
       - run: bun test
       - run: bun run build
       - run: ./dist/devbox --help

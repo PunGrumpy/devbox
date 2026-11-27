@@ -1,0 +1,200 @@
+import { Context, Effect, Layer, Option } from "effect";
+import { spawn } from "node:child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
+import { hostname, userInfo } from "node:os";
+import { dirname } from "node:path";
+
+export type Ran = { readonly code: number; readonly stdout: string; readonly stderr: string };
+
+export type RunOptions = {
+  readonly env?: Readonly<Record<string, string>>;
+  readonly cwd?: string;
+  readonly stdin?: string;
+  readonly inherit?: boolean;
+  readonly timeoutMs?: number;
+};
+
+export const TIMED_OUT = 124;
+
+export type Proc = { readonly pid: number; readonly argv: ReadonlyArray<string> };
+
+export type Fetched = { readonly body: string; readonly ms: number };
+
+export class Host extends Context.Service<
+  Host,
+  {
+    readonly hostname: string;
+    readonly user: string;
+    readonly etc: string;
+    readonly path: string;
+    readonly self: ReadonlyArray<string>;
+    readonly systemd: boolean;
+    readonly run: (argv: ReadonlyArray<string>, options?: RunOptions) => Effect.Effect<Ran>;
+    readonly which: (name: string) => Effect.Effect<boolean>;
+    readonly processes: Effect.Effect<ReadonlyArray<Proc>>;
+    readonly spawnDetached: (
+      argv: ReadonlyArray<string>,
+      options: { readonly env: Readonly<Record<string, string>>; readonly log: string },
+    ) => Effect.Effect<number>;
+    readonly stop: (pid: number) => Effect.Effect<void>;
+    readonly answers: (port: number, address: string) => Effect.Effect<boolean>;
+    /** The body of a 200 answer and how long it took, or none for anything else. */
+    readonly fetchText: (url: string, timeoutMs: number) => Effect.Effect<Option.Option<Fetched>>;
+    /** Whether a POST was answered with a 2xx. */
+    readonly post: (
+      url: string,
+      message: { readonly body: string; readonly contentType: string },
+      timeoutMs: number,
+    ) => Effect.Effect<boolean>;
+    readonly readLine: Effect.Effect<string>;
+  }
+>()("devbox/machine/Host") {
+  static readonly layer = Layer.sync(Host, () => ({
+    hostname: hostname(),
+    user: Bun.spawnSync(["id", "-un"]).stdout.toString().trim() || userInfo().username,
+    etc: "/etc",
+    path: process.env.PATH ?? "",
+    self: Bun.main.endsWith(".ts") ? [process.execPath, Bun.main] : [process.execPath],
+    systemd: existsSync("/run/systemd/system"),
+    run: (argv, options = {}) =>
+      Effect.promise(async (): Promise<Ran> => {
+        try {
+          const started = performance.now();
+          const child = Bun.spawn([...argv], {
+            env: { ...process.env, ...options.env },
+            cwd: options.cwd ?? "/",
+            stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
+            stdout: options.inherit ? "inherit" : "pipe",
+            stderr: options.inherit ? "inherit" : "pipe",
+            ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+          });
+          const [stdout, stderr, code] = await Promise.all([
+            child.stdout ? new Response(child.stdout).text() : "",
+            child.stderr ? new Response(child.stderr).text() : "",
+            child.exited,
+          ]);
+          return {
+            code: timedOut(options.timeoutMs, started, code) ? TIMED_OUT : code,
+            stdout,
+            stderr,
+          };
+        } catch (error) {
+          return { code: 127, stdout: "", stderr: String(error) };
+        }
+      }),
+    which: (name) => Effect.sync(() => Bun.which(name) !== null),
+    processes: Effect.sync(() =>
+      readdirSync("/proc").flatMap((entry) => {
+        if (!/^\d+$/.test(entry)) return [];
+        try {
+          const argv = readFileSync(`/proc/${entry}/cmdline`, "utf8").split("\0").slice(0, -1);
+          return [{ pid: Number(entry), argv }];
+        } catch {
+          return [];
+        }
+      }),
+    ),
+    spawnDetached: (argv, { env, log }) =>
+      Effect.sync(() => {
+        mkdirSync(dirname(log), { recursive: true });
+        const fd = openSync(log, "a");
+        const [command = "", ...args] = argv;
+        const child = spawn(command, args, {
+          detached: true,
+          cwd: "/",
+          stdio: ["ignore", fd, fd],
+          env: { ...process.env, ...env },
+        });
+        child.unref();
+        closeSync(fd);
+        return child.pid ?? 0;
+      }),
+    stop: (pid) =>
+      Effect.gen(function* () {
+        signal(pid, "SIGTERM");
+        for (let i = 0; i < 50 && alive(pid); i += 1) yield* Effect.sleep("200 millis");
+        if (alive(pid)) signal(pid, "SIGKILL");
+      }),
+    answers: (port, address) =>
+      Effect.promise(() =>
+        fetch(`http://${address.includes(":") ? `[${address}]` : address}:${port}/`, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(2000),
+        }).then(
+          (response) => response.status < 500,
+          () => false,
+        ),
+      ),
+    fetchText: (url, timeoutMs) =>
+      Effect.promise(async (): Promise<Option.Option<Fetched>> => {
+        const started = performance.now();
+        try {
+          const response = await fetch(url, {
+            redirect: "manual",
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (response.status !== 200) return Option.none();
+          const body = await response.text();
+          return Option.some({ body, ms: Math.round(performance.now() - started) });
+        } catch {
+          return Option.none();
+        }
+      }),
+    post: (url, { body, contentType }, timeoutMs) =>
+      Effect.promise(() =>
+        fetch(url, {
+          method: "POST",
+          headers: { "content-type": contentType },
+          body,
+          redirect: "manual",
+          signal: AbortSignal.timeout(timeoutMs),
+        }).then(
+          (response) => response.ok,
+          () => false,
+        ),
+      ),
+    readLine: Effect.promise(
+      () =>
+        new Promise<string>((resolve) => {
+          const tty = Bun.file("/dev/tty").stream().getReader();
+          const decoder = new TextDecoder();
+          let line = "";
+          const next = (): void => {
+            tty.read().then(
+              ({ done, value }) => {
+                line += value ? decoder.decode(value) : "";
+                if (done || line.includes("\n")) {
+                  tty.cancel().catch(() => undefined);
+                  resolve(line.split("\n")[0] ?? "");
+                } else next();
+              },
+              () => resolve(line),
+            );
+          };
+          next();
+        }),
+    ),
+  }));
+}
+
+const timedOut = (limit: number | undefined, started: number, code: number): boolean =>
+  limit !== undefined && code !== 0 && performance.now() - started >= limit;
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const signal = (pid: number, name: NodeJS.Signals): void => {
+  try {
+    process.kill(-pid, name);
+  } catch {
+    try {
+      process.kill(pid, name);
+    } catch {}
+  }
+};
