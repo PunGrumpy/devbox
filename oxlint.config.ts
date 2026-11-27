@@ -53,6 +53,17 @@ const effectStyle = off([
     why: "A tagged error class calls Schema.TaggedError to get its base class.",
   },
   {
+    rules: ["max-classes-per-file"],
+    why: "Each tagged error is a class, kept beside the code that raises it.",
+  },
+  {
+    rules: [
+      "class-methods-use-this",
+      "typescript/class-literal-property-style",
+    ],
+    why: "A tagged error gives its fixed message from a getter, which keeps the message out of the error when it is serialized.",
+  },
+  {
     rules: ["sonarjs/no-nested-functions"],
     why: "A pipeline of effects nests one closure for each step.",
   },
