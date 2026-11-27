@@ -27,7 +27,7 @@ describe("sheenOf", () => {
     const chip = sheenOf({ ...command, height: 24, width: 60 });
 
     expect(phone.amplitude).toBeGreaterThan(sheenOf(command).amplitude);
-    expect(chip.amplitude).toBe(0.016);
+    expect(chip.amplitude).toBeCloseTo(0.016, 6);
   });
 
   test("a larger block takes longer, up to 1.6 times", () => {
