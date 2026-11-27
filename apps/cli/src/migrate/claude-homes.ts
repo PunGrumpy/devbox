@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import {
   Context,
@@ -67,8 +67,8 @@ export class ClaudeHomes extends Context.Service<
         const fs = yield* FileSystem.FileSystem;
 
         const defaultHome = Option.match(override, {
-          onNone: () => absolutePath(join(home, ".claude")),
-          onSome: (path) => absolutePath(path),
+          onNone: () => absolutePath(path.join(home, ".claude")),
+          onSome: (dir) => absolutePath(dir),
         });
 
         const expandHome = (value: string) => {
@@ -76,15 +76,15 @@ export class ClaudeHomes extends Context.Service<
             return home;
           }
 
-          if (/^~[\\/]/.test(value)) {
-            return join(home, value.slice(2));
+          if (/^~[\\/]/u.test(value)) {
+            return path.join(home, value.slice(2));
           }
 
           return value;
         };
 
-        const realOrSelf = (path: AbsolutePath) =>
-          fs.realPath(path).pipe(Effect.orElseSucceed(() => path));
+        const realOrSelf = (dir: AbsolutePath) =>
+          fs.realPath(dir).pipe(Effect.orElseSucceed(() => dir));
 
         const list = Effect.gen(function* () {
           if (
@@ -128,11 +128,11 @@ export class ClaudeHomes extends Context.Service<
                 ? config.homePath.trim()
                 : "";
 
-            const path = configured
+            const dir = configured
               ? absolutePath(expandHome(configured))
               : defaultHome;
 
-            const key = yield* realOrSelf(path);
+            const key = yield* realOrSelf(dir);
             const known = homes.get(key);
 
             if (known) {
@@ -142,7 +142,7 @@ export class ClaudeHomes extends Context.Service<
               homes.set(key, {
                 instances: [id],
                 enabled: enabled !== false,
-                path,
+                path: dir,
               });
             }
           }

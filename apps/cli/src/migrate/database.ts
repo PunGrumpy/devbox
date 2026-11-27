@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { Data, Effect, Equal, FileSystem, Layer, Option, Schema } from "effect";
@@ -20,7 +20,7 @@ export const Tables = {
 
 export type SchemaRequirement = Readonly<Record<string, readonly string[]>>;
 
-export const BASE_SCHEMA: SchemaRequirement = {
+export const BASE_SCHEMA = {
   [Tables.projects]: ["project_id", "title", "workspace_root", "deleted_at"],
   [Tables.threads]: [
     "thread_id",
@@ -31,7 +31,7 @@ export const BASE_SCHEMA: SchemaRequirement = {
     "updated_at",
   ],
   [Tables.events]: ["sequence"],
-};
+} satisfies SchemaRequirement;
 
 export type DbTarget = Data.TaggedEnum<{
   Live: { readonly path: AbsolutePath };
@@ -133,31 +133,31 @@ export const resolveTarget = Effect.fn("resolveTarget")(function* (
     return DbTarget.Live({ path: liveDb });
   }
 
-  const path = absolutePath(db.value);
+  const file = absolutePath(db.value);
   const fs = yield* FileSystem.FileSystem;
 
-  const same = yield* Effect.all([fs.stat(path), fs.stat(liveDb)]).pipe(
+  const same = yield* Effect.all([fs.stat(file), fs.stat(liveDb)]).pipe(
     Effect.map(
       ([a, b]) =>
         a.dev === b.dev && Option.isSome(a.ino) && Equal.equals(a.ino, b.ino)
     ),
-    Effect.orElseSucceed(() => path === liveDb)
+    Effect.orElseSucceed(() => file === liveDb)
   );
 
-  return same ? DbTarget.Live({ path }) : DbTarget.Copy({ path });
+  return same ? DbTarget.Live({ path: file }) : DbTarget.Copy({ path: file });
 });
 
-export const databaseLayer = (path: AbsolutePath, access: "read" | "write") =>
+export const databaseLayer = (file: AbsolutePath, access: "read" | "write") =>
   Layer.unwrap(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
 
-      if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)))) {
-        return yield* new DatabaseNotFound({ path });
+      if (!(yield* fs.exists(file).pipe(Effect.orElseSucceed(() => false)))) {
+        return yield* new DatabaseNotFound({ path: file });
       }
 
       return SqliteClient.layer({
-        filename: path,
+        filename: file,
         readonly: access === "read",
         create: false,
         disableWAL: true,
@@ -197,7 +197,9 @@ export const schemaGaps = Effect.fn("schemaGaps")(function* (
       gaps.push(`table ${table}`);
     } else {
       for (const column of columns) {
-        if (!present.includes(column)) gaps.push(`column ${table}.${column}`);
+        if (!present.includes(column)) {
+          gaps.push(`column ${table}.${column}`);
+        }
       }
     }
   }
@@ -241,39 +243,39 @@ const two = (n: number) => String(n).padStart(2, "0");
 const stamp = (now: Date) =>
   `${now.getFullYear()}${two(now.getMonth() + 1)}${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}`;
 
-// Copying a WAL database with cp is unsafe; VACUUM INTO writes a consistent snapshot.
+/** Copies the database with `VACUUM INTO`, which writes a consistent snapshot. Copying a WAL database with `cp` is unsafe. */
 export const backup = Effect.fn("backup")(function* (source: AbsolutePath) {
   const sql = yield* SqlClient.SqlClient;
   const fs = yield* FileSystem.FileSystem;
   const { backupDir } = yield* Locations;
   yield* fs.makeDirectory(backupDir, { recursive: true });
-  const path = join(backupDir, `statev2-${stamp(new Date())}.sqlite`);
+  const file = path.join(backupDir, `statev2-${stamp(new Date())}.sqlite`);
 
-  if (yield* fs.exists(path)) {
+  if (yield* fs.exists(file)) {
     return yield* new BackupFailed({
-      message: `backup already exists: ${path}`,
+      message: `backup already exists: ${file}`,
     });
   }
 
-  yield* sql`VACUUM INTO ${path}`;
-  const bytes = Number((yield* fs.stat(path)).size);
+  yield* sql`VACUUM INTO ${file}`;
+  const bytes = Number((yield* fs.stat(file)).size);
 
   if (bytes === 0) {
     return yield* new BackupFailed({
-      message: `backup failed: ${path} is empty`,
+      message: `backup failed: ${file} is empty`,
     });
   }
 
   if (Number((yield* fs.stat(source)).size) > 0 && bytes < 4096) {
     return yield* new BackupFailed({
-      message: `backup looks wrong: ${path} is ${formatBytes(bytes)}`,
+      message: `backup looks wrong: ${file} is ${formatBytes(bytes)}`,
     });
   }
 
-  return { path: absolutePath(path), bytes };
+  return { path: absolutePath(file), bytes };
 });
 
-export const restoreHint = (backupPath: string, dbPath: string): string =>
+export const restoreHint = (backupPath: string, dbPath: string) =>
   `restore with: cp '${backupPath}' '${dbPath}' && rm -f '${dbPath}-wal' '${dbPath}-shm'`;
 
 export const Project = Schema.Struct({
