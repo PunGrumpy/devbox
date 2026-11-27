@@ -148,3 +148,28 @@ export const runWith = async <A, E>(
 export const asOwner = (home: string) => ({
   authorization: `Bearer ${readFileSync(tokenFile(home), "utf-8").trim()}`,
 });
+
+/**
+ * Asks `look` up to `rounds` times, `everyMs` apart, and gives the first thing it finds, or
+ * undefined when it found nothing. It waits `everyMs` after every ask that finds nothing.
+ */
+export const poll: <T>(
+  look: () => T | undefined,
+  rounds: number,
+  everyMs: number
+) => Promise<T | undefined> = async (look, rounds, everyMs) => {
+  const found = look();
+
+  if (found !== undefined) {
+    return found;
+  }
+
+  await Bun.sleep(everyMs);
+
+  return rounds > 1 ? await poll(look, rounds - 1, everyMs) : undefined;
+};
+
+/** Waits, for two seconds at most, until a hub started with `start` says it listens. */
+export const untilListening = async (hub: { readonly err: () => string }) => {
+  await poll(() => (hub.err().includes("hub:") ? true : undefined), 100, 20);
+};
