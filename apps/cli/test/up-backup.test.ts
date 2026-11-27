@@ -15,6 +15,7 @@ const up = (m: Machine, ...args: Array<string>) =>
 
 const MUTATING =
   /^(<detached>|<stop>|tee|npm install|apt-get|git config --global (--add|--unset-all)|systemctl (enable|restart|daemon-reload)|loginctl enable-linger)/;
+
 const mutations = (m: Machine, from: number) =>
   m.calls
     .slice(from)
@@ -126,10 +127,12 @@ describe("devbox up and backups", () => {
     envFile(m.home, ENABLED);
     const r = await up(m);
     expect(r.code).toBe(0);
+
     const service = readFileSync(
       join(m.etc, "systemd/system/devbox-backup.service"),
       "utf8"
     );
+
     expect(service).toContain("User=agent\n");
     expect(existsSync(join(m.etc, "systemd/system/devbox-backup.timer"))).toBe(
       true
@@ -158,11 +161,16 @@ describe("devbox up and backups", () => {
       if (argv.includes("apt-get") && argv.includes("install")) {
         m.binaries.add("restic");
         m.binaries.add("sqlite3");
+
         return { code: 0, stdout: "", stderr: "" };
       }
-      if (argv.includes("apt-get")) return { code: 0, stdout: "", stderr: "" };
+
+      if (argv.includes("apt-get")) {
+        return { code: 0, stdout: "", stderr: "" };
+      }
       return undefined;
     };
+
     const r = await up(m);
     expect(r.code).toBe(0);
     expect(m.calls).toContainEqual([

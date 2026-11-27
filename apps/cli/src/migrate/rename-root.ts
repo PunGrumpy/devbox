@@ -34,6 +34,7 @@ const Session = Schema.Struct({
   cwd: Schema.Unknown,
   driver: Schema.NullOr(Schema.String),
 });
+
 type Session = {
   readonly id: string;
   readonly cwd: string;
@@ -42,11 +43,13 @@ type Session = {
 
 const sessions = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+
   const rows =
     yield* sql`SELECT provider_session_id AS id, json_extract(payload_json, '$.cwd') AS cwd, driver
     FROM ${sql(Tables.sessions)}`.pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Session)))
     );
+
   return rows.flatMap((row): Array<Session> =>
     typeof row.cwd === "string" ? [{ ...row, cwd: row.cwd }] : []
   );
@@ -74,22 +77,28 @@ export const renameRoot = Command.make(
         const fs = yield* FileSystem.FileSystem;
         const claudeFiles = yield* ClaudeFiles;
         const to = absolutePath(toFlag);
-        if (apply && target._tag === "Live") yield* assertT3Closed;
+
+        if (apply && target._tag === "Live") {
+          yield* assertT3Closed;
+        }
         yield* assertSchema(SCHEMA);
         yield* assertEventsEmpty;
         const project = yield* resolveProject(ref);
         const from = absolutePath(project.workspaceRoot);
+
         if (from === to) {
           return yield* new UsageError({
             message: `"${project.title}" already has workspace root ${to}`,
           });
         }
+
         if (isUnderRoot(to, from) || isUnderRoot(from, to)) {
           return yield* new UsageError({
             message: `${to} is inside ${from}; the prefix rewrite would double paths`,
             hint: "move the folder out first, or rename in two steps through a sibling path",
           });
         }
+
         if (!(yield* fs.exists(to).pipe(Effect.orElseSucceed(() => false)))) {
           yield* out.warn(`${to} does not exist on this machine`);
         }
@@ -115,6 +124,7 @@ export const renameRoot = Command.make(
             moving.filter((s) => s.driver === CLAUDE_DRIVER).map((s) => s.cwd)
           ),
         ];
+
         const copy = yield* claudeFiles.plan({ from, to, cwds });
         yield* claudeFiles.show(copy);
         yield* out.line();
@@ -137,6 +147,7 @@ export const renameRoot = Command.make(
               ),
             write: Effect.gen(function* () {
               yield* sql`UPDATE ${sql(Tables.projects)} SET workspace_root = ${to} WHERE project_id = ${project.projectId}`;
+
               for (const session of moving) {
                 yield* sql`UPDATE ${sql(Tables.sessions)}
                 SET payload_json = json_set(payload_json, '$.cwd', ${rebase(session.cwd, from, to)})

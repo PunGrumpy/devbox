@@ -22,23 +22,31 @@ const run = (stubs: {
   const bin = join(dir, "bin");
   const log = join(dir, "calls.log");
   mkdirSync(bin);
+
   const stub = (name: string, body: string) => {
     writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
     chmodSync(join(bin, name), 0o755);
   };
+
   const record = (name: string) => `echo "${name} $*" >>'${log}'`;
-  for (const name of stubs.present) stub(name, record(name));
+
+  for (const name of stubs.present) {
+    stub(name, record(name));
+  }
   stub("id", `echo ${stubs.uid ?? "1000"}`);
   stub("env", record("env"));
   stub("curl", record("curl"));
   stub("bash", `${record("bash")}\nexit 1`);
-  if (stubs.sudo !== undefined)
+
+  if (stubs.sudo !== undefined) {
     stub("sudo", `${record("sudo")}\n${stubs.sudo ? "exit 0" : "exit 1"}`);
+  }
   const ran = Bun.spawnSync(["/bin/sh", INSTALL], {
     env: { PATH: bin, HOME: dir },
     stdout: "pipe",
     stderr: "pipe",
   });
+
   const calls = (() => {
     try {
       // curl and bash run at once in a pipeline, so their order is not fixed.
@@ -51,6 +59,7 @@ const run = (stubs: {
       return [];
     }
   })();
+
   return { code: ran.exitCode, err: ran.stderr.toString(), calls };
 };
 

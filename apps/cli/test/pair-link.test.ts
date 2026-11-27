@@ -24,11 +24,15 @@ const boxWith = (machine: object, tailscale?: Ran) => {
     JSON.stringify(machine)
   );
   m.respond = (argv) => {
-    if (argv[1] === "pair")
+    if (argv[1] === "pair") {
       return { code: 0, stdout: T3_PAIR_OUTPUT, stderr: "" };
-    if (argv[0] === "tailscale") return tailscale;
+    }
+    if (argv[0] === "tailscale") {
+      return tailscale;
+    }
     return undefined;
   };
+
   return m;
 };
 
@@ -50,6 +54,7 @@ const MACHINE = {
 describe("devbox pair", () => {
   test("--json prints exactly {url, token} on stdout", async () => {
     const m = boxWith(MACHINE);
+
     const r = await devbox(
       { HOME: m.home },
       ["pair", "--json", "--label", "laptop"],
@@ -57,6 +62,7 @@ describe("devbox pair", () => {
         host: m.host,
       }
     );
+
     expect(r.code).toBe(0);
     expect(JSON.parse(r.out)).toEqual({
       url: "https://edge-7.example.com",
@@ -78,9 +84,11 @@ describe("devbox pair", () => {
 
   test("without a public URL it offers the hostname and port", async () => {
     const m = boxWith({ ...MACHINE, url: undefined });
+
     const r = await devbox({ HOME: m.home }, ["pair", "--json"], {
       host: m.host,
     });
+
     expect(JSON.parse(r.out).url).toBe("http://box-1.example.internal:3773");
   });
 
@@ -89,9 +97,11 @@ describe("devbox pair", () => {
       { ...MACHINE, url: undefined },
       tailscaleSelf({ DNSName: "box-1.tail585c0b.ts.net.", HostName: "box-1" })
     );
+
     const r = await devbox({ HOME: m.home }, ["pair", "--json"], {
       host: m.host,
     });
+
     expect(JSON.parse(r.out).url).toBe("http://box-1.tail585c0b.ts.net:3773");
     expect(m.calls).toContainEqual(["tailscale", "status", "--self", "--json"]);
   });
@@ -101,9 +111,11 @@ describe("devbox pair", () => {
       MACHINE,
       tailscaleSelf({ DNSName: "box-1.tail585c0b.ts.net." })
     );
+
     const r = await devbox({ HOME: m.home }, ["pair", "--json"], {
       host: m.host,
     });
+
     expect(JSON.parse(r.out).url).toBe("https://edge-7.example.com");
     expect(m.calls.some((c) => c[0] === "tailscale")).toBe(false);
   });
@@ -113,6 +125,7 @@ describe("devbox pair", () => {
       { ...MACHINE, url: undefined },
       tailscaleSelf({ DNSName: "box-1.tail585c0b.ts.net." })
     );
+
     const r = await devbox(
       { HOME: m.home },
       ["pair", "--json", "--url", "https://t.example.com"],
@@ -120,6 +133,7 @@ describe("devbox pair", () => {
         host: m.host,
       }
     );
+
     expect(JSON.parse(r.out)).toEqual({
       url: "https://t.example.com",
       token: "KJJDV5SUA4NL",
@@ -129,6 +143,7 @@ describe("devbox pair", () => {
 
   test("--url beats the saved public URL", async () => {
     const m = boxWith(MACHINE);
+
     const r = await devbox(
       { HOME: m.home },
       ["pair", "--json", "--url", "https://t.example.com"],
@@ -136,11 +151,13 @@ describe("devbox pair", () => {
         host: m.host,
       }
     );
+
     expect(JSON.parse(r.out).url).toBe("https://t.example.com");
   });
 
   test("--url drops a trailing slash from the pairing url", async () => {
     const m = boxWith(MACHINE);
+
     const r = await devbox(
       { HOME: m.home },
       ["pair", "--url", "https://t.example.com/"],
@@ -148,6 +165,7 @@ describe("devbox pair", () => {
         host: m.host,
       }
     );
+
     expect(r.err).toMatch(
       /^ *pairing url\s+https:\/\/t\.example\.com\/pair#token=KJJDV5SUA4NL$/m
     );
@@ -157,9 +175,11 @@ describe("devbox pair", () => {
     "--url %s is a usage error and mints no token",
     async (url) => {
       const m = boxWith(MACHINE);
+
       const r = await devbox({ HOME: m.home }, ["pair", "--url", url], {
         host: m.host,
       });
+
       expect(r.code).toBe(2);
       expect(r.err).toContain("expected an origin such as");
       expect(m.calls).toEqual([]);
@@ -188,27 +208,33 @@ describe("devbox pair", () => {
     ["its DNSName is not a string", tailscaleSelf({ DNSName: 7 })],
   ])("when %s it keeps the hostname URL", async (_, tailscale) => {
     const m = boxWith({ ...MACHINE, url: undefined }, tailscale);
+
     const r = await devbox({ HOME: m.home }, ["pair", "--json"], {
       host: m.host,
     });
+
     expect(r.code).toBe(0);
     expect(JSON.parse(r.out).url).toBe("http://box-1.example.internal:3773");
   });
 
   test("it fails clearly before up has run, and when t3 prints no token", async () => {
     const fresh = makeMachine();
+
     const missing = await devbox({ HOME: fresh.home }, ["pair", "--json"], {
       host: fresh.host,
     });
+
     expect(missing.code).toBe(1);
     expect(missing.out).toBe("");
     expect(missing.err).toContain("run `devbox up` on this machine first");
 
     const m = boxWith(MACHINE);
     m.respond = () => ({ code: 1, stdout: "", stderr: "no server is running" });
+
     const noToken = await devbox({ HOME: m.home }, ["pair", "--json"], {
       host: m.host,
     });
+
     expect(noToken.code).toBe(1);
     expect(noToken.err).toContain("t3 pair printed no token");
     expect(noToken.err).toContain("no server is running");
@@ -220,15 +246,17 @@ const sshAnswers = (
   stdout: (host: string) => string
 ) => {
   m.respond = (argv) => {
-    if (argv[0] === "ssh")
+    if (argv[0] === "ssh") {
       return { code: 0, stdout: stdout(argv[6]!), stderr: "" };
+    }
     if (
       argv[0] === "t3" ||
       argv[0] === "xdg-open" ||
       argv[0] === "open" ||
       argv[0] === "clip.exe"
-    )
+    ) {
       return { code: 0, stdout: "", stderr: "" };
+    }
     return undefined;
   };
 };
@@ -239,6 +267,7 @@ describe("devbox link", () => {
     sshAnswers(m, (host) =>
       JSON.stringify({ url: `https://${host}.example.com`, token: `T-${host}` })
     );
+
     const r = await devbox(
       { HOME: m.home },
       ["link", "--access", "read-only", "a", "b"],
@@ -246,6 +275,7 @@ describe("devbox link", () => {
         host: m.host,
       }
     );
+
     expect(r.code).toBe(0);
     expect(m.calls.filter((c) => c[0] === "ssh")).toEqual([
       [
@@ -320,9 +350,11 @@ describe("devbox link", () => {
     sshAnswers(m, () =>
       JSON.stringify({ url: "https://a.example.com:8443", token: "TOK" })
     );
+
     const r = await devbox({ HOME: m.home }, ["link", "--app", "a"], {
       host: m.host,
     });
+
     expect(r.code).toBe(0);
     const opened = m.calls.find((c) => c[0] === "xdg-open" || c[0] === "open")!;
     expect(opened[1]).toBe(
@@ -342,9 +374,11 @@ describe("devbox link", () => {
     sshAnswers(m, () =>
       JSON.stringify({ url: "https://a.example.com", token: "TOK" })
     );
+
     const r = await devbox({ HOME: m.home }, ["link", "--app", "a"], {
       host: m.host,
     });
+
     expect(r.code).toBe(0);
     expect(m.stdin.get("clip.exe")).toBe(
       "https://a.example.com/pair#token=TOK"

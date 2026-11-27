@@ -92,25 +92,40 @@ export class Output extends Context.Service<
 >()("devbox/Output") {
   static readonly make = (streams: Streams): Output["Service"] => {
     const { paint } = streams;
+
     const text = (cell: Cell): string => {
-      if (typeof cell === "string") return cell;
-      if ("tone" in cell) return cell.text;
+      if (typeof cell === "string") {
+        return cell;
+      }
+      if ("tone" in cell) {
+        return cell.text;
+      }
       return cell.map(text).join("");
     };
+
     const render = (cell: Cell): string => {
-      if (typeof cell === "string") return cell;
-      if ("tone" in cell) return paint(cell.tone, cell.text);
+      if (typeof cell === "string") {
+        return cell;
+      }
+      if ("tone" in cell) {
+        return paint(cell.tone, cell.text);
+      }
       return cell.map(render).join("");
     };
+
     const line = (value = "") =>
       Effect.sync(() => streams.stderr(`${value}\n`));
+
     const log = (message: string) => line(`${paint("dim", ">")} ${message}`);
+
     const pad = (cell: Cell, width: number, align: "left" | "right") => {
       const fill = " ".repeat(Math.max(0, width - text(cell).length));
+
       return align === "right"
         ? `${fill}${render(cell)}`
         : `${render(cell)}${fill}`;
     };
+
     return {
       paint,
       stdoutColor: streams.stdoutColor,
@@ -140,14 +155,17 @@ export class Output extends Context.Service<
             text: column.header,
             tone: "dim",
           }));
+
           const body = rows.map((row) =>
             columns.map((column) => column.cell(row))
           );
+
           const widths = columns.map((_, i) =>
             Math.max(
               ...[header, ...body].map((cells) => text(cells[i] ?? "").length)
             )
           );
+
           for (const cells of [header, ...body]) {
             yield* line(
               `  ${cells.map((cell, i) => pad(cell, widths[i] ?? 0, columns[i]?.align ?? "left")).join("  ")}`
@@ -169,21 +187,27 @@ export class Output extends Context.Service<
         ),
       step: (message, task) =>
         Effect.gen(function* () {
-          if (streams.interactive)
+          if (streams.interactive) {
             yield* Effect.sync(() =>
               streams.stderr(`${paint("dim", ">")} ${message} …`)
             );
+          }
           const [elapsed, result] = yield* Effect.timed(task);
-          if (streams.interactive)
+
+          if (streams.interactive) {
             yield* Effect.sync(() => streams.stderr("\r\u001B[2K"));
+          }
           yield* log(
             `${message} ${paint("dim", `[${formatElapsed(elapsed)}]`)}`
           );
+
           return result;
         }),
       confirm: (question) =>
         Effect.gen(function* () {
-          if (!streams.interactive) return yield* new NotATerminal();
+          if (!streams.interactive) {
+            return yield* new NotATerminal();
+          }
           yield* Effect.sync(() =>
             streams.stderr(
               `${paint("cyan", "?")} ${question} ${paint("dim", "(y/N)")} `
@@ -191,12 +215,16 @@ export class Output extends Context.Service<
           );
           const yes = /^\s*y(es)?\s*$/i.test(yield* streams.readAnswer);
           yield* line(paint("dim", yes ? "yes" : "no"));
+
           return yes;
         }),
       pick: (question, choices) =>
         Effect.gen(function* () {
-          if (!streams.interactive) return yield* new NotATerminal();
+          if (!streams.interactive) {
+            return yield* new NotATerminal();
+          }
           const indices = yield* streams.pickMany(question, choices);
+
           return indices.flatMap((i) =>
             choices[i] === undefined ? [] : [choices[i].value]
           );
@@ -241,18 +269,23 @@ const colorFor =
 
 export const formatElapsed = (elapsed: Duration.Duration): string => {
   const ms = Duration.toMillis(elapsed);
+
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 };
 
 export const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
   const units = ["KB", "MB", "GB", "TB"];
   let value = bytes / 1024;
   let unit = 0;
+
   while (value >= 1024 && unit < units.length - 1) {
     value /= 1024;
     unit += 1;
   }
+
   return `${Number(value.toFixed(1))} ${units[unit]}`;
 };
 

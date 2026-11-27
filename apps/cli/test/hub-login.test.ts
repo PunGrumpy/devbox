@@ -77,8 +77,10 @@ const answer = (r: HubRequest, now = NOW, token = TOKEN) =>
 
 const reply = (r: HubRequest, now = NOW, token = TOKEN): Reply => {
   const routed = answer(r, now, token);
-  if (!("status" in routed))
+
+  if (!("status" in routed)) {
     throw new Error(`asked ${routed.ask} instead of replying`);
+  }
   return routed;
 };
 
@@ -193,8 +195,9 @@ describe("a request that is not logged in: 401", () => {
       "/api/logout",
       "/api/machines/edge-7/update",
       "/api/machines/edge-7/pair",
-    ])
+    ]) {
       expect(reply(request("GET", path)).status).toBe(401);
+    }
     expect(reply(request("POST", "/api/logout")).status).toBe(401);
   });
 
@@ -257,6 +260,7 @@ describe("a page on another site", () => {
       authorization: `Bearer ${TOKEN}`,
       cookie: SESSION,
     };
+
     for (const path of [
       "/api/login",
       "/api/logout",
@@ -282,12 +286,14 @@ describe("a page on another site", () => {
       reply(request("POST", "/api/login", { origin: "::" }, loginBody(TOKEN)))
         .status
     ).toBe(403);
+
     const hostless: HubRequest = {
       method: "POST",
       url: "/api/login",
       headers: { origin: "http://hub.tail1234.ts.net:3780" },
       body: loginBody(TOKEN),
     };
+
     expect(reply(hostless).status).toBe(403);
   });
 
@@ -312,6 +318,7 @@ describe("a page on another site", () => {
       host: "evil.example.com:3780",
       origin: "http://evil.example.com:3780",
     };
+
     expect(reply(request("GET", "/", rebound)).status).toBe(200);
     expect(reply(request("GET", "/api/machines", rebound)).status).toBe(401);
     expect(
@@ -354,6 +361,7 @@ describe("a request for a machine passes one admission step", () => {
       const routed = answer(
         request("POST", `/api/machines/edge-7/${action}`, signedIn)
       );
+
       expect(routed).toEqual({ ask: action, machine: SNAPSHOT.machines[0]! });
     }
   });
@@ -370,11 +378,12 @@ describe("a request for a machine passes one admission step", () => {
   });
 
   test("an unknown machine: 404", () => {
-    for (const action of ["update", "pair"])
+    for (const action of ["update", "pair"]) {
       expect(
         reply(request("POST", `/api/machines/edge-99/${action}`, signedIn))
           .status
       ).toBe(404);
+    }
   });
 
   test("a machine whose spoke does not trust this hub, or has no spoke: 409", () => {
@@ -382,11 +391,14 @@ describe("a request for a machine passes one admission step", () => {
       const untrusted = reply(
         request("POST", `/api/machines/edge-8/${action}`, signedIn)
       );
+
       expect(untrusted.status).toBe(409);
       expect(errorOf(untrusted)).toBe("edge-8 does not trust this hub's key.");
+
       const none = reply(
         request("POST", `/api/machines/edge-9/${action}`, signedIn)
       );
+
       expect(errorOf(none)).toBe("edge-9 has no devbox spoke that answers.");
     }
   });
@@ -405,6 +417,7 @@ describe("devbox hub, logged in through a browser", async () => {
   const m = makeMachine();
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
+
   const hub = start(
     { HOME: m.home },
     ["hub", "--port", String(port), "--ui", empty],
@@ -412,10 +425,13 @@ describe("devbox hub, logged in through a browser", async () => {
       host: m.host,
     }
   );
-  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1)
+
+  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
+  }
   afterAll(() => hub.stop());
   const base = `http://127.0.0.1:${port}`;
+
   const token = (
     await devbox({ HOME: m.home }, ["hub", "token"], { host: m.host })
   ).out.trim();
@@ -450,9 +466,11 @@ describe("devbox hub, logged in through a browser", async () => {
           done(response.statusCode ?? 0);
         }
       );
+
       req.on("error", fail);
       req.end(JSON.stringify({ token: "x".repeat(64 * 1024) }));
     });
+
     expect(answered).toBe(413);
     expect((await post("/api/login", loginBody(token))).status).toBe(204);
   });

@@ -11,6 +11,7 @@ export const Pairing = Schema.Struct({
   url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/))),
   token: Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/))),
 });
+
 export type Pairing = typeof Pairing.Type;
 
 export const pairingUrl = (pairing: Pairing) =>
@@ -24,10 +25,14 @@ const TailscaleSelf = Schema.fromJsonString(
 // hostname is not one. The MagicDNS name is, and it stays reachable only from the tailnet.
 const tailscaleName = Effect.gen(function* () {
   const host = yield* Host;
+
   const status = yield* host.run(["tailscale", "status", "--self", "--json"], {
     timeoutMs: 5000,
   });
-  if (status.code !== 0) return Option.none<string>();
+
+  if (status.code !== 0) {
+    return Option.none<string>();
+  }
   return Schema.decodeUnknownOption(TailscaleSelf)(status.stdout).pipe(
     Option.map((json) => json.Self.DNSName.replace(/\.$/, "")),
     Option.filter((name) => name !== "")
@@ -62,6 +67,7 @@ export const pair = Command.make(
       const out = yield* Output;
       const fs = yield* FileSystem.FileSystem;
       const file = machineFile(home);
+
       const machine = yield* fs.readFileString(file).pipe(
         Effect.flatMap(
           Schema.decodeUnknownEffect(Schema.fromJsonString(MachineFile))
@@ -74,6 +80,7 @@ export const pair = Command.make(
             })
         )
       );
+
       const minted = yield* host.run(
         [
           machine.t3,
@@ -92,13 +99,16 @@ export const pair = Command.make(
           },
         }
       );
+
       const token = /^Token: (\S+)$/m.exec(minted.stdout)?.[1];
-      if (minted.code !== 0 || token === undefined)
+
+      if (minted.code !== 0 || token === undefined) {
         return yield* new PairFailed({
           message: "t3 pair printed no token",
           hint:
             minted.stderr.trim() || "is T3 Code running? `devbox up` starts it",
         });
+      }
       const url = yield* Option.match(
         Option.orElse(origin, () => Option.fromUndefinedOr(machine.url)),
         {
@@ -111,8 +121,12 @@ export const pair = Command.make(
             ),
         }
       );
+
       const pairing: Pairing = { url, token };
-      if (json) return yield* out.json(pairing);
+
+      if (json) {
+        return yield* out.json(pairing);
+      }
       yield* out.pairs([
         ["url", pairing.url],
         ["token", pairing.token],

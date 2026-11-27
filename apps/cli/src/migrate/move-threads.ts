@@ -30,11 +30,13 @@ const ThreadRow = Schema.Struct({
   updatedAt: Schema.String,
   deletedAt: Schema.NullOr(Schema.String),
 });
+
 type ThreadRow = typeof ThreadRow.Type;
 
 const threadsOf = (projectId: string) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+
     return yield* count(
       sql`SELECT count(*) AS n FROM ${sql(Tables.threads)} WHERE project_id = ${projectId}`
     );
@@ -63,25 +65,33 @@ export const moveThreads = Command.make(
       Effect.gen(function* () {
         const out = yield* Output;
         const sql = yield* SqlClient.SqlClient;
-        if (apply && target._tag === "Live") yield* assertT3Closed;
+
+        if (apply && target._tag === "Live") {
+          yield* assertT3Closed;
+        }
         yield* assertSchema(SCHEMA);
         yield* assertEventsEmpty;
         const into = yield* resolveProject(to);
+
         const sources: ReadonlyArray<Project> = yield* Effect.forEach(
           from,
           resolveProject
         );
+
         if (sources.some((source) => source.projectId === into.projectId)) {
           return yield* new UsageError({
             message: `--from and --to both name "${into.title}"`,
           });
         }
-        if (into.deletedAt)
+
+        if (into.deletedAt) {
           yield* out.warn(
             `target project "${into.title}" is deleted; its threads would stay hidden`
           );
+        }
 
         const sourceIds = sources.map((source) => source.projectId);
+
         const selected = sql.and([
           sql.in("project_id", sourceIds),
           ...Option.match(thread, {
@@ -89,11 +99,13 @@ export const moveThreads = Command.make(
             onSome: (id) => [sql`thread_id = ${id}`],
           }),
         ]);
+
         const rows = yield* sql`
           SELECT thread_id AS threadId, title, project_id AS projectId, updated_at AS updatedAt, deleted_at AS deletedAt
           FROM ${sql(Tables.threads)} WHERE ${selected} ORDER BY updated_at DESC`.pipe(
           Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ThreadRow)))
         );
+
         if (Option.isSome(thread) && rows.length === 0) {
           return yield* new UsageError({
             message: `thread ${thread.value} is not in ${sources.map((source) => source.title).join(", ")}`,
@@ -103,19 +115,23 @@ export const moveThreads = Command.make(
         const titles = new Map(
           sources.map((source) => [source.projectId, source.title])
         );
+
         const dim = (text: string) => out.paint("dim", text);
+
         const counted = yield* Effect.forEach(sources, (source) =>
           Effect.map(
             threadsOf(source.projectId),
             (n) => `${source.title} ${dim(`(${n})`)}`
           )
         );
+
         const intoBefore = yield* threadsOf(into.projectId);
         yield* out.log(`${dim("from")} ${counted.join(", ")}`);
         yield* out.log(
           `${dim("to  ")} ${into.title} ${dim(`(${intoBefore})`)}`
         );
         yield* out.line();
+
         if (rows.length > 0) {
           yield* out.table<ThreadRow>(
             [
@@ -144,16 +160,22 @@ export const moveThreads = Command.make(
           );
           yield* out.line();
         }
+
         const tasks = yield* count(
           sql`SELECT count(*) AS n FROM ${sql(Tables.scheduledTasks)} WHERE ${sql.in("project_id", sourceIds)}`
         );
+
         if (tasks > 0) {
           yield* out.warn(
             `${plural(tasks, "scheduled task")} still point at the source projects; this command leaves them`
           );
         }
+
         yield* out.log(`${plural(rows.length, "thread")} to move`);
-        if (rows.length === 0) return;
+
+        if (rows.length === 0) {
+          return;
+        }
 
         const ids = rows.map((row) => row.threadId);
         yield* applyPlan(

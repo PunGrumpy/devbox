@@ -33,6 +33,7 @@ export const t3Bind = (config: ServeConfig) =>
 export const answering = (bind: string, port: number, attempts: number) =>
   Effect.gen(function* () {
     const host = yield* Host;
+
     return yield* host.answers(port, probeHost(bind)).pipe(
       Effect.flatMap((ok) => (ok ? Effect.succeed(true) : Effect.fail(false))),
       Effect.retry({ schedule: Schedule.spaced("1 second"), times: attempts }),
@@ -49,10 +50,13 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
     const fs = yield* FileSystem.FileSystem;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const { t3 } = pathsOf(config.data);
-    if (!(yield* fs.exists(t3).pipe(Effect.orElseSucceed(() => false))))
+
+    if (!(yield* fs.exists(t3).pipe(Effect.orElseSucceed(() => false)))) {
       return yield* new T3Missing({ path: t3 });
+    }
 
     const sandbox = (yield* host.run(["unshare", "-Ur", "true"])).code === 0;
+
     const env = {
       ...processEnv(settingsFor(config.data), process.env.PATH ?? ""),
       T3CODE_HOME: config.baseDir,
@@ -61,10 +65,13 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
       // T3 Code runs Chrome with --no-sandbox when this is 0, for hosts that block user namespaces.
       T3CODE_SERVER_BROWSER_SANDBOX: sandbox ? "1" : "0",
     };
+
     const bind = t3Bind(config);
+
     const t3Port = Option.isSome(config.publicUrl)
       ? yield* freePort
       : config.port;
+
     if (Option.isSome(config.publicUrl)) {
       yield* proxy({
         host: config.host,
@@ -76,6 +83,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
         `proxy: :${config.port} -> T3 on 127.0.0.1:${t3Port} as ${config.publicUrl.value}`
       );
     }
+
     yield* out.log(`t3: browser sandbox ${sandbox ? "on" : "off"}`);
 
     if (config.setup) {
@@ -110,6 +118,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
         forceKillAfter: "10 seconds",
       }
     );
+
     return yield* spawner.exitCode(t3Serve).pipe(
       Effect.flatMap((code) =>
         out.warn(`t3 exited with ${code}, starting it again in 5s`)

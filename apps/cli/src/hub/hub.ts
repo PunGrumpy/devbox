@@ -92,13 +92,16 @@ export type HubSnapshot = Omit<Sample, "machines"> & {
 };
 
 const SAMPLE_SECONDS = 60;
+
 // 24 hours of samples.
 export const HISTORY_LIMIT = 1440;
+
 const CODE: Record<MachineState, string> = {
   t3: "2",
   online: "1",
   offline: "0",
 };
+
 const UNKNOWN = " ";
 
 /**
@@ -112,15 +115,18 @@ export const nextHistory = (
 ): History => {
   const before = previous?.states ?? {};
   const beforeLatency = previous?.latency ?? {};
+
   const width = Math.max(
     0,
     ...Object.values(before).map((states) => states.length)
   );
+
   const now = new Map<
     string,
     { readonly state: string; readonly latency: number | null }
   >();
-  for (const m of snapshot.machines)
+
+  for (const m of snapshot.machines) {
     if (!now.has(m.name))
       now.set(m.name, {
         state: CODE[m.state],
@@ -129,24 +135,33 @@ export const nextHistory = (
             ? null
             : Math.round(m.t3.latencyMs),
       });
+  }
   const states: Record<string, string> = {};
   const latency: Record<string, ReadonlyArray<number | null>> = {};
+
   for (const name of new Set([...Object.keys(before), ...now.keys()])) {
     const sample = now.get(name);
+
     const next =
       `${(before[name] ?? "").padStart(width, UNKNOWN)}${sample?.state ?? UNKNOWN}`.slice(
         -HISTORY_LIMIT
       );
-    if (next.trim() === "") continue;
+
+    if (next.trim() === "") {
+      continue;
+    }
     const prior = beforeLatency[name] ?? [];
+
     const padded = [
       ...Array<null>(Math.max(0, width - prior.length)).fill(null),
       ...prior,
     ];
+
     const aligned = padded.slice(padded.length - width);
     states[name] = next;
     latency[name] = [...aligned, sample?.latency ?? null].slice(-HISTORY_LIMIT);
   }
+
   return {
     sampleSeconds: SAMPLE_SECONDS,
     startedAt: previous?.startedAt ?? snapshot.generatedAt,
@@ -174,13 +189,18 @@ export const assetsIn =
   (dir: string) =>
   (pathname: string): Asset | undefined => {
     const root = resolve(dir);
+
     try {
       const wanted = decodeURIComponent(pathname);
+
       const path = resolve(
         root,
         `.${wanted.endsWith("/") ? `${wanted}index.html` : wanted}`
       );
-      if (!path.startsWith(`${root}${sep}`)) return undefined;
+
+      if (!path.startsWith(`${root}${sep}`)) {
+        return undefined;
+      }
       return { body: readFileSync(path), path };
     } catch {
       return undefined;
@@ -216,19 +236,22 @@ const page = (
   pathname: string,
   asset: (pathname: string) => Asset | undefined
 ): Reply => {
-  if (method !== "GET")
+  if (method !== "GET") {
     return {
       status: 405,
       headers: { ...TEXT, allow: "GET" },
       body: "method not allowed\n",
     };
+  }
   const found = asset(pathname);
-  if (found === undefined)
+
+  if (found === undefined) {
     return {
       status: 404,
       headers: TEXT,
       body: pathname === "/" ? NOT_BUILT : "not found\n",
     };
+  }
   return {
     status: 200,
     headers: {
@@ -262,13 +285,19 @@ export const route = (
 ): Reply | Ask => {
   const { method } = request;
   const { pathname } = new URL(request.url, "http://hub");
-  if (crossSite(request))
+
+  if (crossSite(request)) {
     return refuse(403, "This request came from a page on another site.");
-  if (!isApi(pathname)) return page(method, pathname, asset);
-  if (pathname === LOGIN_PATH)
+  }
+  if (!isApi(pathname)) {
+    return page(method, pathname, asset);
+  }
+  if (pathname === LOGIN_PATH) {
     return method === "POST" ? login(request, hub.token, hub.now) : onlyPost;
+  }
   const wanted = machineAction(pathname, method);
-  if (wanted?.action !== undefined)
+
+  if (wanted?.action !== undefined) {
     return admit(
       request,
       { name: wanted.name, action: wanted.action },
@@ -276,13 +305,25 @@ export const route = (
       hub.token,
       hub.now
     );
-  if (!loggedIn(request, hub.token, hub.now)) return LOGGED_OUT;
-  if (wanted !== undefined)
+  }
+  if (!loggedIn(request, hub.token, hub.now)) {
+    return LOGGED_OUT;
+  }
+  if (wanted !== undefined) {
     return refuse(405, `Use ${wanted.allow}.`, { allow: wanted.allow });
-  if (pathname === "/api/logout") return method === "POST" ? logout : onlyPost;
-  if (pathname === CLOUDFLARE_PATH) return cloudflareAsk(request);
-  if (pathname !== "/api/machines") return refuse(404, "Nothing is here.");
-  if (method !== "GET") return refuse(405, "Use GET.", { allow: "GET" });
+  }
+  if (pathname === "/api/logout") {
+    return method === "POST" ? logout : onlyPost;
+  }
+  if (pathname === CLOUDFLARE_PATH) {
+    return cloudflareAsk(request);
+  }
+  if (pathname !== "/api/machines") {
+    return refuse(404, "Nothing is here.");
+  }
+  if (method !== "GET") {
+    return refuse(405, "Use GET.", { allow: "GET" });
+  }
   return {
     status: 200,
     headers: { ...NO_STORE, "content-type": "application/json; charset=utf-8" },
@@ -300,6 +341,7 @@ const current = (sample: Sample, home: string) =>
   Effect.gen(function* () {
     const tunnels = yield* loadTunnels(home);
     const saved = yield* loadCloudflare(home);
+
     return {
       ...sample,
       machines: sample.machines.map((m) => ({
@@ -317,14 +359,17 @@ export const stateFile = (home: string) =>
   join(home, ".local", "state", "devbox", "hub.json");
 
 const REGISTRY = "https://registry.npmjs.org/t3/nightly";
+
 const Manifest = Schema.fromJsonString(
   Schema.Struct({ version: Schema.String })
 );
+
 // Once an hour.
 const ASK_LATEST_EVERY = 60;
 
 const latestT3 = Effect.gen(function* () {
   const host = yield* Host;
+
   return Option.flatMap(yield* host.fetchText(REGISTRY, 10_000), ({ body }) =>
     Option.map(
       Schema.decodeUnknownOption(Manifest)(body),
@@ -336,13 +381,20 @@ const latestT3 = Effect.gen(function* () {
 /** The webhook the owner named, or none when it is unset or not a URL. */
 const webhook = Effect.gen(function* () {
   const out = yield* Output;
+
   const named = Option.getOrElse(
     yield* Config.option(Config.String("DEVBOX_HUB_NOTIFY")),
     () => ""
   );
-  if (named === "") return Option.none<URL>();
-  if (URL.canParse(named)) return Option.some(new URL(named));
+
+  if (named === "") {
+    return Option.none<URL>();
+  }
+  if (URL.canParse(named)) {
+    return Option.some(new URL(named));
+  }
   yield* out.warn("DEVBOX_HUB_NOTIFY is not a URL, so nothing will be sent");
+
   return Option.none<URL>();
 }).pipe(Effect.orDie);
 
@@ -380,12 +432,15 @@ export const hub = Command.make(
       const context = yield* Effect.context<Host | FileSystem.FileSystem>();
       const tunnels = yield* Semaphore.make(1);
       const notify = yield* webhook;
+
       const resumed = yield* fs.readFileString(file).pipe(
         Effect.map((text) => restore(text, Date.now(), HISTORY_LIMIT)),
         Effect.orElseSucceed(() => Option.none())
       );
+
       let history: History | undefined =
         Option.getOrUndefined(resumed)?.history;
+
       let watch: Watch | undefined = Option.getOrUndefined(resumed)?.watch;
       let newest: string | null = null;
       let sendFailed = false;
@@ -397,9 +452,12 @@ export const hub = Command.make(
             webhookBody(url, sentence(notice)),
             10_000
           );
+
           const failed = Option.isNone(sent);
-          if (failed && !sendFailed)
+
+          if (failed && !sendFailed) {
             yield* out.warn("a notification could not be sent");
+          }
           sendFailed = failed;
         });
 
@@ -411,13 +469,17 @@ export const hub = Command.make(
             spokePort,
             hubKey: secrets.fingerprint,
           });
-          if (count % ASK_LATEST_EVERY === 0)
+
+          if (count % ASK_LATEST_EVERY === 0) {
             newest = Option.getOrElse(yield* latestT3, () => newest);
+          }
           const watched = nextWatch(watch, snapshot);
+
           const saved = {
             history: nextHistory(history, snapshot),
             watch: watched.watch,
           };
+
           history = saved.history;
           watch = saved.watch;
           yield* fs
@@ -432,7 +494,8 @@ export const hub = Command.make(
               Effect.andThen(fs.rename(`${file}.tmp`, file)),
               Effect.ignore
             );
-          if (Option.isSome(notify))
+
+          if (Option.isSome(notify)) {
             yield* Effect.forkScoped(
               Effect.forEach(
                 watched.notices,
@@ -442,6 +505,7 @@ export const hub = Command.make(
                 }
               )
             );
+          }
           return {
             ...snapshot,
             history: saved.history,
@@ -457,12 +521,15 @@ export const hub = Command.make(
           res.writeHead(reply.status, reply.headers);
           res.end(reply.body);
         };
+
         const url = req.url ?? "/";
         const method = req.method ?? "GET";
         const { pathname } = new URL(url, "http://hub");
         const limit = BODIES.get(`${method} ${pathname}`);
-        if (method !== "GET" && limit === undefined)
+
+        if (method !== "GET" && limit === undefined) {
           res.setHeader("connection", "close");
+        }
         Promise.all([
           limit === undefined ? Promise.resolve("") : readBody(req, limit),
           Effect.runPromiseWith(context)(current(latest, home)),
@@ -484,7 +551,10 @@ export const hub = Command.make(
               { snapshot, token: secrets.token, now: Date.now() },
               asset
             );
-            if ("status" in routed) return routed;
+
+            if ("status" in routed) {
+              return routed;
+            }
             return Effect.runPromiseWith(context)(
               answer(routed, {
                 secrets,
@@ -504,8 +574,10 @@ export const hub = Command.make(
         `hub: ${origin(host, port)}/ and /api/machines, checking every ${SAMPLE_SECONDS}s`
       );
       let count = 0;
+
       return yield* Effect.suspend(() => {
         count += 1;
+
         return sample(count);
       }).pipe(
         Effect.map((next) => {

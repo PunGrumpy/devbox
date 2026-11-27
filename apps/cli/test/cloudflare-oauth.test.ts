@@ -52,21 +52,30 @@ const tokenBody = (fields: Record<string, unknown> = {}) =>
 const fakePost = (answer: Answer) => {
   const sent: Array<{ url: string; form: Readonly<Record<string, string>> }> =
     [];
+
   const post: PostForm = (url, form) =>
     Effect.sync(() => {
       sent.push({ url, form });
+
       return answer;
     });
+
   return { post, sent };
 };
 
 const fails = async <A>(effect: Effect.Effect<A, OAuthFailed>) => {
   const exit = await Effect.runPromiseExit(effect);
-  if (Exit.isSuccess(exit)) throw new Error("expected a failure");
+
+  if (Exit.isSuccess(exit)) {
+    throw new Error("expected a failure");
+  }
   const error = exit.cause.reasons.find(
     (reason) => reason._tag === "Fail"
   )?.error;
-  if (!(error instanceof OAuthFailed)) throw new Error("expected OAuthFailed");
+
+  if (!(error instanceof OAuthFailed)) {
+    throw new Error("expected OAuthFailed");
+  }
   return error;
 };
 
@@ -89,6 +98,7 @@ describe("PKCE", () => {
 
 describe("the authorize address", () => {
   const pkce = makePkce();
+
   const url = new URL(
     authorizeUrl({
       authorize: CLOUDFLARE.authorize,
@@ -140,6 +150,7 @@ describe("the callback", () => {
     ]) {
       const read = readCallback(url, STATE);
       expect(read._tag).toBe("Refused");
+
       if (read._tag === "Refused") {
         expect(read.message).toBe(
           "the answer did not come from this login, its state does not match"
@@ -171,6 +182,7 @@ describe("the callback", () => {
       `/callback?error=${encodeURIComponent("\u001B[2Jbad")}&state=${STATE}`,
       STATE
     );
+
     expect(read).toMatchObject({
       message: "Cloudflare did not sign the hub in: an unnamed error",
     });
@@ -228,8 +240,9 @@ describe("a token answer", () => {
       tokenBody({ expires_in: -1 }),
       tokenBody({ expires_in: "3600" }),
       tokenBody({ refresh_token: undefined }),
-    ])
+    ]) {
       expect(parseTokens(body, NOW)).toEqual(Option.none());
+    }
   });
 });
 
@@ -269,6 +282,7 @@ describe("exchange", () => {
         error_description: `bad code ${CODE}`,
       }),
     });
+
     const error = await fails(exchange(post, request));
     expect(error.message).toBe(
       "Cloudflare did not take the sign-in code (400, invalid_grant)"
@@ -282,6 +296,7 @@ describe("exchange", () => {
       status: 200,
       body: tokenBody({ token_type: "mac" }),
     });
+
     const error = await fails(exchange(post, request));
     expect(error.message).toBe(
       "Cloudflare's token answer is not a bearer token with a refresh token"
@@ -301,6 +316,7 @@ describe("renew", () => {
         refresh_token: NEW_REFRESH,
       }),
     });
+
     const tokens = await Effect.runPromise(renew(post, login));
     expect(tokens).toMatchObject({
       accessToken: "made-up-access-2",
@@ -329,6 +345,7 @@ describe("renew", () => {
         error_description: "token revoked",
       }),
     });
+
     const error = await fails(renew(post, login));
     expect(error.message).toBe(
       "Cloudflare refused to renew the hub's login (401, invalid_grant)"
@@ -349,23 +366,32 @@ describe("renew", () => {
 
 const fakeCloudflare = async (options: { error?: string } = {}) => {
   const port = await Effect.runPromise(freePort);
+
   const seen = {
     challenge: "",
     verifier: "",
     forms: [] as Array<Record<string, string>>,
   };
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
+
     if (url.pathname === "/oauth2/auth") {
       seen.challenge = url.searchParams.get("code_challenge") ?? "";
       const back = new URL(url.searchParams.get("redirect_uri") ?? "");
       back.searchParams.set("state", url.searchParams.get("state") ?? "");
-      if (options.error === undefined) back.searchParams.set("code", CODE);
-      else back.searchParams.set("error", options.error);
+
+      if (options.error === undefined) {
+        back.searchParams.set("code", CODE);
+      } else {
+        back.searchParams.set("error", options.error);
+      }
       res.writeHead(302, { location: back.href });
       res.end();
+
       return;
     }
+
     let body = "";
     req.on("data", (chunk: Buffer) => {
       body += chunk.toString();
@@ -374,21 +400,25 @@ const fakeCloudflare = async (options: { error?: string } = {}) => {
       const form = Object.fromEntries(new URLSearchParams(body));
       seen.forms.push(form);
       seen.verifier = form.code_verifier ?? "";
+
       const proven =
         form.grant_type === "authorization_code" &&
         form.code === CODE &&
         form.client_id === CLIENT &&
         createHash("sha256").update(seen.verifier).digest("base64url") ===
           seen.challenge;
+
       res.writeHead(proven ? 200 : 400, { "content-type": "application/json" });
       res.end(
         proven ? tokenBody() : JSON.stringify({ error: "invalid_grant" })
       );
     });
   });
+
   await new Promise<void>((resolve) =>
     server.listen(port, "127.0.0.1", resolve)
   );
+
   return {
     seen,
     endpoints: {
@@ -402,6 +432,7 @@ const fakeCloudflare = async (options: { error?: string } = {}) => {
 const capture = () => {
   const out: Array<string> = [];
   const err: Array<string> = [];
+
   const output = Output.make({
     stdout: (text) => out.push(text),
     stderr: (text) => err.push(text),
@@ -411,6 +442,7 @@ const capture = () => {
     readAnswer: Effect.die("no terminal in tests"),
     pickMany: () => Effect.die("no terminal in tests"),
   });
+
   return {
     all: () => `${out.join("")}${err.join("")}`,
     err: () => err.join(""),
@@ -424,17 +456,20 @@ const runLogin = (
 ) => {
   const printed = capture();
   const saved: Array<SignedIn> = [];
+
   const root = Command.make("devbox").pipe(
     Command.withSubcommands([
       loginCommand((signedIn) => Effect.sync(() => saved.push(signedIn)), flow),
     ])
   );
+
   const done = Effect.runPromise(
     Command.runWith(root, { version: "0" })(["login", ...args]).pipe(
       Effect.as(0),
       Effect.catch((error) =>
         Effect.gen(function* () {
           yield* (yield* Output).error(error.message, hintOf(error));
+
           return 1;
         })
       ),
@@ -442,15 +477,20 @@ const runLogin = (
       Effect.provide(BunServices.layer)
     )
   );
+
   return { printed, saved, done };
 };
 
 const printedAddress = async (printed: ReturnType<typeof capture>) => {
   for (let tries = 0; tries < 200; tries += 1) {
     const found = /^ {2}(http\S+)$/m.exec(printed.err())?.[1];
-    if (found !== undefined) return found;
+
+    if (found !== undefined) {
+      return found;
+    }
     await Bun.sleep(10);
   }
+
   throw new Error(`no address printed: ${printed.err()}`);
 };
 
@@ -458,6 +498,7 @@ const browse = async (address: string) => {
   const signedIn = await fetch(address, { redirect: "manual" });
   const back = signedIn.headers.get("location") ?? "";
   const page = await fetch(back);
+
   return {
     back,
     status: page.status,
@@ -486,12 +527,14 @@ describe("devbox hub cloudflare login", () => {
   test("signs in through the browser against a fake Cloudflare, saves the tokens and prints none", async () => {
     const cloudflare = await fakeCloudflare();
     const flow = await flowFor(cloudflare.endpoints);
+
     const { printed, saved, done } = runLogin(flow, [
       "--client-id",
       CLIENT,
       "--zone",
       "example.com",
     ]);
+
     const address = await printedAddress(printed);
     expect(new URL(address).searchParams.get("redirect_uri")).toBe(
       `http://127.0.0.1:${flow.port}/callback`
@@ -517,8 +560,10 @@ describe("devbox hub cloudflare login", () => {
 
     const all = printed.all();
     expect(all).toContain("the hub is signed in to Cloudflare");
-    for (const secret of [ACCESS, REFRESH, CODE, cloudflare.seen.verifier])
+
+    for (const secret of [ACCESS, REFRESH, CODE, cloudflare.seen.verifier]) {
       expect(all).not.toContain(secret);
+    }
     expect(await refused(flow.port)).toBe(true);
   });
 
@@ -546,9 +591,11 @@ describe("devbox hub cloudflare login", () => {
     const flow = await flowFor(cloudflare.endpoints);
     const { printed, saved, done } = runLogin(flow);
     await printedAddress(printed);
+
     const page = await fetch(
       `http://127.0.0.1:${flow.port}/callback?code=${CODE}&state=someone-elses-state`
     );
+
     expect(page.status).toBe(400);
     expect(await done).toBe(1);
     await cloudflare.close();
@@ -576,12 +623,14 @@ describe("devbox hub cloudflare login", () => {
     const flow = await flowFor(cloudflare.endpoints);
     const { printed, done } = runLogin(flow);
     await printedAddress(printed);
+
     const outside = Object.values(networkInterfaces())
       .flat()
       .find(
         (face) => face !== undefined && face.family === "IPv4" && !face.internal
       )?.address;
-    if (outside !== undefined)
+
+    if (outside !== undefined) {
       expect(
         await fetch(`http://${outside}:${flow.port}/callback`, {
           signal: AbortSignal.timeout(2000),
@@ -590,6 +639,7 @@ describe("devbox hub cloudflare login", () => {
           () => "refused"
         )
       ).toBe("refused");
+    }
     await browse(await printedAddress(printed));
     expect(await done).toBe(0);
     await cloudflare.close();

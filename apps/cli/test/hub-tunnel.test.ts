@@ -51,6 +51,7 @@ const setUp = async (cf: FakeCloudflare = makeCloudflare()) => {
     })
   );
   const spoke: Spoke = { took: true, told: [] };
+
   return { m, cf, spoke };
 };
 
@@ -86,6 +87,7 @@ const jobFor = (
   tell: (action, fields) =>
     Effect.sync(() => {
       spoke.told.push({ action, fields });
+
       return spoke.took;
     }),
 });
@@ -96,8 +98,10 @@ const publishing = async (
   name?: string,
   others?: ReadonlyArray<string>
 ) => (await runWith(m.host, publish(jobFor(m, spoke, name, others)))).value;
+
 const unpublishing = async (m: FakeMachine, spoke: Spoke, name?: string) =>
   (await runWith(m.host, unpublish(jobFor(m, spoke, name)))).value;
+
 const made = async (m: FakeMachine) =>
   (await runWith(m.host, loadTunnels(m.home))).value;
 
@@ -107,6 +111,7 @@ const bodyOf = (reply: Reply) =>
 const RULE_MADE = (c: Call) =>
   c.method === "POST" &&
   (c.path.endsWith("/rulesets") || c.path.endsWith("/rules"));
+
 const RECORD_MADE = (c: Call) =>
   c.method === "POST" && c.path.endsWith("/dns_records");
 
@@ -202,9 +207,11 @@ describe("publishing", () => {
       action: "block",
       description: "the owner's",
     };
+
     const { m, cf, spoke } = await setUp(
       makeCloudflare({ ruleset: { id: "rs-theirs", rules: [theirs] } })
     );
+
     await publishing(m, spoke);
     await unpublishing(m, spoke);
     expect(cf.ruleset?.rules).toEqual([theirs]);
@@ -225,7 +232,7 @@ describe("publishing", () => {
     ["get the tunnel token", (c) => c.path.endsWith("/token")],
   ];
 
-  for (const [step, refused] of STEPS)
+  for (const [step, refused] of STEPS) {
     test(`stopped where Cloudflare refuses to ${step}, and finished by asking again`, async () => {
       const { m, cf, spoke } = await setUp();
       cf.refuse = (c) =>
@@ -245,6 +252,7 @@ describe("publishing", () => {
       expect(stateOf(cf)).toEqual(PUBLISHED);
       expect(cf.guarded).toEqual([true]);
     });
+  }
 
   test("stopped where the spoke does not take the token, and finished by asking again", async () => {
     const { m, cf, spoke } = await setUp();
@@ -294,9 +302,11 @@ describe("publishing", () => {
       comment: null,
       proxied: false,
     };
+
     const { m, cf, spoke } = await setUp(
       makeCloudflare({ records: [{ ...theirs }] })
     );
+
     const reply = await publishing(m, spoke);
     expect(reply.status).toBe(409);
     expect(bodyOf(reply).error).toBe(
@@ -317,9 +327,11 @@ describe("publishing", () => {
       comment: "mine",
       proxied: true,
     };
+
     const { m, cf, spoke } = await setUp(
       makeCloudflare({ records: [{ ...theirs }] })
     );
+
     expect((await publishing(m, spoke)).status).toBe(409);
     expect(cf.records).toEqual([theirs]);
   });
@@ -338,6 +350,7 @@ describe("publishing", () => {
         ],
       })
     );
+
     expect((await publishing(m, spoke)).status).toBe(202);
     expect((await unpublishing(m, spoke)).status).toBe(204);
     expect(cf.tunnels.find((t) => t.id === "tun-theirs")).toMatchObject({
@@ -348,6 +361,7 @@ describe("publishing", () => {
 
   test("a name that makes no hostname in the zone: 409, and Cloudflare is not asked", async () => {
     const { m, cf, spoke } = await setUp();
+
     for (const name of ["edge_", "x".repeat(61), "-"]) {
       const reply = await publishing(m, spoke, name);
       expect(reply.status).toBe(409);
@@ -355,6 +369,7 @@ describe("publishing", () => {
         `devbox cannot make a hostname in example.com from the name ${name}.`
       );
     }
+
     expect(cf.calls).toEqual([]);
   });
 
@@ -394,10 +409,12 @@ describe("unpublishing", () => {
     const reply = await unpublishing(m, spoke);
     expect(reply.status).toBe(204);
     expect(spoke.told.at(-1)).toEqual({ action: "untunnel", fields: {} });
+
     const deletes = cf.calls
       .slice(from)
       .filter((c) => c.method === "DELETE")
       .map((c) => c.path.split("/")[3]);
+
     expect(deletes).toEqual([
       "dns_records",
       "cfd_tunnel",
@@ -436,7 +453,7 @@ describe("unpublishing", () => {
       "delete the WAF rule",
       (c: Call) => c.method === "DELETE" && c.path.includes("/rules/"),
     ],
-  ] as const)
+  ] as const) {
     test(`stopped where Cloudflare refuses to ${step}, and finished by asking again`, async () => {
       const { m, cf, spoke } = await setUp();
       await publishing(m, spoke);
@@ -453,6 +470,7 @@ describe("unpublishing", () => {
         records: [],
       });
     });
+  }
 
   test("with nothing published: 204", async () => {
     const { m, cf, spoke } = await setUp();

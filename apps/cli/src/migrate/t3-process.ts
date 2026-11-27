@@ -37,6 +37,7 @@ const PROCESS_PATTERNS: Partial<Record<NodeJS.Platform, string>> = {
 const pidAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
+
     return true;
   } catch {
     return false;
@@ -53,6 +54,7 @@ export class T3Process extends Context.Service<
       const { runtimeFile } = yield* Locations;
       const fs = yield* FileSystem.FileSystem;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
       const fromRuntimeFile = fs.readFileString(runtimeFile).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(RuntimeFile)),
         Effect.map(({ pid, serverVersion }) =>
@@ -62,19 +64,23 @@ export class T3Process extends Context.Service<
         ),
         Effect.orElseSucceed(Option.none<RunningServer>)
       );
+
       const pattern = PROCESS_PATTERNS[process.platform];
+
       const fromProcessScan =
         pattern === undefined
           ? Effect.succeed(Option.none<RunningServer>())
           : spawner.lines(ChildProcess.make("pgrep", ["-f", pattern])).pipe(
               Effect.map((lines) => {
                 const pid = Number.parseInt(lines[0] ?? "", 10);
+
                 return Number.isFinite(pid)
                   ? Option.some({ pid, version: null })
                   : Option.none();
               }),
               Effect.orElseSucceed(Option.none<RunningServer>)
             );
+
       return {
         running: fromRuntimeFile.pipe(
           Effect.flatMap((found) =>
@@ -88,6 +94,8 @@ export class T3Process extends Context.Service<
 
 export const assertT3Closed = Effect.gen(function* () {
   const running = yield* (yield* T3Process).running;
-  if (Option.isSome(running))
+
+  if (Option.isSome(running)) {
     return yield* new T3Running({ pid: running.value.pid });
+  }
 });

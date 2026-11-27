@@ -34,10 +34,16 @@ import { type SelfKind, SPOKE_PORT } from "./vitals.ts";
 /** What this machine is, from what it can see of itself. */
 export const kindHere = Effect.gen(function* () {
   const host = yield* Host;
-  if (host.platform === "darwin") return "mac" satisfies SelfKind;
+
+  if (host.platform === "darwin") {
+    return "mac" satisfies SelfKind;
+  }
   const ran = yield* host.run(["systemd-detect-virt"], { timeoutMs: 3000 });
   const virt = ran.code === 0 ? ran.stdout.trim() || BARE_METAL : BARE_METAL;
-  if (virt === "wsl") return "wsl" satisfies SelfKind;
+
+  if (virt === "wsl") {
+    return "wsl" satisfies SelfKind;
+  }
   return (virt === BARE_METAL ? "computer" : "vm") satisfies SelfKind;
 });
 
@@ -51,9 +57,11 @@ const SetUp = Schema.fromJsonString(
 const lastSetUp = (home: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+
     const text = yield* fs
       .readFileString(machineFile(home))
       .pipe(Effect.option);
+
     return Option.flatMap(text, (t) =>
       Option.flatMap(Schema.decodeUnknownOption(SetUp)(t), ({ data, up }) =>
         up === undefined ? Option.none() : Option.some({ data, up })
@@ -62,6 +70,7 @@ const lastSetUp = (home: string) =>
   });
 
 type Reply = { readonly status: number; readonly body: object };
+
 const reply = (status: number, body: object): Reply => ({ status, body });
 const refuse = (status: number, error: string) => reply(status, { error });
 
@@ -96,10 +105,14 @@ export const PAIR_MS = 25_000;
 
 const singleFlight = <A>(whileRunning: A) => {
   let running = false;
+
   return <E, R>(run: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
     Effect.suspend(() => {
-      if (running) return Effect.succeed(whileRunning);
+      if (running) {
+        return Effect.succeed(whileRunning);
+      }
       running = true;
+
       return run.pipe(
         Effect.ensuring(
           Effect.sync(() => {
@@ -138,9 +151,11 @@ export const spoke = Command.make(
       const { home } = yield* Locations;
       const kind = yield* kindHere;
       const trusts = trust.map(fingerprint);
+
       const context = yield* Effect.context<
         Host | FileSystem.FileSystem | Output
       >();
+
       let challenges: Challenges = new Map();
       let updating: number | undefined;
       const busy = refuse(409, "devbox up is already running here");
@@ -157,21 +172,32 @@ export const spoke = Command.make(
       ) =>
         Effect.gen(function* () {
           const running = yield* computer.processes;
-          if (updating !== undefined && running.some((p) => p.pid === updating))
+
+          if (
+            updating !== undefined &&
+            running.some((p) => p.pid === updating)
+          ) {
             return busy;
+          }
           const setUp = yield* lastSetUp(home);
-          if (Option.isNone(setUp))
+
+          if (Option.isNone(setUp)) {
             return refuse(
               409,
               "devbox up has not recorded how it set this machine up"
             );
+          }
           const failed = yield* prepare;
-          if (Option.isSome(failed)) return failed.value;
+
+          if (Option.isSome(failed)) {
+            return failed.value;
+          }
           updating = yield* computer.spawnDetached(
             [...computer.self, "up", ...flags(setUp.value.up)],
             { env: {}, log: join(pathsOf(setUp.value.data).logs, "update.log") }
           );
           yield* out.log(`spoke: ${said}, running devbox up again`);
+
           return reply(202, { asked: true });
         });
 
@@ -183,17 +209,19 @@ export const spoke = Command.make(
         );
 
       const tunnel = ({ token, url }: Fields) => {
-        if (token === undefined || !isTunnelToken(token))
+        if (token === undefined || !isTunnelToken(token)) {
           return Effect.succeed(
             refuse(400, "a tunnel request needs a tunnel token")
           );
-        if (url === undefined || !isTunnelUrl(url))
+        }
+        if (url === undefined || !isTunnelUrl(url)) {
           return Effect.succeed(
             refuse(
               400,
               "a tunnel request needs an https origin with nothing after the host name"
             )
           );
+        }
         return oneDevboxUpAtATime(
           start(
             `the hub asked to publish this machine at ${url}`,
@@ -232,10 +260,14 @@ export const spoke = Command.make(
               timeoutMs: PAIR_MS,
             }
           );
+
           const pairing = Schema.decodeUnknownOption(Paired)(ran.stdout.trim());
-          if (ran.code !== 0 || Option.isNone(pairing))
+
+          if (ran.code !== 0 || Option.isNone(pairing)) {
             return refuse(502, "devbox pair gave no pairing link");
+          }
           yield* out.log("spoke: the hub asked for a pairing link");
+
           return reply(200, { url: pairingUrl(pairing.value) });
         });
 
@@ -249,24 +281,39 @@ export const spoke = Command.make(
       const answer = (req: http.IncomingMessage) =>
         Effect.gen(function* () {
           const { pathname } = new URL(req.url ?? "/", "http://spoke");
+
           if (pathname === "/api/spoke") {
-            if (req.method !== "GET") return refuse(405, "use GET");
+            if (req.method !== "GET") {
+              return refuse(405, "use GET");
+            }
             const vitals = yield* computer.vitals(home);
+
             return reply(200, { kind, vitals, trusts });
           }
+
           if (pathname === "/api/challenge") {
-            if (req.method !== "GET") return refuse(405, "use GET");
+            if (req.method !== "GET") {
+              return refuse(405, "use GET");
+            }
             const nonce = newNonce();
             challenges = handOut(challenges, nonce, Date.now());
+
             return reply(200, { nonce });
           }
-          if (pathname !== "/api/do") return refuse(404, "not found");
-          if (req.method !== "POST") return refuse(405, "use POST");
+
+          if (pathname !== "/api/do") {
+            return refuse(404, "not found");
+          }
+          if (req.method !== "POST") {
+            return refuse(405, "use POST");
+          }
           const body = yield* Effect.promise(() =>
             readBody(req, MAX_BODY_BYTES)
           );
-          if (body === null)
+
+          if (body === null) {
             return refuse(413, "a signed request is not that long");
+          }
           const verdict = verifyRequest(
             {
               body,
@@ -277,11 +324,16 @@ export const spoke = Command.make(
             Date.now(),
             challenges
           );
-          if (!verdict.ok) return refuse(403, verdict.why);
+
+          if (!verdict.ok) {
+            return refuse(403, verdict.why);
+          }
           challenges = verdict.challenges;
           const action = actions.get(verdict.do);
-          if (action === undefined)
+
+          if (action === undefined) {
             return refuse(400, "this spoke does not do that");
+          }
           return yield* action(verdict.fields);
         });
 
@@ -304,6 +356,7 @@ export const spoke = Command.make(
       yield* out.log(
         `spoke: ${origin(host, port)}/api/spoke, taking requests from ${trusts.length} hub key${trusts.length === 1 ? "" : "s"}`
       );
+
       return yield* Effect.never;
     }).pipe(Effect.scoped)
 ).pipe(

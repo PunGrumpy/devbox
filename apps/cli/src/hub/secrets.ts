@@ -34,6 +34,7 @@ const createUnlessAnotherProcessJustDid = (path: string, make: () => string) =>
     yield* fs
       .writeFileString(path, make(), { flag: "wx", mode: OWNER_ONLY })
       .pipe(Effect.ignore);
+
     return yield* fs.readFileString(path);
   });
 
@@ -41,10 +42,13 @@ const ownFile = (path: string, make: () => string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const existing = yield* fs.readFileString(path).pipe(Effect.option);
+
     if (Option.isSome(existing)) {
       yield* fs.chmod(path, OWNER_ONLY).pipe(Effect.ignore);
+
       return existing.value;
     }
+
     return yield* createUnlessAnotherProcessJustDid(path, make);
   }).pipe(
     Effect.mapError(
@@ -68,11 +72,13 @@ const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 export const hubKey = (home: string) =>
   Effect.gen(function* () {
     const path = keyFile(home);
+
     const pem = yield* ownFile(path, () =>
       generateKeyPairSync("ed25519")
         .privateKey.export({ format: "pem", type: "pkcs8" })
         .toString()
     );
+
     const privateKey = yield* Effect.try({
       try: () => createPrivateKey(pem),
       catch: () =>
@@ -81,26 +87,31 @@ export const hubKey = (home: string) =>
           hint: `${remakeHint(path)}. Every spoke then needs the new key`,
         }),
     });
-    if (privateKey.asymmetricKeyType !== "ed25519")
+
+    if (privateKey.asymmetricKeyType !== "ed25519") {
       return yield* new SecretFailed({
         message: `${path} does not hold an Ed25519 key`,
         hint: remakeHint(path),
       });
+    }
     return privateKey;
   });
 
 export const hubToken = (home: string) =>
   Effect.gen(function* () {
     const path = tokenFile(home);
+
     const token = (yield* ownFile(
       path,
       () => `${randomBytes(32).toString("base64url")}\n`
     )).trim();
-    if (!TOKEN.test(token))
+
+    if (!TOKEN.test(token)) {
       return yield* new SecretFailed({
         message: `${path} does not hold a hub token`,
         hint: remakeHint(path),
       });
+    }
     return token;
   });
 
@@ -108,12 +119,14 @@ export const hubSecrets = (home: string) =>
   Effect.gen(function* () {
     const privateKey = yield* hubKey(home);
     const key = publicKeyOf(privateKey);
+
     const secrets: HubSecrets = {
       privateKey,
       key,
       fingerprint: fingerprint(key),
       token: yield* hubToken(home),
     };
+
     return secrets;
   });
 

@@ -26,6 +26,7 @@ const machine = (
   options: { token?: boolean; overrides?: Partial<FakeMachine> } = {}
 ) => {
   const m = makeMachine(options.overrides ?? { userBus: true });
+
   const installed = join(
     m.base,
     "mise",
@@ -34,29 +35,37 @@ const machine = (
     "bin",
     "cloudflared"
   );
+
   mkdirSync(join(m.home, ".local", "bin"), { recursive: true });
   writeFileSync(join(m.home, ".local", "bin", "mise"), "");
   m.respond = (argv) => {
     if (argv[0]?.endsWith("/mise") && argv[1] === "use") {
       mkdirSync(dirname(installed), { recursive: true });
       writeFileSync(installed, "");
+
       return ok();
     }
-    if (argv[0]?.endsWith("/mise") && argv[1] === "which")
+
+    if (argv[0]?.endsWith("/mise") && argv[1] === "which") {
       return ok(`${installed}\n`);
+    }
     return undefined;
   };
+
   if (options.token !== false) {
     mkdirSync(join(m.home, ".config", "cloudflared"), { recursive: true });
     writeFileSync(tokenPath(m), TOKEN, { mode: 0o600 });
   }
+
   return { m, installed };
 };
 
 const tokenPath = (m: ReturnType<typeof makeMachine>) =>
   join(m.home, ".config", "cloudflared", "token");
+
 const unitPath = (m: ReturnType<typeof makeMachine>) =>
   join(m.home, ".config/systemd/user/cloudflared-t3.service");
+
 const machineJson = (m: ReturnType<typeof makeMachine>) =>
   readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8");
 
@@ -70,11 +79,14 @@ const readmeUnit = () => {
     join(import.meta.dir, "..", "..", "..", "README.md"),
     "utf8"
   );
+
   const section = readme.slice(
     readme.indexOf("### Reach T3 without Tailscale")
   );
+
   const block =
     /```ini\n(?<body>[\s\S]*?)```/.exec(section)?.groups?.body ?? "";
+
   return block
     .split("\n")
     .map((line) => line.replace(/^ {3}/, ""))
@@ -178,10 +190,12 @@ describe("devbox up --tunnel", () => {
     const { m } = machine({ overrides: { sudo: true, systemd: true } });
     const r = await up(m, "--tunnel");
     expect(r.code).toBe(0);
+
     const unit = readFileSync(
       join(m.etc, "systemd/system/cloudflared-t3.service"),
       "utf8"
     );
+
     expect(unit).toContain("User=agent\n");
     expect(unit).toContain(
       `ExecStart=${m.home}/.local/bin/cloudflared tunnel --no-autoupdate run --token-file ${m.home}/.config/cloudflared/token\n`

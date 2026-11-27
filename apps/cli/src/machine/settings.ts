@@ -7,6 +7,7 @@ export type Setting = Data.TaggedEnum<{
   Env: { readonly name: string; readonly value: string };
   Path: { readonly dirs: ReadonlyArray<string> };
 }>;
+
 export const Setting = Data.taggedEnum<Setting>();
 
 export const settingsFor = (data: string): ReadonlyArray<Setting> => [

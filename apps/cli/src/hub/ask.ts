@@ -160,9 +160,13 @@ export const machineAction = (
   | undefined => {
   const groups = MACHINE_PATH.exec(pathname)?.groups;
   const methods = groups?.last === undefined ? undefined : PATHS[groups.last];
-  if (groups?.name === undefined || methods === undefined) return undefined;
+
+  if (groups?.name === undefined || methods === undefined) {
+    return undefined;
+  }
   const action = Object.hasOwn(methods, method) ? methods[method] : undefined;
   const allow = Object.keys(methods).join(", ");
+
   try {
     return { name: decodeURIComponent(groups.name), action, allow };
   } catch {
@@ -203,22 +207,29 @@ const Connect = Schema.fromJsonString(
  * to ask.
  */
 export const cloudflareAsk = (request: HubRequest): Reply | Ask => {
-  if (request.method === "DELETE") return { ask: "disconnect" };
-  if (request.method !== "PUT")
+  if (request.method === "DELETE") {
+    return { ask: "disconnect" };
+  }
+  if (request.method !== "PUT") {
     return refuse(405, "Use PUT or DELETE.", { allow: "PUT, DELETE" });
-  if (request.body === null)
+  }
+  if (request.body === null) {
     return refuse(413, "A Cloudflare API token is not that long.", {
       connection: "close",
     });
+  }
   const sent = Schema.decodeUnknownOption(Connect)(request.body, {
     onExcessProperty: "error",
   });
-  if (Option.isNone(sent))
+
+  if (Option.isNone(sent)) {
     return refuse(
       400,
       'Send {"token": "<Cloudflare API token>"}, with "account" and "zone" when the token sees more than one.'
     );
+  }
   const { token, account, zone } = sent.value;
+
   return {
     ask: "connect",
     token,
@@ -228,9 +239,12 @@ export const cloudflareAsk = (request: HubRequest): Reply | Ask => {
 };
 
 const pickSentence = ({ what, choices, named }: PickOne) => {
-  if (named !== undefined) return `The token sees no ${what} ${named}.`;
-  if (choices.length === 0)
+  if (named !== undefined) {
+    return `The token sees no ${what} ${named}.`;
+  }
+  if (choices.length === 0) {
     return `The token sees no ${what}. Give it access to the ${what} that holds your domain.`;
+  }
   return `The token sees ${choices.length} ${what}s. Name one as "${what}".`;
 };
 
@@ -281,26 +295,38 @@ export const admit = (
   token: string,
   now: number
 ): Reply | Ask => {
-  if (!loggedIn(request, token, now)) return LOGGED_OUT;
+  if (!loggedIn(request, token, now)) {
+    return LOGGED_OUT;
+  }
   const named = snapshot.machines.filter((m) => m.name === wanted.name);
-  if (named.length === 0) return refuse(404, "No machine has that name.");
+
+  if (named.length === 0) {
+    return refuse(404, "No machine has that name.");
+  }
   const trusted = named.filter((m) => m.spoke === "trusted");
-  if (trusted.length !== 1 || trusted[0] === undefined)
+
+  if (trusted.length !== 1 || trusted[0] === undefined) {
     return refuse(
       409,
       named.some((m) => m.spoke === "untrusted")
         ? `${wanted.name} does not trust this hub's key.`
         : `${wanted.name} has no devbox spoke that answers.`
     );
+  }
   const [machine] = trusted;
+
   if (TUNNELS.has(wanted.action)) {
-    if (snapshot.cloudflare === null) return NO_LOGIN;
-    if (machine.tailscale === null || machine.tailscale.ip === "")
+    if (snapshot.cloudflare === null) {
+      return NO_LOGIN;
+    }
+    if (machine.tailscale === null || machine.tailscale.ip === "") {
       return refuse(
         409,
         `${machine.name} has no Tailscale address for a tunnel to reach.`
       );
+    }
   }
+
   return { ask: wanted.action, machine };
 };
 
@@ -328,13 +354,18 @@ const tellSpoke = (
 ) =>
   Effect.gen(function* () {
     const host = yield* Host;
+
     for (const address of spokeAddresses(machine)) {
       const spoke = origin(address, spokePort);
+
       const challenge = Option.flatMap(
         yield* host.fetchText(`${spoke}/api/challenge`, 2000),
         ({ body }) => Schema.decodeUnknownOption(Challenge)(body)
       );
-      if (Option.isNone(challenge)) continue;
+
+      if (Option.isNone(challenge)) {
+        continue;
+      }
       const signed = signRequest(
         secrets.privateKey,
         new Date(),
@@ -342,6 +373,7 @@ const tellSpoke = (
         action,
         fields
       );
+
       const answered = yield* host.post(
         `${spoke}/api/do`,
         {
@@ -351,7 +383,11 @@ const tellSpoke = (
         },
         timeoutMs
       );
-      if (Option.isSome(answered)) return answered;
+
+      if (Option.isSome(answered)) {
+        return answered;
+      }
     }
+
     return Option.none<string>();
   });

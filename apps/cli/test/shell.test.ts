@@ -19,6 +19,7 @@ const passwd = (shell: string) => (argv: ReadonlyArray<string>) =>
     : argv[0] === "sudo" && argv[2] === "chsh"
       ? { code: 0, stdout: "", stderr: "" }
       : undefined;
+
 const setup = (m: FakeMachine) => runWith(m.host, setupShell(m.home));
 
 describe("setupShell", () => {

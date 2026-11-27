@@ -15,6 +15,7 @@ import { makeMachine } from "./support/host.ts";
 import { devbox, start } from "./support/run.ts";
 
 const SPOKE_PORT = "3900";
+
 const VITALS = {
   load: 0.12,
   memory: { used: 5_100_000_000, total: 16_000_000_000 },
@@ -32,14 +33,17 @@ const node = (name: string, ip: string) => ({
 const spokeUrl = (ip: string) => `http://${ip}:${SPOKE_PORT}/api/spoke`;
 const challengeUrl = (ip: string) => `http://${ip}:${SPOKE_PORT}/api/challenge`;
 const challenge = (nonce: string) => JSON.stringify({ nonce });
+
 const PAIRING_LINK =
   "http://edge-8.tail1234.ts.net:3773/pair#token=made-up-pairing-token-0123";
 
 const tailnet = async () => {
   const m = makeMachine();
+
   const key = (
     await devbox({ HOME: m.home }, ["hub", "key"], { host: m.host })
   ).out.trim();
+
   m.binaries.add("tailscale");
   m.respond = (argv) =>
     argv[0] === "tailscale"
@@ -56,13 +60,16 @@ const tailnet = async () => {
           stderr: "",
         }
       : undefined;
+
   const answer = (trusts: ReadonlyArray<string>, kind = "computer") =>
     JSON.stringify({ kind, vitals: VITALS, trusts });
+
   m.pages.set(spokeUrl("100.64.0.22"), answer([fingerprint(key)]));
   m.pages.set(spokeUrl("100.64.0.23"), answer(["someone-else"]));
   m.pages.set(spokeUrl("100.64.0.24"), answer([fingerprint(key)], "vm"));
   m.pages.set(challengeUrl("100.64.0.22"), challenge("edge-8-challenge-0001"));
   m.pages.set(challengeUrl("100.64.0.24"), challenge("edge-10-challenge-0001"));
+
   return { m, key };
 };
 
@@ -70,22 +77,29 @@ describe("devbox hub with spokes", async () => {
   const { m, key } = await tailnet();
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
+
   const hub = start(
     { HOME: m.home },
     ["hub", "--port", String(port), "--spoke-port", SPOKE_PORT, "--ui", empty],
     { host: m.host }
   );
-  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1)
+
+  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
+  }
   afterAll(() => hub.stop());
   const base = `http://127.0.0.1:${port}`;
+
   const token = (
     await devbox({ HOME: m.home }, ["hub", "token"], { host: m.host })
   ).out.trim();
+
   const owner = { authorization: `Bearer ${token}` };
+
   const snapshot = (await (
     await fetch(`${base}/api/machines`, { headers: owner })
   ).json()) as HubSnapshot;
+
   const machine = (name: string) =>
     snapshot.machines.find((x: Machine) => x.name === name);
 
@@ -111,6 +125,7 @@ describe("devbox hub with spokes", async () => {
     const text = await (
       await fetch(`${base}/api/machines`, { headers: owner })
     ).text();
+
     expect(snapshot.key).toBe(key);
     expect(text).not.toContain(token);
     expect(text).not.toContain("PRIVATE KEY");
@@ -145,6 +160,7 @@ describe("devbox hub with spokes", async () => {
     const response = await fetch(`${base}/api/machines/edge-8/update`, {
       method: "POST",
     });
+
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toBe("Bearer");
     expect(m.posts).toEqual([]);
@@ -180,11 +196,13 @@ describe("devbox hub with spokes", async () => {
 
   test("through a proxy, the page is the one the browser asked, which X-Forwarded-Host names", async () => {
     const forwarded = { "x-forwarded-host": "localhost:3790" };
+
     const logout = (headers: Record<string, string>) =>
       fetch(`${base}/api/logout`, {
         method: "POST",
         headers: { ...owner, ...headers },
       });
+
     expect(
       (await logout({ origin: "http://localhost:3790", ...forwarded })).status
     ).toBe(204);
@@ -202,10 +220,12 @@ describe("devbox hub with spokes", async () => {
     expect((await ask("</script><script>alert(1)</script>")).status).toBe(404);
     expect((await ask("edge-8/../edge-8")).status).toBe(404);
     expect((await ask("edge-99", {}, "pair")).status).toBe(404);
+
     const broken = await fetch(`${base}/api/machines/%E0%A4%A/update`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
     });
+
     expect(broken.status).toBe(404);
     expect(m.posts).toEqual([]);
   });
@@ -233,8 +253,10 @@ describe("devbox hub with spokes", async () => {
     let fetchedBeforePost: ReadonlyArray<string> = [];
     m.answerPost = () => {
       fetchedBeforePost = [...m.fetches];
+
       return undefined;
     };
+
     const response = await ask("edge-8", { origin: base });
     m.answerPost = () => undefined;
     expect(response.status).toBe(202);
@@ -247,6 +269,7 @@ describe("devbox hub with spokes", async () => {
     expect(sent?.headers?.["x-devbox-key"]).toBe(fingerprint(key));
     expect(nonceSent(0)).toBe("edge-8-challenge-0001");
     expect(JSON.parse(sent?.body ?? "{}")).toMatchObject({ do: "update" });
+
     const verdict = verifyRequest(
       {
         body: sent?.body ?? "",
@@ -257,6 +280,7 @@ describe("devbox hub with spokes", async () => {
       Date.now(),
       handOut(new Map(), "edge-8-challenge-0001", Date.now())
     );
+
     expect(verdict.ok).toBe(true);
     expect(sent?.body).not.toContain(token);
   });
@@ -311,9 +335,11 @@ describe("devbox hub with spokes", async () => {
     expect(JSON.parse(sent?.body ?? "{}")).toMatchObject({ do: "pair" });
     expect(hub.err()).not.toContain("made-up-pairing-token-0123");
     expect(hub.out()).not.toContain("made-up-pairing-token-0123");
+
     const later = await (
       await fetch(`${base}/api/machines`, { headers: owner })
     ).text();
+
     expect(later).not.toContain("made-up-pairing-token-0123");
   });
 
@@ -343,16 +369,19 @@ describe("devbox hub with spokes", async () => {
       (await fetch(`${base}/api/machines/edge-8/pair`, { headers: owner }))
         .status
     ).toBe(405);
+
     const posted = await fetch(`${base}/api/machines`, {
       method: "POST",
       headers: owner,
     });
+
     expect(posted.status).toBe(405);
     expect((await fetch(`${base}/`, { method: "POST" })).status).toBe(405);
   });
 
   test("a large body is not read, and the hub still answers", async () => {
     const before = m.posts.length;
+
     const status = await new Promise<number>((done, fail) => {
       const req = http.request(
         `${base}/api/machines/edge-8/update`,
@@ -362,9 +391,11 @@ describe("devbox hub with spokes", async () => {
           done(response.statusCode ?? 0);
         }
       );
+
       req.on("error", fail);
       req.end("x".repeat(256 * 1024));
     });
+
     expect(status).toBe(401);
     expect(m.posts.length).toBe(before);
     expect(
@@ -375,6 +406,7 @@ describe("devbox hub with spokes", async () => {
 
 test("devbox machines has no hub key, so it says nothing about trust", async () => {
   const { m } = await tailnet();
+
   const r = await devbox(
     { HOME: m.home },
     ["machines", "--json", "--spoke-port", SPOKE_PORT],
@@ -382,6 +414,7 @@ test("devbox machines has no hub key, so it says nothing about trust", async () 
       host: m.host,
     }
   );
+
   const json = JSON.parse(r.out);
   expect(json.machines.map((x: Machine) => x.spoke)).toEqual([
     null,

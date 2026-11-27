@@ -30,11 +30,15 @@ type AppRoute = Data.TaggedEnum<{
   Clipboard: {};
   Scheme: { readonly opener: string };
 }>;
+
 const AppRoute = Data.taggedEnum<AppRoute>();
 
 const appRoute = Effect.gen(function* () {
   const host = yield* Host;
-  if (yield* host.which("clip.exe")) return AppRoute.Clipboard();
+
+  if (yield* host.which("clip.exe")) {
+    return AppRoute.Clipboard();
+  }
   return AppRoute.Scheme({
     opener: process.platform === "darwin" ? "open" : "xdg-open",
   });
@@ -43,6 +47,7 @@ const appRoute = Effect.gen(function* () {
 const remotePairing = (target: string, label: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
+
     const ran = yield* host.run([
       "ssh",
       "-o",
@@ -53,10 +58,12 @@ const remotePairing = (target: string, label: string) =>
       target,
       `~/.local/bin/devbox pair --json --label ${shellQuote(label)}`,
     ]);
-    if (ran.code !== 0)
+
+    if (ran.code !== 0) {
       return yield* Effect.fail(
         `devbox pair failed there: ${ran.stderr.trim()}`
       );
+    }
     return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Pairing))(
       ran.stdout
     ).pipe(
@@ -73,8 +80,9 @@ const toApp = (target: string, url: string, route: AppRoute) =>
     yield* AppRoute.$match(route, {
       Clipboard: () =>
         Effect.gen(function* () {
-          if ((yield* host.run(["clip.exe"], { stdin: url })).code !== 0)
+          if ((yield* host.run(["clip.exe"], { stdin: url })).code !== 0) {
             return yield* Effect.fail("clip.exe failed");
+          }
           yield* out.log(
             `${target}: pairing URL copied. In T3 Code, Settings -> Connections -> Add environment, paste it, then press Enter here.`
           );
@@ -82,8 +90,9 @@ const toApp = (target: string, url: string, route: AppRoute) =>
         }),
       Scheme: ({ opener }) =>
         Effect.gen(function* () {
-          if ((yield* host.run([opener, appLink(url)])).code !== 0)
+          if ((yield* host.run([opener, appLink(url)])).code !== 0) {
             return yield* Effect.fail(`${opener} failed`);
+          }
           yield* out.log(
             `${target}: confirm "Add the backend" in the T3 Code app`
           );
@@ -120,9 +129,11 @@ export const link = Command.make(
       const label = host.hostname.split(".")[0] ?? host.hostname;
       const route = yield* appRoute;
       let failed = 0;
+
       for (const target of targets) {
         const result = yield* Effect.gen(function* () {
           const pairing = yield* remotePairing(target, label);
+
           const linked = yield* host.run(
             [
               t3,
@@ -136,24 +147,33 @@ export const link = Command.make(
             ],
             { inherit: true }
           );
-          if (linked.code !== 0)
+
+          if (linked.code !== 0) {
             return yield* Effect.fail(
               `t3 environment link exited with ${linked.code}`
             );
+          }
           yield* out.check(
             true,
             `${target}: linked ${pairing.url} for agents here`
           );
-          if (!app) return;
+
+          if (!app) {
+            return;
+          }
           const forApp = yield* remotePairing(target, `${label} app`);
           yield* toApp(target, pairingUrl(forApp), route);
         }).pipe(Effect.result);
+
         if (result._tag === "Failure") {
           failed += 1;
           yield* out.check(false, target, result.failure);
         }
       }
-      if (failed > 0) return yield* Effect.fail(new LinkFailed({ failed }));
+
+      if (failed > 0) {
+        return yield* Effect.fail(new LinkFailed({ failed }));
+      }
     })
 ).pipe(
   Command.withDescription(

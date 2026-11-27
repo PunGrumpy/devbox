@@ -12,6 +12,7 @@ const Source = Schema.String.pipe(
     )
   )
 );
+
 const SkillName = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/))
 );
@@ -20,6 +21,7 @@ export const SkillSource = Schema.Struct({
   repo: Source,
   skills: Schema.Array(SkillName),
 });
+
 export type SkillSource = typeof SkillSource.Type;
 
 export type SkillsList = {
@@ -31,6 +33,7 @@ export type SkillsList = {
 const tokens = (line: string) => {
   const [, repo, ...rest] = line.trim().split(/\s+/);
   const [flag, ...skills] = rest;
+
   return rest.length === 0
     ? { repo, skills: [] }
     : flag === "--skill"
@@ -43,13 +46,20 @@ export const parseSkillsList = (text: string): SkillsList => {
     .split("\n")
     .filter((line) => line.startsWith("skill "))
     .map((line) => line.replace("git@github.com:", "https://github.com/"));
+
   const sources: Array<SkillSource> = [];
   const rejected: Array<string> = [];
+
   for (const line of lines) {
     const decoded = Schema.decodeUnknownResult(SkillSource)(tokens(line));
-    if (Result.isSuccess(decoded)) sources.push(decoded.success);
-    else rejected.push(line);
+
+    if (Result.isSuccess(decoded)) {
+      sources.push(decoded.success);
+    } else {
+      rejected.push(line);
+    }
   }
+
   return {
     sources,
     rejected,

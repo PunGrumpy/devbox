@@ -57,22 +57,34 @@ export type Answer = { readonly status: number; readonly body: string };
 const MAX_ANSWER_BYTES = 1024 * 1024;
 
 const capped = async (response: Response): Promise<string | undefined> => {
-  if (Number(response.headers.get("content-length") ?? 0) > MAX_ANSWER_BYTES)
+  if (Number(response.headers.get("content-length") ?? 0) > MAX_ANSWER_BYTES) {
     return undefined;
+  }
   const reader = response.body?.getReader();
-  if (reader === undefined) return "";
+
+  if (reader === undefined) {
+    return "";
+  }
   const chunks: Array<Uint8Array> = [];
   let size = 0;
+
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
+
+    if (done) {
+      break;
+    }
     size += value.byteLength;
+
     if (size > MAX_ANSWER_BYTES) {
       await reader.cancel().catch(() => undefined);
+
       return undefined;
     }
+
     chunks.push(value);
   }
+
   return Buffer.concat(chunks).toString("utf8");
 };
 
@@ -147,6 +159,7 @@ export class Host extends Context.Service<
       Effect.promise(async (): Promise<Ran> => {
         try {
           const started = performance.now();
+
           const child = Bun.spawn([...argv], {
             env: { ...process.env, ...options.env },
             cwd: options.cwd ?? "/",
@@ -160,11 +173,13 @@ export class Host extends Context.Service<
               ? {}
               : { timeout: options.timeoutMs }),
           });
+
           const [stdout, stderr, code] = await Promise.all([
             child.stdout ? new Response(child.stdout).text() : "",
             child.stderr ? new Response(child.stderr).text() : "",
             child.exited,
           ]);
+
           return {
             code: timedOut(options.timeoutMs, started, code) ? TIMED_OUT : code,
             stdout,
@@ -177,11 +192,14 @@ export class Host extends Context.Service<
     which: (name) => Effect.sync(() => Bun.which(name) !== null),
     processes: Effect.sync(() =>
       readdirSync("/proc").flatMap((entry) => {
-        if (!/^\d+$/.test(entry)) return [];
+        if (!/^\d+$/.test(entry)) {
+          return [];
+        }
         try {
           const argv = readFileSync(`/proc/${entry}/cmdline`, "utf8")
             .split("\0")
             .slice(0, -1);
+
           return [{ pid: Number(entry), argv }];
         } catch {
           return [];
@@ -193,22 +211,29 @@ export class Host extends Context.Service<
         mkdirSync(dirname(log), { recursive: true });
         const fd = openSync(log, "a");
         const [command = "", ...args] = argv;
+
         const child = spawn(command, args, {
           detached: true,
           cwd: "/",
           stdio: ["ignore", fd, fd],
           env: { ...process.env, ...env },
         });
+
         child.unref();
         closeSync(fd);
+
         return child.pid ?? 0;
       }),
     stop: (pid) =>
       Effect.gen(function* () {
         signal(pid, "SIGTERM");
-        for (let i = 0; i < 50 && alive(pid); i += 1)
+
+        for (let i = 0; i < 50 && alive(pid); i += 1) {
           yield* Effect.sleep("200 millis");
-        if (alive(pid)) signal(pid, "SIGKILL");
+        }
+        if (alive(pid)) {
+          signal(pid, "SIGKILL");
+        }
       }),
     answers: (port, address) =>
       Effect.promise(() =>
@@ -226,14 +251,21 @@ export class Host extends Context.Service<
     fetchText: (url, timeoutMs) =>
       Effect.promise(async (): Promise<Option.Option<Fetched>> => {
         const started = performance.now();
+
         try {
           const response = await fetch(url, {
             redirect: "manual",
             signal: AbortSignal.timeout(timeoutMs),
           });
-          if (response.status !== 200) return Option.none();
+
+          if (response.status !== 200) {
+            return Option.none();
+          }
           const body = await capped(response);
-          if (body === undefined) return Option.none();
+
+          if (body === undefined) {
+            return Option.none();
+          }
           return Option.some({
             body,
             ms: Math.round(performance.now() - started),
@@ -252,7 +284,10 @@ export class Host extends Context.Service<
             redirect: "manual",
             signal: AbortSignal.timeout(timeoutMs),
           });
-          if (!response.ok) return Option.none();
+
+          if (!response.ok) {
+            return Option.none();
+          }
           return Option.fromUndefinedOr(await capped(response));
         } catch {
           return Option.none();
@@ -268,6 +303,7 @@ export class Host extends Context.Service<
             redirect: "manual",
             signal: AbortSignal.timeout(timeoutMs),
           });
+
           return Option.map(
             Option.fromUndefinedOr(await capped(response)),
             (text) => ({
@@ -288,6 +324,7 @@ export class Host extends Context.Service<
             return statfsSync("/");
           }
         })();
+
         return vitalsOf({
           load1: loadavg()[0] ?? 0,
           cores: availableParallelism(),
@@ -305,18 +342,23 @@ export class Host extends Context.Service<
           const tty = Bun.file("/dev/tty").stream().getReader();
           const decoder = new TextDecoder();
           let line = "";
+
           const next = (): void => {
             tty.read().then(
               ({ done, value }) => {
                 line += value ? decoder.decode(value) : "";
+
                 if (done || line.includes("\n")) {
                   tty.cancel().catch(() => undefined);
                   resolve(line.split("\n")[0] ?? "");
-                } else next();
+                } else {
+                  next();
+                }
               },
               () => resolve(line)
             );
           };
+
           next();
         })
     ),
@@ -333,6 +375,7 @@ const timedOut = (
 const alive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
+
     return true;
   } catch {
     return false;

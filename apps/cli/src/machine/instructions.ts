@@ -16,6 +16,7 @@ const T3Settings = Schema.fromJsonString(
     ),
   })
 );
+
 const ClaudeInstance = Schema.Struct({
   driver: Schema.Literal("claudeAgent"),
   config: Schema.optional(
@@ -38,6 +39,7 @@ export const claudeHomes = (
   data: string
 ): ReadonlyArray<string> => {
   const fallback = join(data, ".claude");
+
   const instances = Option.flatMap(
     settings,
     Schema.decodeUnknownOption(T3Settings)
@@ -45,6 +47,7 @@ export const claudeHomes = (
     Option.map((decoded) => Object.values(decoded.providerInstances ?? {})),
     Option.getOrElse((): ReadonlyArray<unknown> => [])
   );
+
   const homes = instances.flatMap((instance) =>
     Option.match(Schema.decodeUnknownOption(ClaudeInstance)(instance), {
       onNone: () => [],
@@ -55,6 +58,7 @@ export const claudeHomes = (
       ],
     })
   );
+
   return [...new Set([fallback, ...homes])];
 };
 
@@ -63,6 +67,7 @@ export type InstructionsLink = Data.TaggedEnum<{
   Link: {};
   NotOurs: {};
 }>;
+
 export const InstructionsLink = Data.taggedEnum<InstructionsLink>();
 
 export type InstructionsSource = {
@@ -81,7 +86,9 @@ export const instructionsLink = (
 ): InstructionsLink =>
   Option.match(now.target, {
     onSome: (target) => {
-      if (target === source.path) return InstructionsLink.Linked();
+      if (target === source.path) {
+        return InstructionsLink.Linked();
+      }
       return Option.isNone(now.text)
         ? InstructionsLink.Link()
         : InstructionsLink.NotOurs();

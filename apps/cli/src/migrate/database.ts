@@ -35,6 +35,7 @@ export type DbTarget = Data.TaggedEnum<{
   Live: { readonly path: AbsolutePath };
   Copy: { readonly path: AbsolutePath };
 }>;
+
 export const DbTarget = Data.taggedEnum<DbTarget>();
 
 export class DatabaseNotFound extends Schema.TaggedError<DatabaseNotFound>()(
@@ -106,6 +107,7 @@ export class AmbiguousProject extends Schema.TaggedError<AmbiguousProject>()(
     const list = this.candidates
       .map((p) => `${p.projectId} (${p.workspaceRoot})`)
       .join(", ");
+
     return `"${this.ref}" names ${this.candidates.length} projects: ${list}`;
   }
   get hint() {
@@ -124,9 +126,13 @@ export const resolveTarget = Effect.fn("resolveTarget")(function* (
   db: Option.Option<string>
 ) {
   const { liveDb } = yield* Locations;
-  if (Option.isNone(db)) return DbTarget.Live({ path: liveDb });
+
+  if (Option.isNone(db)) {
+    return DbTarget.Live({ path: liveDb });
+  }
   const path = absolutePath(db.value);
   const fs = yield* FileSystem.FileSystem;
+
   const same = yield* Effect.all([fs.stat(path), fs.stat(liveDb)]).pipe(
     Effect.map(
       ([a, b]) =>
@@ -134,6 +140,7 @@ export const resolveTarget = Effect.fn("resolveTarget")(function* (
     ),
     Effect.orElseSucceed(() => path === liveDb)
   );
+
   return same ? DbTarget.Live({ path }) : DbTarget.Copy({ path });
 });
 
@@ -141,9 +148,11 @@ export const databaseLayer = (path: AbsolutePath, access: "read" | "write") =>
   Layer.unwrap(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+
       if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)))) {
         return yield* new DatabaseNotFound({ path });
       }
+
       return SqliteClient.layer({
         filename: path,
         readonly: access === "read",
@@ -165,9 +174,11 @@ export const count = <E, R>(
 
 export const columnsOf = Effect.fn("columnsOf")(function* (table: string) {
   const sql = yield* SqlClient.SqlClient;
+
   const rows = yield* sql<{
     name: string;
   }>`SELECT name FROM pragma_table_info(${table})`;
+
   return rows.map((row) => row.name);
 });
 
@@ -175,13 +186,18 @@ export const schemaGaps = Effect.fn("schemaGaps")(function* (
   required: SchemaRequirement
 ) {
   const gaps: Array<string> = [];
+
   for (const [table, columns] of Object.entries(required)) {
     const present = yield* columnsOf(table);
-    if (present.length === 0) gaps.push(`table ${table}`);
-    else
+
+    if (present.length === 0) {
+      gaps.push(`table ${table}`);
+    } else {
       for (const column of columns)
         if (!present.includes(column)) gaps.push(`column ${table}.${column}`);
+    }
   }
+
   return gaps;
 });
 
@@ -189,22 +205,30 @@ export const assertSchema = Effect.fn("assertSchema")(function* (
   required: SchemaRequirement
 ) {
   const missing = yield* schemaGaps(required);
-  if (missing.length > 0) return yield* new SchemaMismatch({ missing });
+
+  if (missing.length > 0) {
+    return yield* new SchemaMismatch({ missing });
+  }
 });
 
 export const eventCount = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+
   return yield* count(sql`SELECT count(*) AS n FROM ${sql(Tables.events)}`);
 });
 
 export const assertEventsEmpty = Effect.gen(function* () {
   const rows = yield* eventCount;
-  if (rows > 0) return yield* new EventLogNotEmpty({ rows });
+
+  if (rows > 0) {
+    return yield* new EventLogNotEmpty({ rows });
+  }
 });
 
 export const quickCheck = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const rows = yield* sql<{ quick_check: string }>`PRAGMA quick_check`;
+
   return rows.map((row) => row.quick_check).join("; ");
 });
 
@@ -220,21 +244,26 @@ export const backup = Effect.fn("backup")(function* (source: AbsolutePath) {
   const { backupDir } = yield* Locations;
   yield* fs.makeDirectory(backupDir, { recursive: true });
   const path = join(backupDir, `statev2-${stamp(new Date())}.sqlite`);
-  if (yield* fs.exists(path))
+
+  if (yield* fs.exists(path)) {
     return yield* new BackupFailed({
       message: `backup already exists: ${path}`,
     });
+  }
   yield* sql`VACUUM INTO ${path}`;
   const bytes = Number((yield* fs.stat(path)).size);
-  if (bytes === 0)
+
+  if (bytes === 0) {
     return yield* new BackupFailed({
       message: `backup failed: ${path} is empty`,
     });
+  }
   if (Number((yield* fs.stat(source)).size) > 0 && bytes < 4096) {
     return yield* new BackupFailed({
       message: `backup looks wrong: ${path} is ${formatBytes(bytes)}`,
     });
   }
+
   return { path: absolutePath(path), bytes };
 });
 
@@ -247,14 +276,17 @@ export const Project = Schema.Struct({
   workspaceRoot: Schema.String,
   deletedAt: Schema.NullOr(Schema.String),
 });
+
 export type Project = typeof Project.Type;
 
 const projects = (where: (sql: SqlClient.SqlClient) => Statement.Fragment) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+
     const rows =
       yield* sql`SELECT project_id AS projectId, title, workspace_root AS workspaceRoot, deleted_at AS deletedAt
       FROM ${sql(Tables.projects)} ${where(sql)}`;
+
     return yield* Schema.decodeUnknownEffect(Schema.Array(Project))(rows);
   });
 
@@ -267,14 +299,23 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
 ) {
   const sql = yield* SqlClient.SqlClient;
   const [byId] = yield* projects(() => sql`WHERE project_id = ${ref}`);
-  if (byId) return byId;
+
+  if (byId) {
+    return byId;
+  }
   const byTitle = yield* projects(
     () => sql`WHERE title = ${ref} ORDER BY deleted_at IS NOT NULL`
   );
+
   const live = byTitle.filter((p) => p.deletedAt === null);
   const candidates = live.length > 0 ? live : byTitle;
   const [only, ...rest] = candidates;
-  if (only === undefined) return yield* new ProjectNotFound({ ref });
-  if (rest.length === 0) return only;
+
+  if (only === undefined) {
+    return yield* new ProjectNotFound({ ref });
+  }
+  if (rest.length === 0) {
+    return only;
+  }
   return yield* new AmbiguousProject({ ref, candidates });
 });

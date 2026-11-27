@@ -63,7 +63,10 @@ describe("a signed request", () => {
   test("is taken once when its nonce is one the spoke handed out, and says what it asks for", () => {
     const first = verdict(request());
     expect(first.ok).toBe(true);
-    if (!first.ok) return;
+
+    if (!first.ok) {
+      return;
+    }
     expect(first.do).toBe("update");
     expect(verdict(request(), first.challenges)).toEqual({
       ok: false,
@@ -110,6 +113,7 @@ describe("a signed request", () => {
       ...request(signRequest(other, new Date(NOW), NONCE, "update")),
       key: fingerprint(KEY),
     };
+
     expect(verdict(forged)).toEqual({
       ok: false,
       why: "the signature does not match",
@@ -129,10 +133,12 @@ describe("a signed request", () => {
 
   test("signed for an update, cannot be sent as a pairing request, because the action is signed", () => {
     const r = request();
+
     const asPair = {
       ...r,
       body: r.body.replace('"do":"update"', '"do":"pair"'),
     };
+
     expect(asPair.body).toContain('"do":"pair"');
     expect(verdict(asPair)).toEqual({
       ok: false,
@@ -144,6 +150,7 @@ describe("a signed request", () => {
     const pair = verdict(
       request(signRequest(hub, new Date(NOW), NONCE, "pair"))
     );
+
     expect(pair.ok && pair.do).toBe("pair");
   });
 
@@ -158,6 +165,7 @@ describe("a signed request", () => {
       ok: false,
       why: "the request is too old or too new",
     } as const;
+
     expect(verdict(request(), handedOut, NOW + WINDOW_MS + 1)).toEqual(stale);
     expect(verdict(request(), handedOut, NOW - WINDOW_MS - 1)).toEqual(stale);
   });
@@ -171,20 +179,24 @@ describe("a signed request", () => {
       const signed = signRequest(hub, new Date(NOW), NONCE, "update");
       const body = JSON.stringify({ at, nonce, ...rest });
       const signature = sign(null, Buffer.from(body), hub);
+
       return verdict({
         body,
         key: signed.headers["x-devbox-key"],
         signature: signature.toString("base64url"),
       });
     };
+
     expect(bad("yesterday", NONCE)).toEqual({
       ok: false,
       why: "the request is too old or too new",
     });
+
     const shapeless = {
       ok: false,
       why: "the body is not a signed request",
     } as const;
+
     expect(bad(new Date(NOW).toISOString(), "short")).toEqual(shapeless);
     expect(bad(new Date(NOW).toISOString(), NONCE, {})).toEqual(shapeless);
     expect(bad(new Date(NOW).toISOString(), NONCE, { do: 7 })).toEqual(
@@ -200,19 +212,24 @@ describe("the challenges a spoke hands out", () => {
       "nonce-fedcba9876543210",
       NOW + 2 * WINDOW_MS
     );
+
     expect([...later.keys()]).toEqual(["nonce-fedcba9876543210"]);
   });
 
   test(`keep at most ${MAX_CHALLENGES}, so the 65th drops the oldest`, () => {
     let challenges: Challenges = new Map();
-    for (let n = 1; n <= MAX_CHALLENGES + 1; n += 1)
+
+    for (let n = 1; n <= MAX_CHALLENGES + 1; n += 1) {
       challenges = handOut(challenges, nonceNumber(n), NOW);
+    }
     expect(challenges.size).toBe(MAX_CHALLENGES);
+
     const answering = (nonce: string) =>
       verdict(
         request(signRequest(hub, new Date(NOW), nonce, "update")),
         challenges
       ).ok;
+
     expect(answering(nonceNumber(1))).toBe(false);
     expect(answering(nonceNumber(2))).toBe(true);
     expect(answering(nonceNumber(MAX_CHALLENGES + 1))).toBe(true);
@@ -254,6 +271,7 @@ describe("vitals", () => {
       memory: { total: 1, available: 2 },
       disk: { blocks: 0, free: 0, blockSize: 4096 },
     });
+
     expect(v.load).toBe(0);
     expect(v.memory.used).toBe(0);
   });
@@ -263,6 +281,7 @@ describe("vitals", () => {
       token: "run-token",
       url: "https://t3-edge-7.example.com",
     });
+
     const taken = verifyRequest(
       {
         body: signed.body,
@@ -273,11 +292,13 @@ describe("vitals", () => {
       NOW,
       handOut(new Map(), NONCE, NOW)
     );
+
     expect(taken).toMatchObject({
       ok: true,
       do: "tunnel",
       fields: { token: "run-token", url: "https://t3-edge-7.example.com" },
     });
+
     const changed = verifyRequest(
       {
         body: signed.body.replace("t3-edge-7", "t3-edge-8"),
@@ -288,6 +309,7 @@ describe("vitals", () => {
       NOW,
       handOut(new Map(), NONCE, NOW)
     );
+
     expect(changed).toEqual({ ok: false, why: "the signature does not match" });
   });
 });

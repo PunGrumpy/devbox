@@ -66,6 +66,7 @@ const Channel = Schema.String.pipe(
 );
 
 export const SUPERVISORS = ["auto", "system", "user", "detached"] as const;
+
 export type Supervisor = (typeof SUPERVISORS)[number];
 
 export const serveFlags = {
@@ -218,8 +219,10 @@ export const serveConfig = (flags: ServeFlags, home: AbsolutePath) =>
       onNone: () => home,
       onSome: (d) => absolutePath(d),
     });
+
     const under = (value: Option.Option<string>, fallback: string) =>
       absolutePath(Option.getOrElse(value, () => join(data, fallback)));
+
     return {
       data,
       port: flags.port,
@@ -238,12 +241,14 @@ export const machineConfig = (
   agents: AgentChoice
 ) =>
   Effect.gen(function* () {
-    if (flags.trust.length > 0 && !flags.spoke)
+    if (flags.trust.length > 0 && !flags.spoke) {
       return yield* new UsageError({
         message: "--trust needs --spoke",
         hint: "the spoke is what takes updates from a hub",
       });
+    }
     const config = yield* serveConfig(flags, home);
+
     return {
       ...config,
       name: Option.getOrElse(flags.name, () => hostname),
@@ -317,4 +322,5 @@ export const MachineFile = Schema.Struct({
   baseDir: Schema.String,
   t3: Schema.String,
 });
+
 export type MachineFile = typeof MachineFile.Type;

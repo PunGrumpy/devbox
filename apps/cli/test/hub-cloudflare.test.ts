@@ -58,6 +58,7 @@ const piped = async (
 ) => {
   const out: Array<string> = [];
   const err: Array<string> = [];
+
   const output = Output.make({
     stdout: (text) => out.push(text),
     stderr: (text) => err.push(text),
@@ -67,10 +68,12 @@ const piped = async (
     readAnswer: Effect.die("no terminal in tests"),
     pickMany: () => Effect.die("no terminal in tests"),
   });
+
   const stdio = Stdio.layerTest({
     stdin: Stream.make(new TextEncoder().encode(stdin)),
     stdinIsTerminal: Effect.succeed(false),
   });
+
   const code = await Effect.runPromise(
     runCli(args).pipe(
       Effect.provide(
@@ -90,12 +93,14 @@ const piped = async (
       )
     )
   );
+
   return { code, out: out.join(""), err: err.join("") };
 };
 
 const withCloudflare = (cf: FakeCloudflare = makeCloudflare()) => {
   const m = makeMachine();
   m.answer = (url, request) => cf.answer(url, request);
+
   return { m, cf };
 };
 
@@ -119,17 +124,20 @@ const tokenAnswer = (access: string, refresh: string): Answer => ({
 
 const tokenEndpoint = (answer: Answer, delayMs = 0) => {
   const sent: Array<Readonly<Record<string, string>>> = [];
+
   const post: PostForm = (_, form) =>
     Effect.sync(() => sent.push(form)).pipe(
       Effect.andThen(Effect.sleep(delayMs)),
       Effect.as(answer)
     );
+
   return { post, sent };
 };
 
 const logIn = async (m: FakeMachine, flags: ReadonlyArray<string> = []) => {
   const out: Array<string> = [];
   const err: Array<string> = [];
+
   const output = Output.make({
     stdout: (text) => out.push(text),
     stderr: (text) => err.push(text),
@@ -139,8 +147,10 @@ const logIn = async (m: FakeMachine, flags: ReadonlyArray<string> = []) => {
     readAnswer: Effect.die("no terminal in tests"),
     pickMany: () => Effect.die("no terminal in tests"),
   });
+
   const port = await Effect.runPromise(freePort);
   const { post } = tokenEndpoint(tokenAnswer(OAUTH_ACCESS, OAUTH_REFRESH));
+
   const root = Command.make("devbox").pipe(
     Command.withSubcommands([
       loginCommand(saveLogin, {
@@ -151,6 +161,7 @@ const logIn = async (m: FakeMachine, flags: ReadonlyArray<string> = []) => {
       }),
     ])
   );
+
   const done = Effect.runPromise(
     Command.runWith(root, { version: "0" })([
       "login",
@@ -162,6 +173,7 @@ const logIn = async (m: FakeMachine, flags: ReadonlyArray<string> = []) => {
       Effect.catch((error) =>
         Effect.gen(function* () {
           yield* (yield* Output).error(error.message, hintOf(error));
+
           return 1;
         })
       ),
@@ -181,14 +193,22 @@ const logIn = async (m: FakeMachine, flags: ReadonlyArray<string> = []) => {
       )
     )
   );
+
   let address: string | undefined;
+
   for (let tries = 0; tries < 200 && address === undefined; tries += 1) {
     address = /^ {2}(http\S+)$/m.exec(err.join(""))?.[1];
-    if (address === undefined) await Bun.sleep(10);
+
+    if (address === undefined) {
+      await Bun.sleep(10);
+    }
   }
+
   const state =
     new URL(address ?? "http://127.0.0.1/").searchParams.get("state") ?? "";
+
   await fetch(`http://127.0.0.1:${port}/callback?code=${CODE}&state=${state}`);
+
   return { code: await done, out: out.join(""), err: err.join("") };
 };
 
@@ -235,6 +255,7 @@ describe("devbox hub cloudflare", () => {
       ).out
     ).toBe("No Cloudflare login is saved.\n");
     await saveToken(m);
+
     const status = await devbox(
       { HOME: m.home },
       ["hub", "cloudflare", "status"],
@@ -242,6 +263,7 @@ describe("devbox hub cloudflare", () => {
         host: m.host,
       }
     );
+
     expect(status.code).toBe(0);
     expect(status.out).toBe(
       `Cloudflare: token, zone example.com, account ${ACCOUNT.id}.\n`
@@ -253,6 +275,7 @@ describe("devbox hub cloudflare", () => {
     const m = makeMachine();
     const account = oauthAccount(Date.parse("2026-11-27T13:00:00.000Z"));
     await runWith(m.host, saveCloudflare(m.home, account));
+
     const status = await devbox(
       { HOME: m.home },
       ["hub", "cloudflare", "status"],
@@ -260,12 +283,15 @@ describe("devbox hub cloudflare", () => {
         host: m.host,
       }
     );
+
     expect(status.code).toBe(0);
     expect(status.out).toBe(
       `Cloudflare: oauth with client ${CLIENT}, zone example.com, account ${ACCOUNT.id}, access until 2026-11-27T13:00:00.000Z.\n`
     );
-    for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH])
+
+    for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH]) {
       expect(`${status.out}${status.err}`).not.toContain(secret);
+    }
   });
 
   test("login signs in with OAuth and saves the account and zone Cloudflare offers", async () => {
@@ -287,12 +313,15 @@ describe("devbox hub cloudflare", () => {
       zone: "example.com",
     });
     expect(cf.calls.map((c) => c.path)).toEqual(["/accounts", "/zones"]);
-    for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH, CODE])
+
+    for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH, CODE]) {
       expect(`${signedIn.out}${signedIn.err}`).not.toContain(secret);
+    }
   });
 
   test("login with two accounts or two zones asks for the flag, and saves only once it has one", async () => {
     const other = { id: "acc0000000000000000000000000002", name: "Work" };
+
     const { m } = withCloudflare(
       makeCloudflare({
         bearer: OAUTH_ACCESS,
@@ -307,6 +336,7 @@ describe("devbox hub cloudflare", () => {
         ],
       })
     );
+
     const accounts = await logIn(m);
     expect(accounts.code).toBe(1);
     expect(accounts.err).toContain("pass --account <id> to pick one");
@@ -318,37 +348,45 @@ describe("devbox hub cloudflare", () => {
     );
     expect(zones.err).toContain("pass --zone <domain> to pick one");
     expect(existsSync(cloudflareFile(m.home))).toBe(false);
+
     const picked = await logIn(m, [
       "--account",
       ACCOUNT.id,
       "--zone",
       "Example.ORG",
     ]);
+
     expect(picked.code).toBe(0);
     expect(savedFile(m)).toMatchObject({
       login: { kind: "oauth" },
       zone: "example.org",
       zoneId: "zone000000000000000000000000002",
     });
-    for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH, CODE])
+
+    for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH, CODE]) {
       expect(`${accounts.err}${zones.err}${picked.err}`).not.toContain(secret);
+    }
   });
 
   test("logout deletes the file", async () => {
     const { m } = withCloudflare();
     await saveToken(m);
+
     const out = await devbox(
       { HOME: m.home },
       ["hub", "cloudflare", "logout"],
       { host: m.host }
     );
+
     expect(out.code).toBe(0);
     expect(existsSync(cloudflareFile(m.home))).toBe(false);
+
     const again = await devbox(
       { HOME: m.home },
       ["hub", "cloudflare", "logout"],
       { host: m.host }
     );
+
     expect(again.out).toBe("No Cloudflare login was saved.\n");
   });
 
@@ -366,11 +404,13 @@ describe("devbox hub cloudflare", () => {
 
   test("the token comes from stdin only, never an argument", async () => {
     const { m } = withCloudflare();
+
     const argued = await piped(
       m,
       ["hub", "cloudflare", "token", CLOUDFLARE_TOKEN],
       ""
     );
+
     expect(argued.code).not.toBe(0);
     expect(existsSync(cloudflareFile(m.home))).toBe(false);
     const empty = await piped(m, ["hub", "cloudflare", "token"], "\n");
@@ -380,6 +420,7 @@ describe("devbox hub cloudflare", () => {
 
   test("with two accounts or two zones, it asks for the flag and names the choices", async () => {
     const other = { id: "acc0000000000000000000000000002", name: "Work" };
+
     const { m } = withCloudflare(
       makeCloudflare({
         accounts: [ACCOUNT, other],
@@ -393,6 +434,7 @@ describe("devbox hub cloudflare", () => {
         ],
       })
     );
+
     const accounts = await saveToken(m);
     expect(accounts.code).toBe(2);
     expect(accounts.err).toContain(
@@ -404,20 +446,24 @@ describe("devbox hub cloudflare", () => {
     expect(zones.err).toContain(
       "the token sees 2 zones: example.com, example.org"
     );
+
     const unknown = await saveToken(m, [
       "--account",
       ACCOUNT.id,
       "--zone",
       "example.net",
     ]);
+
     expect(unknown.code).toBe(2);
     expect(unknown.err).toContain("the token sees no zone example.net");
+
     const picked = await saveToken(m, [
       "--account",
       ACCOUNT.id,
       "--zone",
       "Example.ORG",
     ]);
+
     expect(picked.code).toBe(0);
     expect(
       JSON.parse(readFileSync(cloudflareFile(m.home), "utf8"))
@@ -435,6 +481,7 @@ const savedWith = async (endsInMs: number) => {
   const m = makeMachine();
   const account = oauthAccount(Date.now() + endsInMs);
   await runWith(m.host, saveCloudflare(m.home, account));
+
   return { m, account };
 };
 
@@ -472,8 +519,10 @@ describe("an OAuth login the hub calls Cloudflare with", () => {
         refreshToken: NEW_REFRESH,
       },
     });
-    if (saved.login.kind !== "oauth")
+
+    if (saved.login.kind !== "oauth") {
       throw new Error("expected an OAuth login");
+    }
     expect(Date.parse(saved.login.expiresAt) - Date.now()).toBeGreaterThan(
       3_500_000
     );
@@ -482,6 +531,7 @@ describe("an OAuth login the hub calls Cloudflare with", () => {
 
   test("that Cloudflare refuses to renew fails, says to sign in again, and holds no token", async () => {
     const { m, account } = await savedWith(60_000);
+
     const { post } = tokenEndpoint({
       status: 401,
       body: JSON.stringify({
@@ -489,23 +539,29 @@ describe("an OAuth login the hub calls Cloudflare with", () => {
         error_description: OAUTH_REFRESH,
       }),
     });
+
     const error = (
       await runWith(m.host, Effect.flip(bearerOf(m.home, account, post)))
     ).value;
+
     expect(error.message).toBe(
       `Cloudflare refused to renew the hub's login (401, invalid_grant); sign in again with \`devbox hub cloudflare login --client-id ${CLIENT}\``
     );
-    for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH])
+
+    for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH]) {
       expect(`${error.message} ${error.hint}`).not.toContain(secret);
+    }
     expect(savedFile(m)).toEqual(account);
   });
 
   test("needed by two requests at once is renewed once", async () => {
     const { m, account } = await savedWith(60_000);
+
     const { post, sent } = tokenEndpoint(
       tokenAnswer(NEW_ACCESS, NEW_REFRESH),
       50
     );
+
     const bearers = await runWith(
       m.host,
       Effect.all(
@@ -515,6 +571,7 @@ describe("an OAuth login the hub calls Cloudflare with", () => {
         }
       )
     );
+
     expect(bearers.value).toEqual([NEW_ACCESS, NEW_ACCESS]);
     expect(sent).toHaveLength(1);
   });
@@ -586,8 +643,9 @@ const ask = (
   );
 
 const replied = (routed: ReturnType<typeof ask>): Reply => {
-  if (!("status" in routed))
+  if (!("status" in routed)) {
     throw new Error(`asked ${routed.ask} instead of replying`);
+  }
   return routed;
 };
 
@@ -608,6 +666,7 @@ describe("the tunnel routes pass the same admission step as update and pair", ()
         authorization: `Bearer ${TOKEN}`,
         origin: "https://example.com",
       });
+
       expect(replied(routed).status).toBe(403);
     });
 
@@ -666,7 +725,7 @@ const node = (name: string, ip: string) => ({
   Online: true,
 });
 
-for (const kind of ["token", "oauth"] as const)
+for (const kind of ["token", "oauth"] as const) {
   describe(`devbox hub with a Cloudflare ${kind} login`, async () => {
     const cf = makeCloudflare({
       bearer: kind === "token" ? CLOUDFLARE_TOKEN : OAUTH_ACCESS,
@@ -885,6 +944,7 @@ for (const kind of ["token", "oauth"] as const)
       expect(cf.calls.length).toBe(from);
     });
   });
+}
 
 const settings = (
   method: string,
@@ -904,8 +964,9 @@ const settings = (
 
 describe("the Cloudflare login over the hub's API", () => {
   test("needs a login before it says anything, whatever the method", () => {
-    for (const method of ["GET", "PUT", "DELETE", "POST"])
+    for (const method of ["GET", "PUT", "DELETE", "POST"]) {
       expect(replied(settings(method, "", {})).status).toBe(401);
+    }
   });
 
   test("is refused to a page on another site, even with the token: 403", () => {
@@ -918,6 +979,7 @@ describe("the Cloudflare login over the hub's API", () => {
           origin: "https://example.com",
         }
       );
+
       expect(replied(routed).status).toBe(403);
     }
   });
@@ -931,11 +993,13 @@ describe("the Cloudflare login over the hub's API", () => {
       account: Option.none(),
       zone: Option.none(),
     });
+
     const named = JSON.stringify({
       token: CLOUDFLARE_TOKEN,
       account: ACCOUNT.id,
       zone: "example.org",
     });
+
     expect(settings("PUT", named)).toEqual({
       ask: "connect",
       token: CLOUDFLARE_TOKEN,
@@ -946,6 +1010,7 @@ describe("the Cloudflare login over the hub's API", () => {
 
   test("DELETE asks to disconnect, and any other method: 405", () => {
     expect(settings("DELETE")).toEqual({ ask: "disconnect" });
+
     for (const method of ["GET", "POST", "PATCH"]) {
       const r = replied(settings(method));
       expect(r.status).toBe(405);
@@ -982,6 +1047,7 @@ describe("the Cloudflare login over the hub's API", () => {
 
 describe("devbox hub, connected to Cloudflare from its page", async () => {
   const work = { id: "acc0000000000000000000000000002", name: "Work" };
+
   const cf = makeCloudflare({
     accounts: [ACCOUNT, work],
     zones: [
@@ -993,10 +1059,12 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
       },
     ],
   });
+
   const m = makeMachine();
   m.answer = (url, request) => cf.answer(url, request);
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
+
   const hub = start(
     { HOME: m.home },
     ["hub", "--port", String(port), "--ui", empty],
@@ -1004,13 +1072,17 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
       host: m.host,
     }
   );
-  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1)
+
+  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
+  }
   afterAll(() => hub.stop());
   const base = `http://127.0.0.1:${port}`;
+
   const token = (
     await devbox({ HOME: m.home }, ["hub", "token"], { host: m.host })
   ).out.trim();
+
   const page = { authorization: `Bearer ${token}`, origin: base };
   const replies: Array<string> = [];
 
@@ -1022,8 +1094,10 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
         ? {}
         : { body: typeof body === "string" ? body : JSON.stringify(body) }),
     });
+
     const text = await response.text();
     replies.push(text);
+
     return {
       status: response.status,
       json: text === "" ? undefined : JSON.parse(text),
@@ -1034,7 +1108,9 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
     const text = await (
       await fetch(`${base}/api/machines`, { headers: page })
     ).text();
+
     replies.push(text);
+
     return (JSON.parse(text) as HubSnapshot).cloudflare;
   };
 
@@ -1075,6 +1151,7 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
       account: ACCOUNT.id,
       zone: "Example.ORG",
     });
+
     expect(saved).toEqual({
       status: 200,
       json: { zone: "example.org", kind: "token" },
@@ -1089,10 +1166,12 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
 
   test("a token Cloudflare refuses: 502 with what Cloudflare said, and the saved login stays", async () => {
     cf.refuse = () => `Invalid API Token ${CLOUDFLARE_TOKEN}`;
+
     const refused = await send("PUT", {
       token: CLOUDFLARE_TOKEN,
       account: ACCOUNT.id,
     });
+
     cf.refuse = () => undefined;
     expect(refused).toEqual({
       status: 502,
@@ -1120,6 +1199,7 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
 
   test("the token is in no reply and never in the hub's log", () => {
     expect(replies.length).toBeGreaterThan(5);
+
     for (const text of [...replies, hub.err(), hub.out()]) {
       expect(text).not.toContain(CLOUDFLARE_TOKEN);
       expect(text).not.toContain(token);
@@ -1130,6 +1210,7 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
 describe("a request devbox makes", () => {
   test("gives any status with its body, and nothing for an answer too large to read", async () => {
     const port = await Effect.runPromise(freePort);
+
     const server = http.createServer((req, res) => {
       if (req.url === "/huge") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -1139,13 +1220,16 @@ describe("a request devbox makes", () => {
         res.end(JSON.stringify({ success: false, method: req.method }));
       }
     });
+
     await new Promise<void>((resolve) =>
       server.listen(port, "127.0.0.1", resolve)
     );
+
     const request = (path: string) =>
       Effect.runPromise(
         Effect.gen(function* () {
           const host = yield* Host;
+
           return yield* host.request(
             `http://127.0.0.1:${port}${path}`,
             { method: "DELETE" },
@@ -1153,6 +1237,7 @@ describe("a request devbox makes", () => {
           );
         }).pipe(Effect.provide(Host.layer))
       );
+
     try {
       expect(await request("/missing")).toEqual(
         Option.some({

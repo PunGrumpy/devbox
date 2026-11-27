@@ -73,6 +73,7 @@ const TailscaleNode = Schema.Struct({
   Online: Schema.optional(Schema.Boolean),
   LastSeen: Schema.optional(Schema.String),
 });
+
 type TailscaleNode = typeof TailscaleNode.Type;
 
 const TailscaleStatus = Schema.fromJsonString(
@@ -103,6 +104,7 @@ const T3Link = Schema.Struct({
   expiresAt: Schema.String,
   status: Schema.String,
 });
+
 export type T3Link = typeof T3Link.Type;
 
 const T3Links = Schema.fromJsonString(Schema.Array(T3Link));
@@ -134,10 +136,19 @@ const kindOf = (
   virt: string
 ): MachineKind => {
   const os = machine.tailscale?.os.toLowerCase();
-  if (machine.here && virt === "wsl") return "wsl";
-  if (os === "windows") return platform === "linux" ? "wsl" : "windows";
-  if (os === "macos") return "mac";
-  if (machine.here) return virt === BARE_METAL ? "computer" : "vm";
+
+  if (machine.here && virt === "wsl") {
+    return "wsl";
+  }
+  if (os === "windows") {
+    return platform === "linux" ? "wsl" : "windows";
+  }
+  if (os === "macos") {
+    return "mac";
+  }
+  if (machine.here) {
+    return virt === BARE_METAL ? "computer" : "vm";
+  }
   return machine.tailscale === null ? "remote" : "computer";
 };
 
@@ -162,8 +173,9 @@ const stateOf = (
   if (
     machine.t3 !== null &&
     (machine.t3.latencyMs !== null || machine.t3.link?.status === "reachable")
-  )
+  ) {
     return "t3";
+  }
   return machine.here || machine.tailscale?.online === true
     ? "online"
     : "offline";
@@ -192,14 +204,21 @@ export const merge = (
     ...s,
     t3: s.t3 === null ? null : { ...s.t3, link: null },
   }));
+
   const unmatched: Array<T3Link> = [];
+
   for (const link of links) {
     const owner = drafts.find(
       (d) => d.t3?.environmentId === link.environmentId
     );
-    if (owner === undefined || owner.t3 === null) unmatched.push(link);
-    else owner.t3 = { ...owner.t3, link: summary(link) };
+
+    if (owner === undefined || owner.t3 === null) {
+      unmatched.push(link);
+    } else {
+      owner.t3 = { ...owner.t3, link: summary(link) };
+    }
   }
+
   for (const link of unmatched) {
     const t3: T3 = {
       environmentId: link.environmentId,
@@ -209,13 +228,15 @@ export const merge = (
       latencyMs: null,
       link: summary(link),
     };
+
     const node = drafts.find(
       (d) =>
         d.tailscale !== null &&
         d.t3 === null &&
         compareNames(d.name, link.label) === 0
     );
-    if (node === undefined)
+
+    if (node === undefined) {
       drafts.push({
         name: link.label,
         here: false,
@@ -224,8 +245,11 @@ export const merge = (
         platform: null,
         spoke: null,
       });
-    else node.t3 = t3;
+    } else {
+      node.t3 = t3;
+    }
   }
+
   return drafts
     .map((d): Machine => ({
       name: d.name,
@@ -249,13 +273,16 @@ const trustOf = (
   spoke: SpokeAnswer | null,
   hubKey: string | undefined
 ): Machine["spoke"] => {
-  if (spoke === null || hubKey === undefined) return null;
+  if (spoke === null || hubKey === undefined) {
+    return null;
+  }
   return spoke.trusts.includes(hubKey) ? "trusted" : "untrusted";
 };
 
 const tailnetOf = (node: TailscaleNode, here: boolean): Seen => {
   const ips = node.TailscaleIPs ?? [];
   const online = here || node.Online === true;
+
   return {
     name: node.HostName,
     here,
@@ -278,14 +305,21 @@ const tailnetOf = (node: TailscaleNode, here: boolean): Seen => {
 // Under WSL the Windows client is the one on PATH.
 const tailnet = Effect.gen(function* () {
   const host = yield* Host;
+
   const bin = (yield* host.which("tailscale"))
     ? "tailscale"
     : (yield* host.which("tailscale.exe"))
       ? "tailscale.exe"
       : undefined;
-  if (bin === undefined) return Option.none<ReadonlyArray<Seen>>();
+
+  if (bin === undefined) {
+    return Option.none<ReadonlyArray<Seen>>();
+  }
   const ran = yield* host.run([bin, "status", "--json"], { timeoutMs: 5000 });
-  if (ran.code !== 0) return Option.none<ReadonlyArray<Seen>>();
+
+  if (ran.code !== 0) {
+    return Option.none<ReadonlyArray<Seen>>();
+  }
   return Schema.decodeUnknownOption(TailscaleStatus)(ran.stdout).pipe(
     Option.map((status) =>
       [
@@ -316,8 +350,13 @@ export const spokeAddresses = (
   machine: Pick<Machine, "here" | "tailscale">
 ): ReadonlyArray<string> => {
   const { tailscale } = machine;
-  if (tailscale === null) return [LOOPBACK];
-  if (!tailscale.online || tailscale.ip === "") return [];
+
+  if (tailscale === null) {
+    return [LOOPBACK];
+  }
+  if (!tailscale.online || tailscale.ip === "") {
+    return [];
+  }
   return machine.here ? [tailscale.ip, LOOPBACK] : [tailscale.ip];
 };
 
@@ -326,16 +365,22 @@ const PROBE_MS = 2000;
 const askSpoke = (seen: Seen, port: number) =>
   Effect.gen(function* () {
     const host = yield* Host;
+
     for (const address of spokeAddresses(seen)) {
       const fetched = yield* host.fetchText(
         `${origin(address, port)}/api/spoke`,
         PROBE_MS
       );
+
       const answer = Option.flatMap(fetched, ({ body }) =>
         Schema.decodeUnknownOption(SpokeAnswer)(body)
       );
-      if (Option.isSome(answer)) return answer.value;
+
+      if (Option.isSome(answer)) {
+        return answer.value;
+      }
     }
+
     return null;
   });
 
@@ -344,8 +389,10 @@ const probe = (seen: Seen, port: number, spokePort: number) =>
     const host = yield* Host;
     const { tailscale } = seen;
     const address = tailscale === null ? LOOPBACK : tailscale.ip;
-    if (tailscale !== null && (!tailscale.online || address === ""))
+
+    if (tailscale !== null && (!tailscale.online || address === "")) {
       return seen;
+    }
     const [fetched, spoke] = yield* Effect.all(
       [
         host.fetchText(
@@ -356,6 +403,7 @@ const probe = (seen: Seen, port: number, spokePort: number) =>
       ],
       { concurrency: 2 }
     );
+
     return Option.match(
       Option.flatMap(fetched, ({ body, ms }) =>
         Option.map(Schema.decodeUnknownOption(Descriptor)(body), (d) => ({
@@ -388,12 +436,18 @@ const SERVER = new RegExp(LINUX_T3_SERVER);
 
 const t3Binary = (flag: Option.Option<string>) =>
   Effect.gen(function* () {
-    if (Option.isSome(flag)) return flag;
+    if (Option.isSome(flag)) {
+      return flag;
+    }
     const host = yield* Host;
-    if (yield* host.which("t3")) return Option.some("t3");
+
+    if (yield* host.which("t3")) {
+      return Option.some("t3");
+    }
     const running = (yield* host.processes).find((p) =>
       SERVER.test(p.argv.join(" "))
     );
+
     return Option.fromUndefinedOr(running?.argv[0]);
   });
 
@@ -401,11 +455,17 @@ const linksOf = (flag: Option.Option<string>) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const bin = yield* t3Binary(flag);
-    if (Option.isNone(bin)) return [];
+
+    if (Option.isNone(bin)) {
+      return [];
+    }
     const ran = yield* host.run([bin.value, "environment", "list", "--json"], {
       timeoutMs: 10_000,
     });
-    if (ran.code !== 0) return [];
+
+    if (ran.code !== 0) {
+      return [];
+    }
     return Option.getOrElse(
       Schema.decodeUnknownOption(T3Links)(ran.stdout),
       (): ReadonlyArray<T3Link> => []
@@ -429,6 +489,7 @@ export const takeSnapshot = ({
   Effect.gen(function* () {
     const host = yield* Host;
     const nodes = yield* tailnet;
+
     const listed = Option.getOrElse(nodes, (): ReadonlyArray<Seen> => [
       {
         name: host.hostname,
@@ -439,6 +500,7 @@ export const takeSnapshot = ({
         spoke: null,
       },
     ]);
+
     const [seen, links, virt] = yield* Effect.all(
       [
         Effect.forEach(listed, (node) => probe(node, t3Port, spokePort), {
@@ -453,11 +515,13 @@ export const takeSnapshot = ({
       ],
       { concurrency: 3 }
     );
+
     const snapshot: Snapshot = {
       generatedAt: DateTime.formatIso(yield* DateTime.now),
       tailscale: Option.isSome(nodes),
       machines: merge(seen, links, virt, hubKey),
     };
+
     return snapshot;
   });
 
@@ -487,6 +551,7 @@ const TONE: Record<MachineState, Tone> = {
   online: "cyan",
   offline: "gray",
 };
+
 const NONE = { text: "-", tone: "dim" } as const;
 
 const COLUMNS: ReadonlyArray<Column<Machine>> = [
@@ -499,11 +564,12 @@ const COLUMNS: ReadonlyArray<Column<Machine>> = [
   {
     header: "where",
     cell: (m) => {
-      if (m.tailscale !== null)
+      if (m.tailscale !== null) {
         return [
           m.tailscale.dns || m.tailscale.ip,
           { text: ` ${m.tailscale.ip}`, tone: "dim" },
         ];
+      }
       return m.t3?.link?.urls[0] ?? NONE;
     },
   },
@@ -534,11 +600,15 @@ export const machines = Command.make(
     Effect.gen(function* () {
       const out = yield* Output;
       const snapshot = yield* takeSnapshot({ t3, t3Port, spokePort });
-      if (json) return yield* out.json(snapshot);
-      if (!snapshot.tailscale)
+
+      if (json) {
+        return yield* out.json(snapshot);
+      }
+      if (!snapshot.tailscale) {
         yield* out.note(
           "Tailscale did not answer, so this lists only this machine and its links"
         );
+      }
       yield* out.table(COLUMNS, snapshot.machines);
     })
 ).pipe(

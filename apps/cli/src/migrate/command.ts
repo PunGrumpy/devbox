@@ -50,8 +50,10 @@ export const inMigrate = <A, E, R>(
     );
     const target = yield* resolveTarget(flags.db);
     const homes = ClaudeHomes.layer(flags.claudeHome);
+
     const files =
       target._tag === "Live" ? ClaudeFiles.layer : ClaudeFiles.layerRehearsal;
+
     return yield* run(target).pipe(
       Effect.provide(Layer.provideMerge(files, homes))
     );

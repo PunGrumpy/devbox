@@ -42,6 +42,7 @@ export type SelfKind = "vm" | "wsl" | "computer" | "mac";
 const NonNegative = Schema.Number.pipe(
   Schema.check(Schema.isGreaterThanOrEqualTo(0))
 );
+
 const Used = Schema.Struct({ used: NonNegative, total: NonNegative });
 
 /** `GET /api/spoke`, parsed where the hub reads it. */
@@ -52,4 +53,5 @@ export const SpokeAnswer = Schema.fromJsonString(
     trusts: Schema.Array(Schema.String),
   })
 );
+
 export type SpokeAnswer = typeof SpokeAnswer.Type;

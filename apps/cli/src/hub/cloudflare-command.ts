@@ -25,9 +25,12 @@ const MAX_TOKEN_CHARS = 1024;
 const tokenFromStdin = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio;
   const out = yield* Output;
-  if (yield* stdio.stdinIsTerminal)
+
+  if (yield* stdio.stdinIsTerminal) {
     yield* out.note("paste the API token, then press Enter and Ctrl-D");
+  }
   const decoder = new TextDecoder();
+
   const text = yield* Stream.runFold(
     stdio.stdin,
     () => "",
@@ -36,12 +39,15 @@ const tokenFromStdin = Effect.gen(function* () {
         ? read
         : read + decoder.decode(chunk, { stream: true })
   ).pipe(Effect.orElseSucceed(() => ""));
+
   const token = text.trim();
-  if (!Schema.is(ApiToken)(token))
+
+  if (!Schema.is(ApiToken)(token)) {
     return yield* new UsageError({
       message: "expected one Cloudflare API token on stdin",
       hint: "pipe it in, for example `devbox hub cloudflare token < token-file`",
     });
+  }
   return token;
 });
 
@@ -55,7 +61,8 @@ const asCommandError = ({ what, choices, named }: PickOne) => {
   const listed = choices
     .map((c) => (what === "account" ? `${c.id} (${c.name})` : c.name))
     .join(", ");
-  if (named !== undefined)
+
+  if (named !== undefined) {
     return new UsageError({
       message: `the token sees no ${what} ${named}`,
       hint:
@@ -63,11 +70,13 @@ const asCommandError = ({ what, choices, named }: PickOne) => {
           ? "give the token access to one"
           : `it sees ${listed}`,
     });
-  if (choices.length === 0)
+  }
+  if (choices.length === 0) {
     return new CloudflareFailed({
       message: `the token sees no ${what}`,
       hint: `give it access to the ${what} that holds your domain`,
     });
+  }
   return new UsageError({
     message: `the token sees ${choices.length} ${what}s: ${listed}`,
     hint: `pass ${FLAG[what]} to pick one`,
@@ -95,9 +104,11 @@ const tokenCommand = Command.make(
       const out = yield* Output;
       const { home } = yield* Locations;
       const token = yield* tokenFromStdin;
+
       const saved = yield* saveToken(home, token, wanted).pipe(
         Effect.catchTag("PickOne", (pick) => Effect.fail(asCommandError(pick)))
       );
+
       yield* out.success(`saved a Cloudflare API token for ${saved.zone}`);
     })
 ).pipe(
@@ -110,12 +121,14 @@ const tokenCommand = Command.make(
 export const saveLogin = ({ clientId, tokens, account, zone }: SignedIn) =>
   Effect.gen(function* () {
     const { home } = yield* Locations;
+
     const place = yield* placeOf(cloudflareApi(tokens.accessToken), {
       account,
       zone,
     }).pipe(
       Effect.catchTag("PickOne", (pick) => Effect.fail(asCommandError(pick)))
     );
+
     yield* saveCloudflare(home, {
       login: { kind: "oauth", clientId, ...tokens },
       ...place,
@@ -126,13 +139,18 @@ const statusCommand = Command.make("status", {}, () =>
   Effect.gen(function* () {
     const out = yield* Output;
     const saved = yield* loadCloudflare((yield* Locations).home);
-    if (Option.isNone(saved))
+
+    if (Option.isNone(saved)) {
       return yield* out.stdout("No Cloudflare login is saved.\n");
+    }
     const { login, zone, accountId } = saved.value;
+
     const kind =
       login.kind === "token" ? "token" : `oauth with client ${login.clientId}`;
+
     const ends =
       login.kind === "token" ? "" : `, access until ${login.expiresAt}`;
+
     yield* out.stdout(
       `Cloudflare: ${kind}, zone ${zone}, account ${accountId}${ends}.\n`
     );
@@ -147,14 +165,18 @@ const logoutCommand = Command.make("logout", {}, () =>
   Effect.gen(function* () {
     const out = yield* Output;
     const { home } = yield* Locations;
-    if (!(yield* forgetCloudflare(home)))
+
+    if (!(yield* forgetCloudflare(home))) {
       return yield* out.stdout("No Cloudflare login was saved.\n");
+    }
     yield* out.success("forgot the Cloudflare login");
     const published = Object.keys(yield* loadTunnels(home));
-    if (published.length > 0)
+
+    if (published.length > 0) {
       yield* out.warn(
         `${published.join(", ")} stay on the internet. Save a login again to unpublish them from the hub`
       );
+    }
   })
 ).pipe(Command.withDescription("Delete the hub's Cloudflare login"));
 

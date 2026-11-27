@@ -11,13 +11,16 @@ export const rewriteHeaders = (
   if (
     headers["x-forwarded-host"] === undefined &&
     headers["x-forwarded-proto"] === undefined
-  )
+  ) {
     return headers;
+  }
   const url = new URL(publicUrl);
+
   const forwarded = [headers["x-forwarded-host"]]
     .flat()[0]
     ?.split(",")[0]
     ?.trim();
+
   return {
     ...headers,
     host: forwarded || url.host,
@@ -42,6 +45,7 @@ export const proxy = (options: {
   Effect.acquireRelease(
     Effect.callback<http.Server>((resume) => {
       const { upstream, publicUrl } = options;
+
       const server = http.createServer((req, res) => {
         const forward = http.request(
           {
@@ -56,29 +60,40 @@ export const proxy = (options: {
             reply.pipe(res);
           }
         );
+
         forward.on("error", () => {
-          if (!res.headersSent) res.writeHead(502);
+          if (!res.headersSent) {
+            res.writeHead(502);
+          }
           res.end();
         });
         req.on("error", () => forward.destroy());
         req.pipe(forward);
       });
+
       server.on("upgrade", (req, socket, head) => {
         const forward = net.connect(upstream, "127.0.0.1", () => {
           const lines = [`${req.method} ${req.url} HTTP/1.1`];
+
           for (const [key, value] of Object.entries(
             rewriteHeaders(req.headers, publicUrl)
           )) {
-            for (const v of [value ?? []].flat()) lines.push(`${key}: ${v}`);
+            for (const v of [value ?? []].flat()) {
+              lines.push(`${key}: ${v}`);
+            }
           }
+
           forward.write(`${lines.join("\r\n")}\r\n\r\n`);
           forward.write(head);
           forward.pipe(socket).pipe(forward);
         });
+
         forward.on("error", () => {
-          if (forward.connecting)
+          if (forward.connecting) {
             socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
-          else socket.destroy();
+          } else {
+            socket.destroy();
+          }
         });
         socket.on("error", () => forward.destroy());
       });

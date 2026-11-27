@@ -22,12 +22,15 @@ export class Locations extends Context.Service<
     Locations,
     Effect.gen(function* () {
       const home = absolutePath(Option.getOrElse(yield* env("HOME"), homedir));
+
       const t3Home = absolutePath(
         Option.getOrElse(yield* env("T3_HOME"), () => join(home, ".t3"))
       );
+
       const backupDir = Option.getOrElse(yield* env("T3_BACKUP_DIR"), () =>
         join(t3Home, "backups")
       );
+
       return {
         home,
         liveDb: absolutePath(join(t3Home, "userdata", "statev2.sqlite")),

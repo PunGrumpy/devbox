@@ -67,11 +67,14 @@ const OWNER_ONLY = 0o600;
 export const loadCloudflare = (home: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+
     const text = yield* fs
       .readFileString(cloudflareFile(home))
       .pipe(Effect.option);
+
     return Option.flatMap(text, (t) => {
       const saved = Schema.decodeUnknownOption(Saved)(t);
+
       return Option.map(saved, (account): CloudflareAccount => account);
     });
   });
@@ -108,8 +111,10 @@ export const forgetCloudflare = (home: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = cloudflareFile(home);
-    if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false))))
+
+    if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)))) {
       return false;
+    }
     yield* fs
       .remove(path)
       .pipe(
@@ -117,6 +122,7 @@ export const forgetCloudflare = (home: string) =>
           () => new CloudflareFailed({ message: `cannot delete ${path}` })
         )
       );
+
     return true;
   });
 
@@ -138,18 +144,28 @@ export const bearerOf = (
 ) =>
   Effect.gen(function* () {
     const { login } = account;
-    if (login.kind === "token") return login.token;
-    if (fresh(login, yield* Clock.currentTimeMillis)) return login.accessToken;
+
+    if (login.kind === "token") {
+      return login.token;
+    }
+    if (fresh(login, yield* Clock.currentTimeMillis)) {
+      return login.accessToken;
+    }
     return yield* renewing.withPermits(1)(
       Effect.gen(function* () {
         const saved = Option.getOrElse(
           yield* loadCloudflare(home),
           () => account
         );
+
         const current = saved.login;
-        if (current.kind === "token") return current.token;
-        if (fresh(current, yield* Clock.currentTimeMillis))
+
+        if (current.kind === "token") {
+          return current.token;
+        }
+        if (fresh(current, yield* Clock.currentTimeMillis)) {
           return current.accessToken;
+        }
         const tokens = yield* renew(post, current).pipe(
           Effect.mapError(
             (error) =>
@@ -161,10 +177,12 @@ export const bearerOf = (
               })
           )
         );
+
         yield* saveCloudflare(home, {
           ...saved,
           login: { ...current, ...tokens },
         });
+
         return tokens.accessToken;
       })
     );

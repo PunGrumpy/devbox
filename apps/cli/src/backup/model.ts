@@ -5,6 +5,7 @@ import { Result, Schema } from "effect";
 import { AbsolutePath, absolutePath } from "../migrate/paths.ts";
 
 export const RESTIC_TAG = "agent-backup";
+
 export const KEEP = [
   "--keep-daily",
   "7",
@@ -13,11 +14,13 @@ export const KEEP = [
   "--keep-monthly",
   "6",
 ] as const;
+
 export const SQLITE_HEADER = "SQLite format 3\0";
 
 const SourceName = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/))
 );
+
 const SourceLocation = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^(?:~(?:\/.*)?|\$DATA(?:\/.*)?|\/.*)$/))
 );
@@ -28,6 +31,7 @@ const SourceLine = Schema.Struct({
 });
 
 export const Source = Schema.Struct({ name: SourceName, path: AbsolutePath });
+
 export type Source = typeof Source.Type;
 
 export const MANIFEST = ".manifest.json";
@@ -37,6 +41,7 @@ export const ManifestEntry = Schema.Struct({
   path: Schema.String,
   relative: Schema.String,
 });
+
 export type ManifestEntry = typeof ManifestEntry.Type;
 
 export const Manifest = Schema.Array(ManifestEntry);
@@ -64,10 +69,14 @@ const expand = (location: string, home: string, data: string) => {
     ["~", home],
     ["$DATA", data],
   ] as const) {
-    if (location === token) return dir;
-    if (location.startsWith(`${token}/`))
+    if (location === token) {
+      return dir;
+    }
+    if (location.startsWith(`${token}/`)) {
       return join(dir, location.slice(token.length + 1));
+    }
   }
+
   return location;
 };
 
@@ -80,25 +89,36 @@ export const parseSources = (
   const issues: Array<SourceIssue> = [];
   text.split("\n").forEach((raw, index) => {
     const line = raw.trim();
-    if (line === "" || line.startsWith("#")) return;
+
+    if (line === "" || line.startsWith("#")) {
+      return;
+    }
     const tokens = /^(\S+)\s+(\S.*)$/.exec(line);
+
     const decoded = Schema.decodeUnknownResult(SourceLine)(
       tokens === null ? undefined : { name: tokens[1], location: tokens[2] }
     );
+
     if (Result.isFailure(decoded)) {
       issues.push({
         line: index + 1,
         why: "expected `<name> <path>`, with a path that starts with ~, $DATA or /",
       });
+
       return;
     }
+
     const { name, location } = decoded.success;
+
     if (sources.some((source) => source.name === name)) {
       issues.push({ line: index + 1, why: `the name ${name} is already used` });
+
       return;
     }
+
     sources.push({ name, path: absolutePath(expand(location, home, data)) });
   });
+
   return { sources, issues };
 };
 
@@ -119,6 +139,7 @@ export const snapshotOf = (source: Source, live: string): SqliteSnapshot => {
     path: source.path,
     relative: live === source.path ? "" : live.slice(source.path.length + 1),
   };
+
   return { ...entry, live, entry: stagedEntry(entry) };
 };
 
@@ -139,13 +160,16 @@ export const entriesFromStage = (
 } => {
   const entries: Array<ManifestEntry> = [];
   const unknown = new Set<string>();
+
   for (const file of staged) {
     const [name = "", ...rest] = file.split("/");
     const source = sources.find((candidate) => candidate.name === name);
+
     if (source === undefined) {
       unknown.add(name);
       continue;
     }
+
     const relative = rest.join("/");
     entries.push({
       source: name,
@@ -156,6 +180,7 @@ export const entriesFromStage = (
           : relative,
     });
   }
+
   return { entries, unknown: [...unknown] };
 };
 

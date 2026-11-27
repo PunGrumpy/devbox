@@ -36,6 +36,7 @@ export const withTunnel = (
       up[i - 1] !== "--public-url" &&
       !arg.startsWith("--public-url=")
   );
+
   return Option.match(url, {
     onNone: () => kept,
     onSome: (origin) => [...kept, "--tunnel", "--public-url", origin],

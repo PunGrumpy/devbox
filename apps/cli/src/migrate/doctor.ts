@@ -36,12 +36,14 @@ type QuickCheck = Data.TaggedEnum<{
   Skipped: {};
   Ran: { readonly result: string };
 }>;
+
 const QuickCheck = Data.taggedEnum<QuickCheck>();
 
 type MemoryCheck = Data.TaggedEnum<{
   Checked: { readonly entries: ReadonlyArray<StrandedMemory> };
   Unchecked: { readonly reason: string };
 }>;
+
 const MemoryCheck = Data.taggedEnum<MemoryCheck>();
 
 type Inspection = Data.TaggedEnum<{
@@ -53,6 +55,7 @@ type Inspection = Data.TaggedEnum<{
     readonly memory: MemoryCheck;
   };
 }>;
+
 const Inspection = Data.taggedEnum<Inspection>();
 
 type Report = {
@@ -71,6 +74,7 @@ const inspect = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const fs = yield* FileSystem.FileSystem;
   const out = yield* Output;
+
   const counts = new Map(
     (yield* sql<{ projectId: string; threads: number; deleted: number }>`
       SELECT project_id AS projectId, count(*) AS threads, sum(deleted_at IS NOT NULL) AS deleted
@@ -79,6 +83,7 @@ const inspect = Effect.gen(function* () {
       row,
     ])
   );
+
   const projects = yield* Effect.forEach(yield* listProjects, (project) =>
     Effect.map(
       fs.exists(project.workspaceRoot).pipe(Effect.orElseSucceed(() => false)),
@@ -90,7 +95,9 @@ const inspect = Effect.gen(function* () {
       })
     )
   );
+
   const sessionColumns = yield* columnsOf(Tables.sessions);
+
   const cwds = sessionColumns.includes("payload_json")
     ? strings(
         yield* sql`SELECT DISTINCT json_extract(payload_json, '$.cwd') AS cwd FROM ${sql(Tables.sessions)} WHERE cwd IS NOT NULL`.pipe(
@@ -98,6 +105,7 @@ const inspect = Effect.gen(function* () {
         )
       )
     : [];
+
   const claudeCwds =
     sessionColumns.includes("payload_json") && sessionColumns.includes("driver")
       ? strings(
@@ -107,6 +115,7 @@ const inspect = Effect.gen(function* () {
           )
         )
       : [];
+
   const memory = yield* strandedMemory(
     projects.filter((project) => project.deletedAt === null),
     claudeCwds
@@ -119,12 +128,14 @@ const inspect = Effect.gen(function* () {
       )
     )
   );
+
   const missingCwds = yield* Effect.filter(cwds, (cwd) =>
     Effect.map(
       fs.exists(cwd).pipe(Effect.orElseSucceed(() => false)),
       (found) => !found
     )
   );
+
   return Inspection.Complete({
     events: yield* eventCount,
     projects,
@@ -145,18 +156,23 @@ const collect = (database: string, check: boolean) =>
   Effect.gen(function* () {
     const out = yield* Output;
     const homes = yield* ClaudeHomes;
+
     if (Option.isSome(homes.configDirElsewhere)) {
       yield* out.warn(
         `CLAUDE_CONFIG_DIR is ${homes.configDirElsewhere.value} here, but Claude instances without a homePath are read from ${homes.defaultHome}; pass --claude-home if T3 Code uses the other one`
       );
     }
+
     const missing = yield* schemaGaps(BASE_SCHEMA);
     const server = yield* (yield* T3Process).running;
+
     const quick = check
       ? QuickCheck.Ran({ result: yield* out.step("quick_check", quickCheck) })
       : QuickCheck.Skipped();
+
     const inspection =
       missing.length > 0 ? Inspection.Incomplete({ missing }) : yield* inspect;
+
     return { database, server, quickCheck: quick, inspection } satisfies Report;
   });
 
@@ -164,6 +180,7 @@ const toJson = (report: Report) => {
   const complete = Inspection.$is("Complete")(report.inspection)
     ? report.inspection
     : undefined;
+
   return {
     database: report.database,
     server: Option.match(report.server, {
@@ -210,9 +227,11 @@ const render = (report: Report) =>
         out.check(false, "schema", `missing ${missing.join(", ")}`),
       Complete: () => out.check(true, "schema"),
     });
+
     const complete = Inspection.$is("Complete")(report.inspection)
       ? report.inspection
       : undefined;
+
     if (complete !== undefined) {
       yield* out.check(
         complete.events === 0,
@@ -222,6 +241,7 @@ const render = (report: Report) =>
           : undefined
       );
     }
+
     yield* QuickCheck.$match(report.quickCheck, {
       Skipped: () =>
         out.check(
@@ -237,8 +257,10 @@ const render = (report: Report) =>
         ),
     });
     yield* out.line();
-    if (complete === undefined)
+
+    if (complete === undefined) {
       return yield* out.log(dim("the other checks need the tables above"));
+    }
     if (complete.projects.length > 0) {
       yield* out.table<ProjectRow>(
         [
@@ -273,6 +295,7 @@ const render = (report: Report) =>
       );
       yield* out.line();
     }
+
     const { issues } = complete;
     yield* out.check(
       issues.threadsWithPayloadMismatch === 0,
@@ -304,7 +327,10 @@ const render = (report: Report) =>
             "Claude memory under the live slug",
             `${plural(missingFiles, "file")} only under a symlink spelling`
           );
-          if (entries.length === 0) return;
+
+          if (entries.length === 0) {
+            return;
+          }
           yield* out.line();
           yield* out.table<StrandedMemory>(
             [
@@ -356,8 +382,12 @@ export const doctor = Command.make(
         const report = yield* collect(target.path, check).pipe(
           Effect.provide(databaseLayer(target.path, "read"))
         );
-        if (json) yield* (yield* Output).json(toJson(report));
-        else yield* render(report);
+
+        if (json) {
+          yield* (yield* Output).json(toJson(report));
+        } else {
+          yield* render(report);
+        }
       })
     )
 ).pipe(

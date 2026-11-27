@@ -45,6 +45,7 @@ describe("devbox up --spoke", () => {
 
   test("trusts each --trust key, listens on --host, and records the flags for an update", async () => {
     const m = makeMachine({ userBus: true });
+
     const r = await up(
       m,
       "--spoke",
@@ -55,6 +56,7 @@ describe("devbox up --spoke", () => {
       "--trust",
       KEY_B
     );
+
     expect(r.code).toBe(0);
     expect(readFileSync(unitPath(m), "utf8")).toContain(
       `spoke --host 100.64.0.21 --port 3782 --trust ${KEY_A} --trust ${KEY_B}\n`
@@ -129,6 +131,7 @@ describe("devbox up --spoke", () => {
       "--trust",
       "edge-7"
     );
+
     expect(r.code).not.toBe(0);
     expect(r.err).toContain("devbox hub key");
   });

@@ -67,9 +67,11 @@ export const makeFixture = (
   const path = join(dir, "statev2.sqlite");
   const db = new Database(path, { create: true, strict: true });
   db.exec(SCHEMA_0_1_6_NIGHTLY_20261031);
+
   const project = db.query(
     "INSERT INTO projection_projects (project_id, title, workspace_root, deleted_at) VALUES (?, ?, ?, ?)"
   );
+
   project.run(ALPHA, "alpha", ALPHA_ROOT, null);
   project.run(BETA, "beta-service", BETA_ROOT, null);
   project.run(
@@ -86,6 +88,7 @@ export const makeFixture = (
   const thread = db.query(
     "INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, updated_at, deleted_at, payload_json) VALUES (?, ?, ?, ?, ?, ?)"
   );
+
   const add = (
     id: string,
     projectId: string,
@@ -107,6 +110,7 @@ export const makeFixture = (
         worktreePath: null,
       })
     );
+
   add("t-alpha-1", ALPHA, "Onboarding", "2026-10-20T00:00:00Z", null);
   add("t-beta-1", BETA, "Pipeline", "2026-10-22T00:00:00Z", null);
   add("t-beta-2", BETA, "Image build", "2026-10-21T00:00:00Z", null);
@@ -118,22 +122,27 @@ export const makeFixture = (
     const session = db.query(
       "INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, payload_json) VALUES (?, ?, ?)"
     );
+
     session.run("s-1", "t-alpha-1", sessionPayload(ALPHA_ROOT));
     session.run("s-2", "t-beta-1", sessionPayload(BETA_ROOT));
     session.run("s-3", "t-beta-2", sessionPayload(`${BETA_ROOT}/sub`));
     session.run("s-4", "x", sessionPayload("/Users/me/Developments/alpha-cli"));
     session.run("s-5", "y", JSON.stringify({ id: "s", status: "ready" }));
   }
+
   db.query(
     "INSERT INTO scheduled_tasks (task_id, project_id) VALUES (?, ?)"
   ).run("task-1", BETA);
+
   for (let i = 0; i < (options.events ?? 0); i += 1) {
     db.query(
       "INSERT INTO orchestration_v2_events (event_id, thread_id, event_type, occurred_at, payload_json) VALUES (?, ?, ?, ?, ?)"
     ).run(`e-${i}`, "t-alpha-1", "x", "", "{}");
   }
+
   db.close();
   const backups = join(dir, "backups");
+
   return {
     dir,
     db: path,
@@ -152,6 +161,7 @@ export const query = <T>(
   ...params: Array<string | number>
 ): Array<T> => {
   const db = new Database(path, { readonly: true, strict: true });
+
   try {
     return db.query<T, Array<string | number>>(sql).all(...params);
   } finally {
@@ -176,12 +186,15 @@ export const makeWorld = (): World => {
   const base = realpathSync(
     mkdtempSync(join(tmpdir(), "devbox-migrate-world-"))
   );
+
   const home = join(base, "home");
   const real = join(base, "real", "Developments");
   const t3 = join(home, ".t3");
   const homes = { a: join(home, ".claude-a"), b: join(home, ".claude-b") };
-  for (const dir of [home, real, join(t3, "userdata"), homes.a, homes.b])
+
+  for (const dir of [home, real, join(t3, "userdata"), homes.a, homes.b]) {
     mkdirSync(dir, { recursive: true });
+  }
   symlinkSync(real, join(home, "Developments"));
   symlinkSync(homes.b, join(home, ".claude-b-alias"));
   writeFileSync(
@@ -217,6 +230,7 @@ export const makeWorld = (): World => {
   const conn = new Database(db, { create: true, strict: true });
   conn.exec(SCHEMA_0_1_6_NIGHTLY_20261031);
   conn.close();
+
   return {
     base,
     home,
@@ -265,20 +279,25 @@ export const putFiles = (dir: string, files: Record<string, string>): void => {
 
 export const snapshot = (dir: string): Record<string, string> => {
   const out: Record<string, string> = {};
+
   const walk = (path: string) => {
     for (const entry of readdirSync(path, { withFileTypes: true })) {
       const full = join(path, entry.name);
       const rel = relative(dir, full);
+
       if (entry.isDirectory()) {
         out[rel] = "dir";
         walk(full);
-      } else if (entry.isSymbolicLink())
+      } else if (entry.isSymbolicLink()) {
         out[rel] = `link ${readlinkSync(full)}`;
-      else
+      } else {
         out[rel] =
           `${Bun.hash(readFileSync(full))} @${lstatSync(full).mtimeMs}`;
+      }
     }
   };
+
   walk(dir);
+
   return out;
 };

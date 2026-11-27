@@ -30,16 +30,24 @@ export const nextWatch = (
   const announced: Record<string, MachineState> = { ...previous?.announced };
   const pending: Record<string, { state: MachineState; samples: number }> = {};
   const notices: Array<Notice> = [];
+
   for (const { name, state } of snapshot.machines) {
     const said = announced[name];
-    if (said === undefined) announced[name] = state;
-    if (said === undefined || said === state) continue;
+
+    if (said === undefined) {
+      announced[name] = state;
+    }
+    if (said === undefined || said === state) {
+      continue;
+    }
     const before = previous?.pending[name];
     const samples = before?.state === state ? before.samples + 1 : 1;
+
     if (samples < HOLD_SAMPLES) {
       pending[name] = { state, samples };
       continue;
     }
+
     announced[name] = state;
     notices.push({
       machine: name,
@@ -48,6 +56,7 @@ export const nextWatch = (
       at: snapshot.generatedAt,
     });
   }
+
   return { watch: { announced, pending }, notices };
 };
 
@@ -78,6 +87,7 @@ export type WebhookBody = {
 /** Discord and Slack take JSON. Anything else, such as an ntfy topic, takes the sentence itself. */
 export const webhookBody = (url: URL, text: string): WebhookBody => {
   const field = JSON_FIELD[url.hostname];
+
   return field === undefined
     ? { body: text, contentType: "text/plain; charset=utf-8" }
     : {

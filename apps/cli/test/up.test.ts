@@ -25,6 +25,7 @@ const up = (m: ReturnType<typeof makeMachine>, ...args: Array<string>) =>
 
 const MUTATING =
   /^(<detached>|<stop>|tee|npm install|git config --global (--add|--unset-all)|systemctl (enable|restart|daemon-reload)|loginctl enable-linger)/;
+
 const mutations = (m: ReturnType<typeof makeMachine>, from: number) =>
   m.calls
     .slice(from)
@@ -75,6 +76,7 @@ describe("flags become one machine config", () => {
   test("every machine fact is a flag, and the serve process gets them", async () => {
     const m = makeMachine();
     const data = join(m.base, "persist");
+
     const r = await up(
       m,
       "--supervisor",
@@ -91,6 +93,7 @@ describe("flags become one machine config", () => {
       "latest",
       "--no-setup"
     );
+
     expect(r.code).toBe(0);
     expect(m.calls).toContainEqual(["npm", "view", "t3@latest", "version"]);
     expect(m.processes.map((p) => p.argv)).toEqual([
@@ -246,10 +249,12 @@ describe("--host", () => {
     const m = makeMachine({ userBus: true });
     const r = await up(m, "--host", TAILNET);
     expect(r.code).toBe(0);
+
     const unit = readFileSync(
       join(m.home, ".config/systemd/user/devbox.service"),
       "utf8"
     );
+
     expect(unit).toContain(
       `--port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --host ${TAILNET}\n`
     );
@@ -308,6 +313,7 @@ describe("--host", () => {
 
   test("with --public-url the proxy listens on it, so a tunnel can reach T3 at the Tailscale address", async () => {
     const m = makeMachine();
+
     const r = await up(
       m,
       "--supervisor",
@@ -317,6 +323,7 @@ describe("--host", () => {
       "--public-url",
       "https://t3-edge-7.example.com"
     );
+
     expect(r.code).toBe(0);
     expect(m.processes[0]!.argv.slice(-4)).toEqual([
       "--host",
@@ -336,6 +343,7 @@ describe("--host", () => {
       workspace: absolutePath("/d"),
       setup: true,
     };
+
     expect(t3Bind({ ...base, host: TAILNET, publicUrl: Option.none() })).toBe(
       TAILNET
     );
@@ -450,10 +458,12 @@ describe("devbox up converges", () => {
     const r = await up(m, "--public-url", "https://edge-7.example.com");
     expect(r.code).toBe(0);
     expect(r.err).toContain("supervisor: systemd user unit devbox.service");
+
     const unit = readFileSync(
       join(m.home, ".config/systemd/user/devbox.service"),
       "utf8"
     );
+
     expect(unit).toContain(
       `ExecStart=/opt/bun /opt/devbox/apps/cli/src/cli.ts serve --data ${m.home} --port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --public-url https://edge-7.example.com\n`
     );
@@ -479,10 +489,12 @@ describe("devbox up converges", () => {
     const m = makeMachine({ systemd: true, sudo: true });
     const r = await up(m);
     expect(r.code).toBe(0);
+
     const unit = readFileSync(
       join(m.etc, "systemd/system/devbox.service"),
       "utf8"
     );
+
     expect(unit).toContain("User=agent\n");
     expect(unit).toContain("WantedBy=multi-user.target");
     expect(m.calls).toContainEqual([
@@ -532,9 +544,11 @@ describe("devbox up converges", () => {
     expect(r.code).toBe(0);
     expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
     expect(readFileSync(join(data, ".agents/data.md"), "utf8")).toBe("data\n");
+
     const aside = readdirSync(m.home).find((name) =>
       name.startsWith(".agents.devbox-")
     );
+
     expect(aside).toBeDefined();
     expect(readFileSync(join(m.home, aside!, "home.md"), "utf8")).toBe(
       "home\n"
@@ -546,20 +560,26 @@ describe("devbox up converges", () => {
     const data = m.home;
     const shim = join(data, ".local/share/mise/shims/npm");
     m.respond = (argv) => {
-      if (argv[0] === "curl" && argv.includes("https://mise.run"))
+      if (argv[0] === "curl" && argv.includes("https://mise.run")) {
         return { code: 0, stdout: "install mise", stderr: "" };
+      }
       if (argv[0] === "sh") {
         mkdirSync(join(data, ".local/bin"), { recursive: true });
         writeFileSync(join(data, ".local/bin/mise"), "");
+
         return { code: 0, stdout: "", stderr: "" };
       }
+
       if (argv[0]?.endsWith("/mise") && argv.includes("node@lts")) {
         mkdirSync(dirname(shim), { recursive: true });
         writeFileSync(shim, "");
+
         return { code: 0, stdout: "", stderr: "" };
       }
+
       return undefined;
     };
+
     const r = await up(m, "--supervisor", "detached");
     expect(
       m.calls.some((c) => c[0]?.endsWith("/mise") && c.includes("node@lts"))
@@ -605,7 +625,9 @@ describe("devbox up converges", () => {
     m.host = {
       ...host,
       run: (argv, options) => {
-        if (argv[0]?.endsWith("npm")) seen.push(options?.env?.MISE_DATA_DIR);
+        if (argv[0]?.endsWith("npm")) {
+          seen.push(options?.env?.MISE_DATA_DIR);
+        }
         return host.run(argv, options);
       },
     };

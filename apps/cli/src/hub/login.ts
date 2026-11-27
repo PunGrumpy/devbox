@@ -58,6 +58,7 @@ const SESSION = /^(?<expiry>[1-9]\d{0,11})\.(?<mac>[A-Za-z0-9_-]{43})$/;
 const sessions = (cookie: string | undefined): ReadonlyArray<string> =>
   (cookie ?? "").split(";").flatMap((pair) => {
     const at = pair.indexOf("=");
+
     return at !== -1 && pair.slice(0, at).trim() === COOKIE
       ? [pair.slice(at + 1).trim()]
       : [];
@@ -65,7 +66,10 @@ const sessions = (cookie: string | undefined): ReadonlyArray<string> =>
 
 const validSession = (value: string, token: string, now: number): boolean => {
   const parts = SESSION.exec(value)?.groups;
-  if (parts?.expiry === undefined || parts.mac === undefined) return false;
+
+  if (parts?.expiry === undefined || parts.mac === undefined) {
+    return false;
+  }
   return (
     Number(parts.expiry) * 1000 > now &&
     hashedConstantTimeEqual(parts.mac, macOf(parts.expiry, token))
@@ -81,7 +85,10 @@ export const loggedIn = (
   now: number
 ): boolean => {
   const sent = BEARER.exec(request.headers.authorization ?? "")?.groups?.token;
-  if (sent !== undefined && hashedConstantTimeEqual(sent, token)) return true;
+
+  if (sent !== undefined && hashedConstantTimeEqual(sent, token)) {
+    return true;
+  }
   return sessions(request.headers.cookie).some((value) =>
     validSession(value, token, now)
   );
@@ -105,11 +112,17 @@ export const LOGGED_OUT = refuse(
  */
 export const crossSite = (request: HubRequest): boolean => {
   const { origin } = request.headers;
+
   const host =
     request.headers["x-forwarded-host"]?.split(",")[0]?.trim() ||
     request.headers.host;
-  if (request.method === "GET" || origin === undefined) return false;
-  if (host === undefined || !URL.canParse(origin)) return true;
+
+  if (request.method === "GET" || origin === undefined) {
+    return false;
+  }
+  if (host === undefined || !URL.canParse(origin)) {
+    return true;
+  }
   return new URL(origin).host.toLowerCase() !== host.toLowerCase();
 };
 
@@ -124,15 +137,21 @@ export const login = (
   token: string,
   now: number
 ): Reply => {
-  if (request.body === null)
+  if (request.body === null) {
     return refuse(413, "A login is not that long.", { connection: "close" });
+  }
   const sent = Schema.decodeUnknownOption(Login)(request.body, {
     onExcessProperty: "error",
   });
-  if (Option.isNone(sent)) return refuse(400, 'Send {"token": "<hub token>"}.');
-  if (!hashedConstantTimeEqual(sent.value.token, token))
+
+  if (Option.isNone(sent)) {
+    return refuse(400, 'Send {"token": "<hub token>"}.');
+  }
+  if (!hashedConstantTimeEqual(sent.value.token, token)) {
     return refuse(403, "That is not the hub token.");
+  }
   const expiry = Math.floor(now / 1000) + SESSION_SECONDS;
+
   return {
     status: 204,
     headers: {

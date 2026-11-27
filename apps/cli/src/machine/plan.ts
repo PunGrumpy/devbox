@@ -39,6 +39,7 @@ export type Supervisor = Data.TaggedEnum<{
   Systemd: { readonly scope: "system" | "user" };
   Detached: {};
 }>;
+
 export const Supervisor = Data.taggedEnum<Supervisor>();
 
 export type ServeState = Data.TaggedEnum<{
@@ -46,6 +47,7 @@ export type ServeState = Data.TaggedEnum<{
   Stale: { readonly pids: ReadonlyArray<number> };
   Stopped: {};
 }>;
+
 export const ServeState = Data.taggedEnum<ServeState>();
 
 export type Context = {
@@ -65,6 +67,7 @@ export type BackupFact = Data.TaggedEnum<{
     readonly timer: { readonly enabled: boolean; readonly active: boolean };
   };
 }>;
+
 export const BackupFact = Data.taggedEnum<BackupFact>();
 
 export type Facts = {
@@ -129,9 +132,11 @@ export type Change = Data.TaggedEnum<{
   EnableTunnel: {};
   RemoveTunnel: { readonly path: string; readonly privileged: boolean };
 }>;
+
 export const Change = Data.taggedEnum<Change>();
 
 export type Skip = { readonly what: string; readonly why: string };
+
 export type Plan = {
   readonly changes: ReadonlyArray<Change>;
   readonly skips: ReadonlyArray<Skip>;
@@ -145,6 +150,7 @@ type LinkedEnvironments = Data.TaggedEnum<{
   Enable: { readonly content: string };
   NotAnObject: {};
 }>;
+
 const LinkedEnvironments = Data.taggedEnum<LinkedEnvironments>();
 
 const SettingsObject = Schema.fromJsonString(
@@ -160,9 +166,13 @@ export const enableLinkedEnvironments = (
     onNone: () => Option.some<Record<string, unknown>>({}),
     onSome: (text) => Schema.decodeUnknownOption(SettingsObject)(text),
   });
-  if (Option.isNone(settings)) return LinkedEnvironments.NotAnObject();
-  if (settings.value.linkedEnvironmentsEnabled === true)
+
+  if (Option.isNone(settings)) {
+    return LinkedEnvironments.NotAnObject();
+  }
+  if (settings.value.linkedEnvironmentsEnabled === true) {
     return LinkedEnvironments.On();
+  }
   return LinkedEnvironments.Enable({
     content: `${JSON.stringify({ ...settings.value, linkedEnvironmentsEnabled: true }, null, 2)}\n`,
   });
@@ -170,6 +180,7 @@ export const enableLinkedEnvironments = (
 
 export const machineInfoPath = (etc: string) => join(etc, "machine-info");
 export const profilePath = (etc: string) => join(etc, "profile.d", "devbox.sh");
+
 export const unitPath = (scope: "system" | "user", ctx: Context, unit = UNIT) =>
   scope === "system"
     ? join(ctx.etc, "systemd", "system", unit)
@@ -328,6 +339,7 @@ export const tunnelUnitFile = (
 ): string => {
   const at = (path: string) =>
     scope === "user" ? `%h/${path}` : systemdQuote(join(ctx.home, path));
+
   return [
     "[Unit]",
     "Description=Cloudflare Tunnel for T3 Code",
@@ -407,20 +419,27 @@ export const plan = (
 ): Plan => {
   const changes: Array<Change> = [];
   const skips: Array<Skip> = [];
+
   const current = (path: string) =>
     Option.flatten(Option.fromUndefinedOr(facts.files.get(path)));
+
   const write = (
     path: string,
     content: string,
     privileged: boolean,
     mode: Option.Option<number> = Option.none()
   ) => {
-    if (Option.contains(current(path), content)) return false;
-    if (privileged && !facts.sudo) {
-      skips.push({ what: path, why: "no passwordless sudo" });
+    if (Option.contains(current(path), content)) {
       return false;
     }
+    if (privileged && !facts.sudo) {
+      skips.push({ what: path, why: "no passwordless sudo" });
+
+      return false;
+    }
+
     changes.push(Change.Write({ path, content, privileged, mode }));
+
     return true;
   };
 
@@ -428,11 +447,16 @@ export const plan = (
     const now = Option.flatten(
       Option.fromUndefinedOr(facts.links.get(link.path))
     );
-    if (!Option.contains(now, link.target)) changes.push(Change.Link(link));
+
+    if (!Option.contains(now, link.target)) {
+      changes.push(Change.Link(link));
+    }
   }
+
   for (const { key, values } of gitEntries(ctx.settings)) {
-    if (!sameValues(facts.git.get(key) ?? [], values))
+    if (!sameValues(facts.git.get(key) ?? [], values)) {
       changes.push(Change.Git({ key, values }));
+    }
   }
 
   const machineInfo = machineInfoPath(ctx.etc);
@@ -446,8 +470,10 @@ export const plan = (
   );
   write(profilePath(ctx.etc), profileScript(ctx.settings, ctx.user), true);
   write(machineFile(ctx.home), machineJson(config), false);
-  if (remembered(config.agents))
+
+  if (remembered(config.agents)) {
     write(pathsOf(config.data).agents, agentsJson(config.agents.ids), false);
+  }
 
   const t3Settings = t3SettingsPath(config.baseDir);
   LinkedEnvironments.$match(enableLinkedEnvironments(current(t3Settings)), {
@@ -472,8 +498,10 @@ export const plan = (
   });
 
   const { installed, latest } = facts.t3;
+
   const t3Changed =
     Option.isSome(latest) && !Option.contains(installed, latest.value);
+
   if (Option.isSome(latest) && t3Changed) {
     changes.push(Change.InstallT3({ from: installed, to: latest.value }));
   } else if (Option.isNone(latest) && Option.isSome(installed)) {
@@ -486,15 +514,21 @@ export const plan = (
   const toInstall = config.agents.ids.filter(
     (id) => facts.agents.present.get(id) !== true
   );
-  for (const id of toInstall) changes.push(Change.InstallAgent({ id }));
-  for (const id of Option.getOrElse(facts.agents.saved, () => []))
+
+  for (const id of toInstall) {
+    changes.push(Change.InstallAgent({ id }));
+  }
+  for (const id of Option.getOrElse(facts.agents.saved, () => [])) {
     if (!config.agents.ids.includes(id))
       skips.push({
         what: agentName(id),
         why: `no longer chosen, left installed. ${removeHint(id, config.data)}`,
       });
+  }
 
-  if (Option.contains(facts.linger, false)) changes.push(Change.Linger());
+  if (Option.contains(facts.linger, false)) {
+    changes.push(Change.Linger());
+  }
 
   BackupFact.$match(facts.backup, {
     Off: ({ why }) => skips.push({ what: "backups", why }),
@@ -506,25 +540,30 @@ export const plan = (
             why: "no systemd here, schedule `devbox backup run` with cron",
           }),
         Systemd: ({ scope }) => {
-          if (missing.length > 0 && !(apt && facts.sudo))
+          if (missing.length > 0 && !(apt && facts.sudo)) {
             return skips.push({
               what: "backup timer",
               why: `${missing.join(" and ")} missing, and apt with passwordless sudo is needed to install them`,
             });
-          if (missing.length > 0)
+          }
+          if (missing.length > 0) {
             changes.push(Change.InstallTools({ packages: missing }));
+          }
           const service = write(
             unitPath(scope, ctx, BACKUP_SERVICE),
             backupServiceFile(scope, config, ctx),
             scope === "system"
           );
+
           const timerFile = write(
             unitPath(scope, ctx, BACKUP_TIMER),
             backupTimerFile(),
             scope === "system"
           );
-          if (service || timerFile || !timer.enabled || !timer.active)
+
+          if (service || timerFile || !timer.enabled || !timer.active) {
             changes.push(Change.EnableTimer());
+          }
         },
       }),
   });
@@ -541,40 +580,50 @@ export const plan = (
     Stale: () => "its flags changed",
     Stopped: () => "it was not running",
   });
+
   const stop = ServeState.$match(facts.serve, {
     Running: ({ pids }) => pids,
     Stale: ({ pids }) => pids,
     Stopped: () => [],
   });
-  if (why !== undefined) changes.push(Change.Start({ why, stop }));
+
+  if (why !== undefined) {
+    changes.push(Change.Start({ why, stop }));
+  }
 
   Supervisor.$match(facts.supervisor, {
     Detached: () => {
-      if (config.hub)
+      if (config.hub) {
         skips.push({
           what: "hub",
           why: "no systemd here, run `devbox hub` yourself",
         });
+      }
     },
     Systemd: ({ scope }) => {
       const path = unitPath(scope, ctx, HUB_UNIT);
+
       if (!config.hub) {
-        if (Option.isSome(current(path)))
+        if (Option.isSome(current(path))) {
           changes.push(
             Change.RemoveHub({ path, privileged: scope === "system" })
           );
+        }
         return;
       }
+
       const wrote = write(
         path,
         hubUnitFile(scope, config, ctx),
         scope === "system"
       );
-      if (wrote || !facts.hub.running)
+
+      if (wrote || !facts.hub.running) {
         changes.push(
           Change.EnableHub({ address: `${hubHost(config)}:${HUB_PORT}` })
         );
-      if (!facts.hub.built)
+      }
+      if (!facts.hub.built) {
         Option.match(facts.hub.checkout, {
           onNone: () =>
             skips.push({
@@ -583,62 +632,76 @@ export const plan = (
             }),
           onSome: (checkout) => changes.push(Change.BuildHub({ checkout })),
         });
+      }
     },
   });
 
   Supervisor.$match(facts.supervisor, {
     Detached: () => {
-      if (config.spoke)
+      if (config.spoke) {
         skips.push({
           what: "spoke",
           why: "no systemd here, run `devbox spoke` yourself",
         });
+      }
     },
     Systemd: ({ scope }) => {
       const path = unitPath(scope, ctx, SPOKE_UNIT);
+
       if (!config.spoke) {
-        if (Option.isSome(current(path)))
+        if (Option.isSome(current(path))) {
           changes.push(
             Change.RemoveSpoke({ path, privileged: scope === "system" })
           );
+        }
         return;
       }
+
       const wrote = write(
         path,
         spokeUnitFile(scope, config, ctx),
         scope === "system"
       );
-      if (wrote || !facts.spoke.running)
+
+      if (wrote || !facts.spoke.running) {
         changes.push(
           Change.EnableSpoke({ address: `${hubHost(config)}:${SPOKE_PORT}` })
         );
+      }
     },
   });
 
   Supervisor.$match(facts.supervisor, {
     Detached: () => {
-      if (config.tunnel)
+      if (config.tunnel) {
         skips.push({
           what: "tunnel",
           why: "no systemd here, run `cloudflared tunnel run --token-file ~/.config/cloudflared/token` yourself",
         });
+      }
     },
     Systemd: ({ scope }) => {
       const path = unitPath(scope, ctx, TUNNEL_UNIT);
+
       if (!config.tunnel) {
-        if (Option.isSome(current(path)))
+        if (Option.isSome(current(path))) {
           changes.push(
             Change.RemoveTunnel({ path, privileged: scope === "system" })
           );
+        }
         return;
       }
-      if (!facts.tunnel.cloudflared)
+
+      if (!facts.tunnel.cloudflared) {
         changes.push(
           Change.InstallCloudflared({ path: cloudflaredPath(ctx.home) })
         );
+      }
       const wrote = write(path, tunnelUnitFile(scope, ctx), scope === "system");
-      if (wrote || !facts.tunnel.cloudflared || !facts.tunnel.running)
+
+      if (wrote || !facts.tunnel.cloudflared || !facts.tunnel.running) {
         changes.push(Change.EnableTunnel());
+      }
     },
   });
 

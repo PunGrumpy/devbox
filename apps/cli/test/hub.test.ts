@@ -24,7 +24,7 @@ const sneakyComputer = () => {
   m.binaries.add("tailscale");
   m.binaries.add("t3");
   m.respond = (argv) => {
-    if (argv[0] === "tailscale")
+    if (argv[0] === "tailscale") {
       return {
         code: 0,
         stdout: JSON.stringify({
@@ -38,7 +38,8 @@ const sneakyComputer = () => {
         }),
         stderr: "",
       };
-    if (argv[1] === "environment")
+    }
+    if (argv[1] === "environment") {
       return {
         code: 0,
         stdout: JSON.stringify([
@@ -53,8 +54,10 @@ const sneakyComputer = () => {
         ]),
         stderr: "",
       };
+    }
     return undefined;
   };
+
   m.pages.set(
     "http://100.64.0.21:3773/.well-known/t3/environment",
     JSON.stringify({
@@ -63,6 +66,7 @@ const sneakyComputer = () => {
       serverVersion: "0.2.0",
     })
   );
+
   return m;
 };
 
@@ -77,6 +81,7 @@ const builtPage = () => {
   );
   writeFileSync(join(ui, "_next/static/chunks/app.js"), "console.log(1)");
   writeFileSync(join(base, "secret.txt"), "outside the page");
+
   return ui;
 };
 
@@ -97,6 +102,7 @@ const rawStatus = (port: number, path: string) =>
 describe("devbox hub", async () => {
   const m = sneakyComputer();
   const port = await Effect.runPromise(freePort);
+
   const running = start(
     { HOME: m.home },
     ["hub", "--port", String(port), "--ui", builtPage()],
@@ -104,9 +110,12 @@ describe("devbox hub", async () => {
       host: m.host,
     }
   );
+
   const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1)
+
+  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
+  }
   afterAll(() => running.stop());
 
   test("logs the URL it listens on", () => {
@@ -117,6 +126,7 @@ describe("devbox hub", async () => {
     const response = await fetch(`${base}/api/machines`, {
       headers: asOwner(m.home),
     });
+
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("content-type")).toContain("application/json");
@@ -188,6 +198,7 @@ test("without a built page, / says how to build it and the JSON still answers", 
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-empty-"));
   const home = freshHome();
+
   const running = start({ HOME: home }, [
     "hub",
     "--port",
@@ -195,8 +206,10 @@ test("without a built page, / says how to build it and the JSON still answers", 
     "--ui",
     empty,
   ]);
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1)
+
+  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
+  }
   try {
     const page = await fetch(`http://127.0.0.1:${port}/`);
     expect(page.status).toBe(404);
@@ -214,8 +227,10 @@ test("the hub closes its port when stopped", async () => {
   const port = await Effect.runPromise(freePort);
   const home = freshHome();
   const running = start({ HOME: home }, ["hub", "--port", String(port)]);
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1)
+
+  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
+  }
   const headers = asOwner(home);
   expect(
     (await fetch(`http://127.0.0.1:${port}/api/machines`, { headers })).status
@@ -232,12 +247,14 @@ test("a port in use fails with a hint", async () => {
     port: 0,
     fetch: () => new Response(""),
   });
+
   try {
     const r = await devbox({ HOME: freshHome() }, [
       "hub",
       "--port",
       String(taken.port),
     ]);
+
     expect(r.code).toBe(1);
     expect(r.err).toContain(`cannot listen on 127.0.0.1:${taken.port}`);
     expect(r.err).toContain("--port");
@@ -297,6 +314,7 @@ describe("history", () => {
       undefined,
       sample(T0, { a: "t3", b: "online" }, { a: 10 })
     );
+
     history = nextHistory(
       history,
       sample("2026-11-27T00:01:00.000Z", { a: "online" })
@@ -328,10 +346,12 @@ describe("history", () => {
       states: { a: "0".repeat(HISTORY_LIMIT) },
       latency: { a: Array<number | null>(HISTORY_LIMIT).fill(5) },
     };
+
     const next = nextHistory(
       full,
       sample("2026-11-28T00:00:00.000Z", { a: "t3" }, { a: 42 })
     );
+
     expect(HISTORY_LIMIT).toBe(1440);
     expect(next.states.a).toBe(`${"0".repeat(1439)}2`);
     expect(next.latency.a).toHaveLength(HISTORY_LIMIT);
@@ -352,6 +372,7 @@ describe("history", () => {
         gone: [18, ...Array<null>(HISTORY_LIMIT - 1).fill(null)],
       },
     };
+
     const next = nextHistory(old, sample(T0, { a: "t3" }, { a: 14 }));
     expect(Object.keys(next.states)).toEqual(["a"]);
     expect(Object.keys(next.latency)).toEqual(["a"]);
@@ -370,16 +391,20 @@ describe("history", () => {
       },
       T0
     );
+
     const full = Option.getOrThrow(
       restore(text, Date.parse("2026-11-27T00:03:10.000Z"), HISTORY_LIMIT)
     );
+
     expect(full.history.latency).toEqual({
       a: [10, 20, 30, 40, null, null, null],
       gone: [12, null, null, null, null, null, null],
     });
+
     const trimmed = Option.getOrThrow(
       restore(text, Date.parse("2026-11-27T00:03:00.000Z"), 5)
     );
+
     expect(trimmed.history.states).toEqual({ a: "22   " });
     expect(trimmed.history.latency).toEqual({ a: [30, 40, null, null, null] });
   });
@@ -390,15 +415,19 @@ describe("history", () => {
       history: { sampleSeconds: 60, startedAt: T0, states: { a: "22" } },
       watch: { announced: { a: "t3" }, pending: {} },
     });
+
     const resumed = Option.getOrThrow(
       restore(legacy, Date.parse("2026-11-27T00:02:00.000Z"), HISTORY_LIMIT)
     );
+
     expect(resumed.history.states).toEqual({ a: "22  " });
     expect(resumed.history.latency).toEqual({});
+
     const next = nextHistory(
       resumed.history,
       sample("2026-11-27T00:02:00.000Z", { a: "t3" }, { a: 27 })
     );
+
     expect(next.states).toEqual({ a: "22  2" });
     expect(next.latency).toEqual({ a: [null, null, null, null, 27] });
   });

@@ -61,6 +61,7 @@ export type Pkce = { readonly verifier: string; readonly challenge: string };
 /** A new verifier, 43 characters of base64url, and its challenge. */
 export const makePkce = (): Pkce => {
   const verifier = randomText();
+
   return { verifier, challenge: challengeOf(verifier) };
 };
 
@@ -85,6 +86,7 @@ export const authorizeUrl = (request: {
     code_challenge: request.challenge,
     code_challenge_method: "S256",
   }).toString();
+
   return url.href;
 };
 
@@ -108,15 +110,18 @@ const AGAIN = "run the login again";
 /** What the browser brought back, read from the callback's path and query. */
 export const readCallback = (url: string, state: string): Callback => {
   const query = new URL(url, "http://127.0.0.1").searchParams;
-  if (query.get("state") !== state)
+
+  if (query.get("state") !== state) {
     return {
       _tag: "Refused",
       message:
         "the answer did not come from this login, its state does not match",
       hint: AGAIN,
     };
+  }
   const error = query.get("error");
-  if (error !== null)
+
+  if (error !== null) {
     return {
       _tag: "Refused",
       message: `Cloudflare did not sign the hub in: ${printableVendorCodeOrPlaceholder(error)}`,
@@ -125,13 +130,16 @@ export const readCallback = (url: string, state: string): Callback => {
           ? `${AGAIN} and select Authorize`
           : "check the client's redirect URL and scopes in the Cloudflare dashboard",
     };
+  }
   const code = query.get("code");
-  if (code === null || code === "")
+
+  if (code === null || code === "") {
     return {
       _tag: "Refused",
       message: "Cloudflare's answer has no code",
       hint: AGAIN,
     };
+  }
   return { _tag: "Code", code };
 };
 
@@ -159,9 +167,12 @@ export const parseTokens = (
 ): Option.Option<OAuthTokens> =>
   Option.flatMap(Schema.decodeUnknownOption(TokenAnswer)(body), (answer) => {
     const refresh = answer.refresh_token ?? refreshToken;
-    if (answer.token_type.toLowerCase() !== "bearer" || refresh === undefined)
+
+    if (answer.token_type.toLowerCase() !== "bearer" || refresh === undefined) {
       return Option.none();
+    }
     const seconds = answer.expires_in ?? ASSUMED_SECONDS;
+
     return Option.some({
       accessToken: answer.access_token,
       refreshToken: refresh,
@@ -189,7 +200,9 @@ export const postForm: PostForm = (url, form) =>
         redirect: "manual",
         signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
       });
+
       const body = await response.text();
+
       return {
         status: response.status,
         body: body.length > MAX_ANSWER ? "" : body,
@@ -217,12 +230,14 @@ const tokensFrom = (
   refreshToken?: string
 ) =>
   Effect.gen(function* () {
-    if (answer.status < 200 || answer.status > 299)
+    if (answer.status < 200 || answer.status > 299) {
       return yield* new OAuthFailed({
         message: `${failed.refused} (${answer.status}, ${refusal(answer.body)})`,
         hint: failed.hint,
       });
+    }
     const now = DateTime.toEpochMillis(yield* DateTime.now);
+
     return yield* Option.match(parseTokens(answer.body, now, refreshToken), {
       onNone: () =>
         Effect.fail(
@@ -295,15 +310,19 @@ const callbackListener = (port: number, state: string) =>
   Effect.gen(function* () {
     const { promise: arrived, resolve: arrive } =
       Promise.withResolvers<Callback>();
+
     let taken = false;
     yield* listen("127.0.0.1", port, (req, res) => {
       const url = req.url ?? "/";
       const { pathname } = new URL(url, "http://127.0.0.1");
+
       if (taken || req.method !== "GET" || pathname !== "/callback") {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
         res.end("not found\n");
+
         return;
       }
+
       taken = true;
       const callback = readCallback(url, state);
       res.on("close", () => arrive(callback));
@@ -323,6 +342,7 @@ const callbackListener = (port: number, state: string) =>
           })
       )
     );
+
     return Effect.promise(() => arrived);
   });
 
@@ -348,6 +368,7 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
     const pkce = makePkce();
     const state = makeState();
     const redirect = redirectUri(flow.port);
+
     const callback = yield* Effect.scoped(
       Effect.gen(function* () {
         const arrived = yield* callbackListener(flow.port, state);
@@ -362,10 +383,12 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
         yield* out.log(
           `from another computer, forward the port first: ssh -L ${flow.port}:127.0.0.1:${flow.port} <this machine>`
         );
+
         return yield* arrived.pipe(Effect.timeoutOption(flow.waitMs));
       })
     );
-    if (Option.isNone(callback))
+
+    if (Option.isNone(callback)) {
       return yield* new OAuthFailed({
         message: `no answer from Cloudflare within ${
           flow.waitMs >= 60_000
@@ -374,11 +397,13 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
         }`,
         hint: AGAIN,
       });
-    if (callback.value._tag === "Refused")
+    }
+    if (callback.value._tag === "Refused") {
       return yield* new OAuthFailed({
         message: callback.value.message,
         hint: callback.value.hint,
       });
+    }
     return yield* exchange(flow.post, {
       token: flow.endpoints.token,
       clientId,

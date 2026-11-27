@@ -10,6 +10,7 @@ export const AbsolutePath = Schema.String.pipe(
   ),
   Schema.brand("AbsolutePath")
 );
+
 export type AbsolutePath = typeof AbsolutePath.Type;
 
 export const absolutePath = (

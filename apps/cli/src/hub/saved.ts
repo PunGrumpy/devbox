@@ -47,13 +47,17 @@ export const restore = (
     Schema.decodeUnknownOption(Saved)(text),
     ({ savedAt, history, watch }) => {
       const away = now - Date.parse(savedAt);
-      if (!(away >= 0 && away < DAY_MS && history.sampleSeconds > 0))
+
+      if (!(away >= 0 && away < DAY_MS && history.sampleSeconds > 0)) {
         return Option.none();
+      }
       const missed = Math.min(
         limit,
         Math.floor(away / (history.sampleSeconds * 1000))
       );
+
       const gap = " ".repeat(missed);
+
       const states = Object.fromEntries(
         Object.entries(history.states)
           .map(
@@ -62,7 +66,9 @@ export const restore = (
           )
           .filter(([, samples]) => samples.trim() !== "")
       );
+
       const nullGap: ReadonlyArray<null> = Array<null>(missed).fill(null);
+
       const latency = Object.fromEntries(
         Object.entries(history.latency ?? {})
           .filter(([name]) => Object.hasOwn(states, name))
@@ -71,6 +77,7 @@ export const restore = (
               [name, [...samples, ...nullGap].slice(-limit)] as const
           )
       );
+
       return Option.some({
         history: {
           sampleSeconds: history.sampleSeconds,

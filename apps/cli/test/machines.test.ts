@@ -66,7 +66,10 @@ const computer = (
 ) => {
   const m = makeMachine();
   const { tailscale, tailscaleBin = "tailscale", links = [] } = options;
-  if (tailscale !== undefined) m.binaries.add(tailscaleBin);
+
+  if (tailscale !== undefined) {
+    m.binaries.add(tailscaleBin);
+  }
   m.binaries.add("t3");
   m.pages = new Map(Object.entries(options.pages ?? {}));
   m.respond = (argv) => {
@@ -74,12 +77,15 @@ const computer = (
       argv[0] === tailscaleBin &&
       argv[1] === "status" &&
       tailscale !== undefined
-    )
+    ) {
       return ok(tailscale);
-    if (argv[1] === "environment" && argv[2] === "list")
+    }
+    if (argv[1] === "environment" && argv[2] === "list") {
       return ok(JSON.stringify(links));
+    }
     return undefined;
   };
+
   return m;
 };
 
@@ -90,7 +96,9 @@ const machinesJson = async (
   const r = await devbox({ HOME: m.home }, ["machines", "--json", ...args], {
     host: m.host,
   });
+
   expect(r.code).toBe(0);
+
   return { ...r, json: JSON.parse(r.out) };
 };
 
@@ -111,6 +119,7 @@ describe("devbox machines --json", () => {
         t3Link("env-x", "laptop-3"),
       ],
     });
+
     const { json, out } = await machinesJson(m);
     expect(Object.keys(json)).toEqual(["generatedAt", "tailscale", "machines"]);
     expect(new Date(json.generatedAt).toISOString()).toBe(json.generatedAt);
@@ -228,6 +237,7 @@ describe("devbox machines --json", () => {
       pages: { [page("100.64.0.21")]: descriptor("env-7", "edge-7") },
       links: [t3Link("env-old", "edge-7")],
     });
+
     const { json } = await machinesJson(m);
     expect(
       json.machines.map(
@@ -253,6 +263,7 @@ describe("devbox machines --json", () => {
       pages: { [page("100.64.0.30")]: descriptor("env-z", "Zulu") },
       links: [t3Link("env-d", "delta"), t3Link("env-e", "echo", "unreachable")],
     });
+
     const { json } = await machinesJson(m);
     expect(
       json.machines.map(
@@ -280,7 +291,9 @@ describe("devbox machines --json", () => {
       ]),
       pages: { [page("100.64.0.22")]: descriptor("env-8", "edge-8") },
     });
+
     const { json } = await machinesJson(m);
+
     const seen = Object.fromEntries(
       json.machines.map(
         (x: { name: string; tailscale: { lastSeen: string | null } }) => [
@@ -289,6 +302,7 @@ describe("devbox machines --json", () => {
         ]
       )
     );
+
     expect(seen).toEqual({
       "edge-7": null,
       "edge-8": "2026-11-26T08:15:00Z",
@@ -311,6 +325,7 @@ describe("devbox machines --json", () => {
       ]),
       pages: { [page("100.64.0.40")]: descriptor("env-p", "phone") },
     });
+
     const { json } = await machinesJson(m);
     expect(json.machines.map((x: { name: string }) => x.name)).toEqual([
       "edge-7",
@@ -326,6 +341,7 @@ describe("devbox machines --json", () => {
       ]),
       tailscaleBin: "tailscale.exe",
     });
+
     const { json } = await machinesJson(m);
     expect(json.tailscale).toBe(true);
     expect(json.machines.map((x: { name: string }) => x.name)).toEqual([
@@ -339,6 +355,7 @@ describe("devbox machines --json", () => {
     const m = computer({
       pages: { [page("127.0.0.1", 3800)]: descriptor("env-7", "edge-7") },
     });
+
     const { json } = await machinesJson(m, "--t3-port", "3800");
     expect(json.tailscale).toBe(false);
     expect(json.machines).toEqual([
@@ -388,6 +405,7 @@ describe("devbox machines --json", () => {
 });
 
 const LINKS = JSON.stringify([t3Link("env-8", "edge-8")]);
+
 const linkedNames = async (
   m: ReturnType<typeof makeMachine>,
   ...args: Array<string>
@@ -399,6 +417,7 @@ const linkedNames = async (
 const bare = () => {
   const m = makeMachine();
   m.respond = (argv) => (argv[1] === "environment" ? ok(LINKS) : undefined);
+
   return m;
 };
 
@@ -474,6 +493,7 @@ describe("the kind of a machine", () => {
         [page("100.64.0.12")]: withPlatform("env-wsl", "wsl-pc", "linux"),
       },
     });
+
     const { json } = await machinesJson(m);
     expect(
       Object.fromEntries(
@@ -497,6 +517,7 @@ describe("the kind of a machine", () => {
         node("edge-8", "100.64.0.22"),
       ]),
     });
+
     const respond = m.respond;
     m.respond = (argv) =>
       argv[0] === "systemd-detect-virt" ? ok("kvm\n") : respond(argv);

@@ -44,22 +44,27 @@ export const header = (
   name: string
 ): string | undefined => {
   const value = req.headers[name];
+
   return Array.isArray(value) ? value[0] : value;
 };
 
 /** The body as text, or null once it grows past `limit` bytes, which are all that is ever read. */
 export const readBody = (req: http.IncomingMessage, limit: number) =>
   new Promise<string | null>((resolve) => {
-    if (Number(header(req, "content-length") ?? 0) > limit)
+    if (Number(header(req, "content-length") ?? 0) > limit) {
       return resolve(null);
+    }
     const chunks: Array<Buffer> = [];
     let size = 0;
     req.on("data", (chunk: Buffer) => {
       size += chunk.byteLength;
+
       if (size > limit) {
         req.removeAllListeners("data");
         resolve(null);
-      } else chunks.push(chunk);
+      } else {
+        chunks.push(chunk);
+      }
     });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", () => resolve(null));

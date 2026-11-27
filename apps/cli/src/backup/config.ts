@@ -7,6 +7,7 @@ import { AbsolutePath, absolutePath } from "../migrate/paths.ts";
 export const backupPaths = (home: string) => {
   const dir = join(home, ".config", "devbox", "backup");
   const state = join(home, ".local", "state", "devbox", "backup");
+
   return {
     dir,
     sources: join(dir, "sources"),
@@ -70,22 +71,29 @@ export const parseEnv = (text: string): ParsedEnv => {
   const invalid: Array<number> = [];
   text.split("\n").forEach((raw, index) => {
     const line = raw.trim();
-    if (line === "" || line.startsWith("#")) return;
+
+    if (line === "" || line.startsWith("#")) {
+      return;
+    }
     const at = line.indexOf("=");
     const name = at < 1 ? undefined : line.slice(0, at).trim();
+
     if (
       name === undefined ||
       Result.isFailure(Schema.decodeUnknownResult(EnvName)(name))
-    )
+    ) {
       return void invalid.push(index + 1);
+    }
     values[name] = unquote(line.slice(at + 1).trim());
   });
+
   return { values, invalid };
 };
 
 export const resticRepositoryOf = (text: string): string | undefined => {
   const { values, invalid } = parseEnv(text);
   const repository = values.RESTIC_REPOSITORY;
+
   return invalid.length === 0 && repository !== undefined && repository !== ""
     ? repository
     : undefined;
@@ -96,6 +104,7 @@ export const ensureConfig = (home: AbsolutePath) =>
     const fs = yield* FileSystem.FileSystem;
     const paths = backupPaths(home);
     yield* fs.makeDirectory(paths.dir, { recursive: true });
+
     const create = (path: string, content: string, mode: number) =>
       fs.writeFileString(path, content, { flag: "wx", mode }).pipe(
         Effect.as(true),
@@ -104,6 +113,7 @@ export const ensureConfig = (home: AbsolutePath) =>
           () => Effect.succeed(false)
         )
       );
+
     const created = yield* Effect.forEach(
       [
         [paths.sources, DEFAULT_SOURCES, 0o644],
@@ -113,5 +123,6 @@ export const ensureConfig = (home: AbsolutePath) =>
       ([path, content, mode]) =>
         Effect.map(create(path, content, mode), (made) => (made ? [path] : []))
     );
+
     return created.flat();
   });

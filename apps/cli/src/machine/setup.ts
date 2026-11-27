@@ -48,18 +48,23 @@ const BROWSER_PACKAGES = [
 export const browserLibraries = Effect.gen(function* () {
   const host = yield* Host;
   const out = yield* Output;
-  if (!(yield* host.which("apt-get")))
+
+  if (!(yield* host.which("apt-get"))) {
     return yield* out.log("browser: no apt-get, skipped");
+  }
   const packages = yield* Effect.forEach(BROWSER_PACKAGES, (name) =>
     Effect.map(host.run(["apt-cache", "policy", `${name}t64`]), (policy) =>
       /Candidate: (?!\(none\))/.test(policy.stdout) ? `${name}t64` : name
     )
   );
-  if ((yield* host.run(["dpkg", "-s", ...packages])).code === 0)
+
+  if ((yield* host.run(["dpkg", "-s", ...packages])).code === 0) {
     return yield* out.log("browser: libraries present");
+  }
   const update = yield* host.run(["sudo", "-n", "apt-get", "update", "-qq"], {
     inherit: true,
   });
+
   const install =
     update.code === 0
       ? yield* host.run(
@@ -78,6 +83,7 @@ export const browserLibraries = Effect.gen(function* () {
           { inherit: true }
         )
       : update;
+
   yield* install.code === 0
     ? out.log("browser: libraries installed")
     : out.warn(
@@ -90,15 +96,21 @@ export const ensureMise = (data: string, env: Record<string, string>) =>
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
     const { mise } = pathsOf(data);
-    if (yield* fs.exists(mise).pipe(Effect.orElseSucceed(() => false)))
+
+    if (yield* fs.exists(mise).pipe(Effect.orElseSucceed(() => false))) {
       return true;
+    }
     const installer = yield* host.run(["curl", "-fsSL", "https://mise.run"]);
-    if (installer.code !== 0) return false;
+
+    if (installer.code !== 0) {
+      return false;
+    }
     const ran = yield* host.run(["sh"], {
       stdin: installer.stdout,
       env: { ...env, MISE_INSTALL_PATH: mise },
       inherit: true,
     });
+
     return ran.code === 0;
   });
 
@@ -107,9 +119,12 @@ const languages = (data: string, env: Record<string, string>) =>
     const host = yield* Host;
     const out = yield* Output;
     const { mise } = pathsOf(data);
-    if (!(yield* ensureMise(data, env)))
+
+    if (!(yield* ensureMise(data, env))) {
       return yield* out.warn("tools: cannot download mise");
+    }
     const gh = (yield* host.which("gh")) ? [] : ["gh@latest"];
+
     const use = yield* host.run(
       [
         mise,
@@ -123,6 +138,7 @@ const languages = (data: string, env: Record<string, string>) =>
       ],
       { env, inherit: true }
     );
+
     yield* use.code === 0
       ? out.log("tools: go, rust and starship ready")
       : out.warn("tools: mise failed");
@@ -137,44 +153,58 @@ export const installSkills = (
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
-    if (agents.length === 0)
+
+    if (agents.length === 0) {
       return yield* out.log("skills: no chosen agent takes skills");
+    }
     const fetched = yield* host.run(["curl", "-fsSL", SKILLS_LIST_URL]);
-    if (fetched.code !== 0)
+
+    if (fetched.code !== 0) {
       return yield* out.warn("skills: cannot read the list");
+    }
     const list = parseSkillsList(fetched.stdout);
     const paths = pathsOf(data);
+
     const stamp = yield* fs
       .readFileString(paths.skillsStamp)
       .pipe(Effect.option);
+
     const wanted = skillsStamp(list, agents);
+
     if (
       Option.contains(
         Option.map(stamp, (s) => s.trim()),
         wanted
       )
-    )
+    ) {
       return yield* out.log("skills: up to date");
-    for (const line of list.rejected)
+    }
+    for (const line of list.rejected) {
       yield* out.warn(
         `skills: ignored a line that is not a skill source: ${line}`
       );
+    }
     const cwd = mkdtempSync(join(tmpdir(), "devbox-skills-"));
+
     const failed = yield* Effect.filter(list.sources, (source) =>
       Effect.map(
         host.run(skillsAddArgs(source, agents), { env, cwd, inherit: true }),
         (r) => r.code !== 0
       )
     );
+
     yield* fs.remove(cwd, { recursive: true }).pipe(Effect.ignore);
+
     if (failed.length === 0 && list.rejected.length === 0) {
       yield* fs
         .writeFileString(paths.skillsStamp, `${wanted}\n`)
         .pipe(Effect.ignore);
+
       return yield* out.log(
         `skills: installed ${plural(list.sources.length, "source")}`
       );
     }
+
     yield* out.warn(
       `skills: ${plural(failed.length + list.rejected.length, "source")} failed, trying again on the next start`
     );
@@ -189,21 +219,27 @@ export const linkInstructions = (
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
     const text = yield* fs.readFileString(sourcePath).pipe(Effect.option);
-    if (Option.isNone(text))
+
+    if (Option.isNone(text)) {
       return yield* out.warn(`instructions: no ${sourcePath}`);
+    }
     const source = { path: sourcePath, text: text.value };
+
     const settings = yield* fs
       .readFileString(t3SettingsPath(config.baseDir))
       .pipe(Effect.option);
+
     const linked = yield* Effect.filter(
       claudeHomes(settings, home, config.data),
       (dir) =>
         Effect.gen(function* () {
           const path = join(dir, "CLAUDE.md");
+
           const now = {
             target: yield* fs.readLink(path).pipe(Effect.option),
             text: yield* fs.readFileString(path).pipe(Effect.option),
           };
+
           switch (instructionsLink(now, source)._tag) {
             case "Linked":
               return false;
@@ -211,6 +247,7 @@ export const linkInstructions = (
               yield* out.warn(
                 `instructions: left ${path} alone, it is not a copy of ${sourcePath}`
               );
+
               return false;
             case "Link":
               return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
@@ -222,6 +259,7 @@ export const linkInstructions = (
           }
         })
     );
+
     yield* out.log(
       linked.length === 0
         ? "instructions: up to date"
@@ -245,7 +283,9 @@ export const postStart = (config: ServeConfig, home: string) =>
       (yield* host.which("npm")) ? "npm" : pathsOf(config.data).npmShim
     );
     yield* installSkills(config.data, env, skillsAgentsOf(ids));
-    if (ids.includes("claude"))
+
+    if (ids.includes("claude")) {
       yield* linkInstructions(config, home, INSTRUCTIONS_FILE);
+    }
     yield* out.log("setup: done");
   });

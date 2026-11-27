@@ -50,6 +50,7 @@ const upPicking = (
 
 const MUTATING =
   /^(<detached>|<stop>|tee|npm install|bash|git config --global (--add|--unset-all))/;
+
 const mutations = (m: Machine, from: number) =>
   m.calls
     .slice(from)
@@ -57,12 +58,16 @@ const mutations = (m: Machine, from: number) =>
     .filter((line) => MUTATING.test(line));
 
 const savedFile = (m: Machine) => join(m.home, ".config/devbox/agents.json");
+
 const saved = (m: Machine): unknown =>
   JSON.parse(readFileSync(savedFile(m), "utf8"));
+
 const binOf = (m: Machine, id: AgentId) =>
   join(m.home, ".local/bin", AGENTS.find((agent) => agent.id === id)!.bin);
+
 const starts = (m: Machine) =>
   m.calls.filter((c) => c[0] === "<detached>").length;
+
 const curled = (m: Machine, url: string) =>
   m.calls.some((c) => c[0] === "curl" && c.includes(url));
 
@@ -70,6 +75,7 @@ const TEMPLATE = `#!/bin/bash
 skill mattpocock/skills --skill grilling
 skill rauchg/skills
 `;
+
 const BOTH = ["claude-code", "codex"];
 
 describe("with no terminal and no saved choice", () => {
@@ -205,10 +211,12 @@ describe("--agents", () => {
     expect([...ids.value]).toEqual([]);
     expect(skillsAgentsOf(ids.value)).toEqual([]);
     const before = m.calls.length;
+
     const skills = await runWith(
       m.host,
       installSkills(m.home, {}, skillsAgentsOf(ids.value))
     );
+
     expect(skills.err).toContain("skills: no chosen agent takes skills");
     expect(m.calls.length).toBe(before);
   });
@@ -430,18 +438,22 @@ describe("devbox serve keeps the chosen agents current", () => {
       '{"agents":["claude","codex","devin","opencode"]}\n'
     );
     mkdirSync(join(m.home, ".local/bin"), { recursive: true });
-    for (const bin of ["claude", "codex", "devin"])
+
+    for (const bin of ["claude", "codex", "devin"]) {
       writeFileSync(join(m.home, ".local/bin", bin), "");
+    }
     m.respond = (argv) =>
       argv[0] === "curl" && argv.some((a) => a.includes("dotfiles"))
         ? { code: 0, stdout: TEMPLATE, stderr: "" }
         : argv[0] === "npx"
           ? { code: 0, stdout: "", stderr: "" }
           : undefined;
+
     const { err } = await runWith(
       m.host,
       Effect.flatMap(serving(m), (config) => postStart(config, m.home))
     );
+
     const prefix = join(m.home, ".local");
     expect(m.calls).toContainEqual([
       "npm",
@@ -476,6 +488,7 @@ describe("devbox serve keeps the chosen agents current", () => {
   test("gh joins the mise line only when it is not on PATH", async () => {
     const withGh = makeMachine({ binaries: new Set(["npm", "gh"]) });
     const without = makeMachine();
+
     for (const m of [withGh, without]) {
       mkdirSync(join(m.home, ".local/bin"), { recursive: true });
       writeFileSync(join(m.home, ".local/bin/mise"), "");
@@ -484,8 +497,10 @@ describe("devbox serve keeps the chosen agents current", () => {
         Effect.flatMap(serving(m), (config) => postStart(config, m.home))
       );
     }
+
     const miseUse = (m: Machine) =>
       m.calls.find((c) => c.includes("--global"))!;
+
     expect(miseUse(without)).toContain("gh@latest");
     expect(miseUse(withGh)).not.toContain("gh@latest");
   });

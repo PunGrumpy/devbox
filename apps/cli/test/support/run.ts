@@ -18,6 +18,7 @@ export type Asked = {
     readonly selected: boolean;
   }>;
 };
+
 export type Result = {
   code: number;
   out: string;
@@ -31,6 +32,7 @@ const capture = (pick?: ReadonlyArray<ReadonlyArray<string>>) => {
   const err: Array<string> = [];
   const asked: Array<Asked> = [];
   const scripted = [...(pick ?? [])];
+
   const output = Output.make({
     stdout: (text) => out.push(text),
     stderr: (text) => err.push(text),
@@ -45,11 +47,13 @@ const capture = (pick?: ReadonlyArray<ReadonlyArray<string>>) => {
           choices: choices.map(({ title, selected }) => ({ title, selected })),
         });
         const titles = scripted.shift() ?? [];
+
         return choices.flatMap((choice, i) =>
           titles.includes(choice.title) ? [i] : []
         );
       }),
   });
+
   return { out, err, asked, output };
 };
 
@@ -63,9 +67,11 @@ export const devbox = async (
   } = {}
 ): Promise<Result> => {
   const { out, err, asked, output } = capture(options.pick);
+
   const code = await Effect.runPromise(
     runCli(args).pipe(Effect.provide(layerFor(env, output, options)))
   );
+
   return { code, out: out.join(""), err: err.join(""), asked };
 };
 
@@ -93,9 +99,11 @@ export const start = (
   options: { host?: Host["Service"] } = {}
 ) => {
   const { out, err, output } = capture();
+
   const fiber = Effect.runFork(
     runCli(args).pipe(Effect.provide(layerFor(env, output, options)))
   );
+
   return {
     out: () => out.join(""),
     err: () => err.join(""),
@@ -111,6 +119,7 @@ export const runWith = async <A, E>(
   effect: Effect.Effect<A, E, Host | Output | BunServices.BunServices>
 ): Promise<{ value: A; err: string }> => {
   const { err, output } = capture();
+
   const value = await Effect.runPromise(
     effect.pipe(
       Effect.provide(
@@ -121,6 +130,7 @@ export const runWith = async <A, E>(
       )
     )
   );
+
   return { value, err: err.join("") };
 };
 

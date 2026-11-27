@@ -25,14 +25,18 @@ export const excludedBy = (
     )
     .map((line) => expandVars(line, vars).replace(/\/+$/, ""))
     .filter((line) => line !== "");
+
   const names = patterns
     .filter((p) => !p.includes("/"))
     .map((p) => new Bun.Glob(p));
+
   const paths = patterns
     .filter((p) => p.includes("/"))
     .map((p) => new Bun.Glob(p.startsWith("/") ? p : `**/${p}`));
+
   return (path) => {
     const name = basename(path);
+
     return (
       names.some((glob) => glob.match(name)) ||
       paths.some((glob) => glob.match(path))

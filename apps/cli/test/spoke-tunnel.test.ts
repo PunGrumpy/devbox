@@ -26,9 +26,11 @@ import { devbox, start } from "./support/run.ts";
 
 const hubKey = generateKeyPairSync("ed25519").privateKey;
 const KEY = publicKeyOf(hubKey);
+
 const TOKEN = Buffer.from(
   JSON.stringify({ a: "made-up", t: "made-up", s: "made-up" })
 ).toString("base64");
+
 const URL = "https://t3-edge-7.example.com";
 const TAILNET = "tailscale-ip-21";
 
@@ -42,13 +44,18 @@ const setUpMachine = async () => {
   mkdirSync(join(m.home, ".local", "bin"), { recursive: true });
   writeFileSync(join(m.home, ".local", "bin", "mise"), "");
   m.respond = (argv) => {
-    if (argv[0] === "systemd-detect-virt") return ok("kvm\n");
-    if (argv[0]?.endsWith("/mise") && argv[1] === "use")
+    if (argv[0] === "systemd-detect-virt") {
+      return ok("kvm\n");
+    }
+    if (argv[0]?.endsWith("/mise") && argv[1] === "use") {
       return (writeFileSync(installed, ""), ok());
-    if (argv[0]?.endsWith("/mise") && argv[1] === "which")
+    }
+    if (argv[0]?.endsWith("/mise") && argv[1] === "which") {
       return ok(`${installed}\n`);
+    }
     return undefined;
   };
+
   const r = await up(
     m,
     "--spoke",
@@ -58,7 +65,9 @@ const setUpMachine = async () => {
     "edge-7",
     "--no-setup"
   );
+
   expect(r.code).toBe(0);
+
   return m;
 };
 
@@ -69,6 +78,7 @@ const up = (m: Machine, ...args: ReadonlyArray<string>) =>
 
 const running = async (m: Machine) => {
   const port = await Effect.runPromise(freePort);
+
   const spoke = start(
     { HOME: m.home },
     ["spoke", "--port", String(port), "--trust", KEY],
@@ -76,8 +86,10 @@ const running = async (m: Machine) => {
       host: m.host,
     }
   );
-  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1)
+
+  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1) {
     await Bun.sleep(20);
+  }
   return { spoke, base: `http://127.0.0.1:${port}` };
 };
 
@@ -85,6 +97,7 @@ const signedFor = async (base: string, action: Do, fields: Fields = {}) => {
   const { nonce } = (await (await fetch(`${base}/api/challenge`)).json()) as {
     nonce: string;
   };
+
   return signRequest(hubKey, new Date(), nonce, action, fields);
 };
 
@@ -100,8 +113,10 @@ const ask = async (base: string, action: Do, fields: Fields = {}) =>
 
 const tokenPath = (m: Machine) =>
   join(m.home, ".config", "cloudflared", "token");
+
 const machineJson = (m: Machine) =>
   readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8");
+
 const recorded = (m: Machine): ReadonlyArray<string> =>
   JSON.parse(machineJson(m)).up;
 
@@ -111,15 +126,18 @@ const started = (m: Machine) => {
   const runs = m.calls.filter(
     (argv) => argv[0] === "<detached>" && argv[SELF.length + 1] === "up"
   );
+
   const from = seen.get(m) ?? 0;
   seen.set(m, runs.length);
   m.processes = m.processes.filter((p) => p.argv[SELF.length] !== "up");
+
   return runs.slice(from).map((argv) => argv.slice(SELF.length + 2));
 };
 
 const finish = async (m: Machine, flags: ReadonlyArray<string>) => {
   const r = await up(m, ...flags);
   expect(r.code).toBe(0);
+
   return r;
 };
 
@@ -232,10 +250,12 @@ describe("a tunnel request", async () => {
 
   test("the url cannot be changed without the hub's key", async () => {
     const signed = await signedFor(base, "tunnel", { token: TOKEN, url: URL });
+
     const response = await send(base, {
       ...signed,
       body: signed.body.replace(URL, "https://t3-edge-7.example.net"),
     });
+
     expect(response.status).toBe(403);
     expect(existsSync(tokenPath(m))).toBe(false);
   });
@@ -276,6 +296,7 @@ describe("a tunnel request", async () => {
 test("a machine devbox up has not recorded saves no token", async () => {
   const m = makeMachine();
   const { spoke, base } = await running(m);
+
   try {
     const response = await ask(base, "tunnel", { token: TOKEN, url: URL });
     expect(response.status).toBe(409);
@@ -291,6 +312,7 @@ test("a machine on its Tailscale address keeps it, so the hub still reaches the 
     argv[0] === "systemd-detect-virt" ? ok("kvm\n") : undefined;
   await up(m, "--spoke", "--trust", KEY, "--host", TAILNET, "--no-setup");
   const { spoke, base } = await running(m);
+
   try {
     expect((await ask(base, "tunnel", { token: TOKEN, url: URL })).status).toBe(
       202

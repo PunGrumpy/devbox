@@ -21,6 +21,7 @@ import { devbox, start } from "./support/run.ts";
 const hubKey = generateKeyPairSync("ed25519").privateKey;
 const strangerKey = generateKeyPairSync("ed25519").privateKey;
 const KEY = publicKeyOf(hubKey);
+
 const SET_UP = [
   "--data",
   "/srv/data",
@@ -30,7 +31,9 @@ const SET_UP = [
   "user",
   "--spoke",
 ];
+
 const PAIRING_TOKEN = "made-up-pairing-token-0123";
+
 const PAIRING = {
   url: "http://edge-7.tail1234.ts.net:3773",
   token: PAIRING_TOKEN,
@@ -39,12 +42,15 @@ const PAIRING = {
 const setUpMachine = (options: { recorded?: boolean; virt?: string } = {}) => {
   const m = makeMachine();
   m.respond = (argv) => {
-    if (argv[0] === "systemd-detect-virt")
+    if (argv[0] === "systemd-detect-virt") {
       return { code: 0, stdout: `${options.virt ?? "kvm"}\n`, stderr: "" };
-    if (argv[SELF.length] === "pair")
+    }
+    if (argv[SELF.length] === "pair") {
       return { code: 0, stdout: `${JSON.stringify(PAIRING)}\n`, stderr: "" };
+    }
     return undefined;
   };
+
   mkdirSync(join(m.home, ".config", "devbox"), { recursive: true });
   writeFileSync(
     join(m.home, ".config", "devbox", "machine.json"),
@@ -57,6 +63,7 @@ const setUpMachine = (options: { recorded?: boolean; virt?: string } = {}) => {
       ...(options.recorded === false ? {} : { up: SET_UP }),
     })
   );
+
   return m;
 };
 
@@ -65,6 +72,7 @@ const running = async (
   ...args: Array<string>
 ) => {
   const port = await Effect.runPromise(freePort);
+
   const spoke = start(
     { HOME: m.home },
     ["spoke", "--port", String(port), ...args],
@@ -72,8 +80,10 @@ const running = async (
       host: m.host,
     }
   );
-  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1)
+
+  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1) {
     await Bun.sleep(20);
+  }
   return { spoke, base: `http://127.0.0.1:${port}`, port };
 };
 
@@ -163,6 +173,7 @@ describe("devbox spoke", async () => {
       base,
       signRequest(hubKey, new Date(), newNonce(), "update")
     );
+
     expect(response.status).toBe(403);
     expect(updates(m)).toHaveLength(2);
   });
@@ -178,6 +189,7 @@ describe("devbox spoke", async () => {
       base,
       await signedFor(base, hubKey, new Date(Date.now() - 120_000))
     );
+
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: "the request is too old or too new",
@@ -194,9 +206,11 @@ describe("devbox spoke", async () => {
           done(response.statusCode ?? 0);
         }
       );
+
       req.on("error", fail);
       req.end("x".repeat(64 * 1024));
     });
+
     expect(status).toBe(413);
     expect(updates(m)).toHaveLength(2);
   });
@@ -206,6 +220,7 @@ describe("devbox spoke", async () => {
       base,
       await signedFor(base, hubKey, new Date(), "pair")
     );
+
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({
@@ -226,25 +241,30 @@ describe("devbox spoke", async () => {
 
   test("a request for something the spoke cannot do is refused, though signed", async () => {
     const before = m.calls.length;
+
     for (const action of ["reboot", "constructor", "__proto__", "toString"]) {
       const response = await post(
         base,
         await signedFor(base, hubKey, new Date(), action as Do)
       );
+
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({
         error: "this spoke does not do that",
       });
     }
+
     expect(m.calls.length).toBe(before);
   });
 
   test("a signed update cannot be sent as a pairing request", async () => {
     const signed = await signedFor(base);
+
     const response = await send(base, {
       ...signed,
       body: signed.body.replace('"do":"update"', '"do":"pair"'),
     });
+
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: "the signature does not match",
@@ -268,10 +288,12 @@ describe("devbox spoke", async () => {
 
 test("a request signed for one spoke is refused by another that trusts the same hub", async () => {
   const [one, two] = [setUpMachine(), setUpMachine()];
+
   const [first, second] = await Promise.all([
     running(one, "--trust", KEY),
     running(two, "--trust", KEY),
   ]);
+
   try {
     const signed = await signedFor(first.base);
     const replayed = await send(second.base, signed);
@@ -289,6 +311,7 @@ test("a request signed for one spoke is refused by another that trusts the same 
 describe("what a spoke says it is", () => {
   const kindOf = async (m: ReturnType<typeof makeMachine>) => {
     const { spoke, base } = await running(m);
+
     try {
       return (
         (await (await fetch(`${base}/api/spoke`)).json()) as { kind: string }
@@ -311,6 +334,7 @@ describe("what a spoke says it is", () => {
 test("a machine devbox up has not recorded refuses an update it cannot run", async () => {
   const m = setUpMachine({ recorded: false });
   const { spoke, base } = await running(m, "--trust", KEY);
+
   try {
     const response = await post(base);
     expect(response.status).toBe(409);
@@ -323,6 +347,7 @@ test("a machine devbox up has not recorded refuses an update it cannot run", asy
 test("a spoke that trusts nobody takes no update", async () => {
   const m = setUpMachine();
   const { spoke, base } = await running(m);
+
   try {
     expect(
       ((await (await fetch(`${base}/api/spoke`)).json()) as { trusts: unknown })
@@ -341,6 +366,7 @@ test("--trust takes only a hub key", async () => {
     "--trust",
     "not-a-key",
   ]);
+
   expect(r.code).not.toBe(0);
   expect(r.err).toContain("devbox hub key");
 });
@@ -356,11 +382,13 @@ test("a pairing request devbox pair cannot answer is refused, and says nothing o
         }
       : undefined;
   const { spoke, base } = await running(m, "--trust", KEY);
+
   try {
     const response = await post(
       base,
       await signedFor(base, hubKey, new Date(), "pair")
     );
+
     expect(response.status).toBe(502);
     const text = await response.text();
     expect(JSON.parse(text)).toEqual({

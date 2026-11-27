@@ -9,6 +9,7 @@ export type Change = Data.TaggedEnum<{
   MoveThreads: { readonly threads: number; readonly into: string };
   RenameRoot: { readonly project: string; readonly to: string };
 }>;
+
 export const Change = Data.taggedEnum<Change>();
 
 const sentence = Change.$match({
@@ -74,6 +75,7 @@ export class VerificationFailed extends Schema.TaggedError<VerificationFailed>()
       (m) =>
         `${m.what} is ${JSON.stringify(m.actual)}, expected ${JSON.stringify(m.expected)}`
     );
+
     return `verification failed: ${lines.join("; ")}`;
   }
   get hint() {
@@ -98,22 +100,28 @@ export const applyPlan = <E, R>(
   Effect.scoped(
     Effect.gen(function* () {
       const out = yield* Output;
+
       if (!mode.apply) {
         return yield* out.note(
           `dry run. Re-run with ${out.paint("dim", "--apply")} to ${sentence(plan.change)}.`
         );
       }
-      if (!mode.yes && !(yield* out.confirm(question(plan.change))))
+
+      if (!mode.yes && !(yield* out.confirm(question(plan.change)))) {
         return yield* new Aborted();
+      }
       yield* plan.prepare;
       const sql = yield* SqlClient.SqlClient;
+
       const [elapsed] = yield* Effect.timed(
         Effect.gen(function* () {
           const before = yield* out.step("quick_check before", quickCheck);
-          if (before !== "ok")
+
+          if (before !== "ok") {
             yield* out.warn(
               `quick_check before the change is not clean: ${before}`
             );
+          }
           const saved = yield* out.step("backup", backup(target.path));
           yield* out.log(
             `backup ${saved.path} ${out.paint("dim", `(${formatBytes(saved.bytes)})`)}`
@@ -126,24 +134,32 @@ export const applyPlan = <E, R>(
                 (error) => new WriteFailed({ reason: error.message, restore })
               )
             );
+
           const checks = [
             ...plan.verify,
             { what: "quick_check", expected: before, actual: quickCheck },
           ];
+
           const mismatches: Array<Mismatch> = [];
+
           for (const check of checks) {
             const actual = yield* check.actual;
-            if (actual !== check.expected)
+
+            if (actual !== check.expected) {
               mismatches.push({
                 what: check.what,
                 expected: check.expected,
                 actual,
               });
+            }
           }
-          if (mismatches.length > 0)
+
+          if (mismatches.length > 0) {
             return yield* new VerificationFailed({ mismatches, restore });
+          }
         })
       );
+
       yield* out.success(
         `${sentence(plan.change)}. Relaunch T3 Code to see the change.`,
         elapsed

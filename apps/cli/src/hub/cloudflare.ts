@@ -40,13 +40,16 @@ const Envelope = Schema.fromJsonString(
 const quote = (text: string, bearer: string): string => {
   const plain = text.replaceAll(/\s+/g, " ").trim();
   const clean = bearer === "" ? plain : plain.replaceAll(bearer, "<token>");
+
   return clean.length > MAX_SAID ? `${clean.slice(0, MAX_SAID - 1)}…` : clean;
 };
 
 const urlOf = ({ path, query = {} }: CloudflareRequest): string => {
   const url = new URL(`${API}${path}`);
-  for (const [name, value] of Object.entries(query))
+
+  for (const [name, value] of Object.entries(query)) {
     url.searchParams.set(name, value);
+  }
   return url.href;
 };
 
@@ -57,6 +60,7 @@ const urlOf = ({ path, query = {} }: CloudflareRequest): string => {
 export const call = (bearer: string, request: CloudflareRequest) =>
   Effect.gen(function* () {
     const host = yield* Host;
+
     const answered = yield* host.request(
       urlOf(request),
       {
@@ -73,22 +77,27 @@ export const call = (bearer: string, request: CloudflareRequest) =>
       },
       TIMEOUT_MS
     );
-    if (Option.isNone(answered))
+
+    if (Option.isNone(answered)) {
       return yield* new CloudflareRefused({
         status: null,
         said: "Cloudflare did not answer, or its answer was too large",
       });
+    }
     const { status, body } = answered.value;
     const envelope = Schema.decodeUnknownOption(Envelope)(body);
-    if (Option.isNone(envelope))
+
+    if (Option.isNone(envelope)) {
       return yield* new CloudflareRefused({
         status,
         said: `Cloudflare answered ${status} with something that is not its JSON`,
       });
+    }
     if (!envelope.value.success || status < 200 || status > 299) {
       const messages = (envelope.value.errors ?? []).flatMap((e) =>
         e.message === undefined ? [] : [e.message]
       );
+
       return yield* new CloudflareRefused({
         status,
         said: quote(
@@ -97,6 +106,7 @@ export const call = (bearer: string, request: CloudflareRequest) =>
         ),
       });
     }
+
     return envelope.value.result;
   });
 
@@ -117,6 +127,7 @@ const read =
 const PER_PAGE = "50";
 
 const Named = Schema.Struct({ id: Schema.String, name: Schema.String });
+
 export type Named = typeof Named.Type;
 
 const Verified = Schema.Struct({ status: Schema.String });
@@ -126,12 +137,14 @@ const Rule = Schema.Struct({
   ref: Schema.optional(Schema.String),
   expression: Schema.optional(Schema.String),
 });
+
 export type Rule = typeof Rule.Type;
 
 const Ruleset = Schema.Struct({
   id: Schema.String,
   rules: Schema.optional(Schema.NullOr(Schema.Array(Rule))),
 });
+
 export type Ruleset = typeof Ruleset.Type;
 
 const Tunnel = Schema.Struct({
@@ -139,6 +152,7 @@ const Tunnel = Schema.Struct({
   name: Schema.String,
   config_src: Schema.optional(Schema.NullOr(Schema.String)),
 });
+
 export type Tunnel = typeof Tunnel.Type;
 
 const DnsRecord = Schema.Struct({
@@ -148,6 +162,7 @@ const DnsRecord = Schema.Struct({
   content: Schema.optional(Schema.NullOr(Schema.String)),
   comment: Schema.optional(Schema.NullOr(Schema.String)),
 });
+
 export type DnsRecord = typeof DnsRecord.Type;
 
 export type NewRule = {
@@ -163,6 +178,7 @@ const tunnels = (accountId: string) => `/accounts/${accountId}/cfd_tunnel`;
 /** The calls devbox makes, each with the bearer it was given. */
 export const cloudflareApi = (bearer: string) => {
   const ask = (request: CloudflareRequest) => call(bearer, request);
+
   return {
     /** Whether the token is active, asked as a user token and then as one owned by the account. */
     verify: (accountId: string) =>
@@ -333,8 +349,10 @@ const choose = <A extends Named>(
 ) => {
   const named = Option.getOrUndefined(wanted);
   const only = choices.length === 1 ? choices[0] : undefined;
+
   const found =
     named === undefined ? only : choices.find((c) => matches(c, named));
+
   return found === undefined
     ? Effect.fail(
         new PickOne({
@@ -358,21 +376,25 @@ export const placeOf = (
     const accounts = yield* api.accounts.pipe(
       Effect.mapError(failed("list the accounts this token sees"))
     );
+
     const account = yield* choose(
       "account",
       accounts,
       wanted.account,
       (a, id) => a.id === id
     );
+
     const zones = yield* api
       .zones(account.id)
       .pipe(Effect.mapError(failed("list the zones this token sees")));
+
     const zone = yield* choose(
       "zone",
       zones,
       wanted.zone,
       (z, name) => z.name.toLowerCase() === name.toLowerCase()
     );
+
     return {
       accountId: account.id,
       zoneId: zone.id,
@@ -396,18 +418,23 @@ export const saveToken = (
   Effect.gen(function* () {
     const api = cloudflareApi(token);
     const place = yield* placeOf(api, wanted);
+
     const verified = yield* api
       .verify(place.accountId)
       .pipe(Effect.mapError(failed("verify the token")));
-    if (verified.status !== "active")
+
+    if (verified.status !== "active") {
       return yield* new CloudflareFailed({
         message: `Cloudflare says the token is ${verified.status}`,
         hint: "make a new one in the Cloudflare dashboard",
       });
+    }
     const account: CloudflareAccount = {
       login: { kind: "token", token },
       ...place,
     };
+
     yield* saveCloudflare(home, account);
+
     return account;
   });

@@ -41,11 +41,14 @@ describe("rewriteHeaders", () => {
       },
       PUBLIC
     );
+
     expect(first.host).toBe("edge1.example.com");
+
     const empty = rewriteHeaders(
       { host: "10.0.0.1", "x-forwarded-host": "" },
       PUBLIC
     );
+
     expect(empty.host).toBe(new URL(PUBLIC).host);
   });
 });
@@ -68,6 +71,7 @@ describe("the in-process proxy", async () => {
       },
     },
   });
+
   const scope = await Effect.runPromise(Scope.make());
   const port = await Effect.runPromise(freePort);
   await Effect.runPromise(
@@ -90,6 +94,7 @@ describe("the in-process proxy", async () => {
       proto: null,
       path: "/a",
     });
+
     const edge = await (
       await fetch(
         `http://127.0.0.1:${port}/.well-known/oauth-protected-resource`,
@@ -98,6 +103,7 @@ describe("the in-process proxy", async () => {
         }
       )
     ).json();
+
     expect(edge).toEqual({
       host: "example.test",
       proto: "http",
@@ -109,11 +115,13 @@ describe("the in-process proxy", async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
       headers: { "x-forwarded-proto": "https" },
     } as never);
+
     const reply = await new Promise<string>((resolve, reject) => {
       ws.addEventListener("open", () => ws.send("ping"));
       ws.addEventListener("message", (event) => resolve(String(event.data)));
       ws.addEventListener("error", () => reject(new Error("websocket failed")));
     });
+
     ws.close();
     expect(reply).toBe("example.test:ping");
   });

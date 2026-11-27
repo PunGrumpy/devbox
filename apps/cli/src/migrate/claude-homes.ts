@@ -64,15 +64,22 @@ export class ClaudeHomes extends Context.Service<
       Effect.gen(function* () {
         const { home, settingsFile, claudeConfigDir } = yield* Locations;
         const fs = yield* FileSystem.FileSystem;
+
         const defaultHome = Option.match(override, {
           onNone: () => absolutePath(join(home, ".claude")),
           onSome: (path) => absolutePath(path),
         });
+
         const expandHome = (value: string) => {
-          if (value === "~") return home;
-          if (/^~[\\/]/.test(value)) return join(home, value.slice(2));
+          if (value === "~") {
+            return home;
+          }
+          if (/^~[\\/]/.test(value)) {
+            return join(home, value.slice(2));
+          }
           return value;
         };
+
         const realOrSelf = (path: AbsolutePath) =>
           fs.realPath(path).pipe(Effect.orElseSucceed(() => path));
 
@@ -81,8 +88,9 @@ export class ClaudeHomes extends Context.Service<
             !(yield* fs
               .exists(settingsFile)
               .pipe(Effect.orElseSucceed(() => false)))
-          )
+          ) {
             return [];
+          }
           const settings = yield* fs.readFileString(settingsFile).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(Settings)),
             Effect.mapError(
@@ -93,36 +101,47 @@ export class ClaudeHomes extends Context.Service<
                 })
             )
           );
+
           const homes = new Map<
             string,
             { instances: Array<string>; enabled: boolean; path: AbsolutePath }
           >();
+
           for (const [id, raw] of Object.entries(
             settings.providerInstances ?? {}
           )) {
             const instance = Schema.decodeUnknownOption(ClaudeInstance)(raw);
-            if (Option.isNone(instance)) continue;
+
+            if (Option.isNone(instance)) {
+              continue;
+            }
             const { config, enabled } = instance.value;
+
             const configured =
               Predicate.hasProperty(config, "homePath") &&
               Predicate.isString(config.homePath)
                 ? config.homePath.trim()
                 : "";
+
             const path = configured
               ? absolutePath(expandHome(configured))
               : defaultHome;
+
             const key = yield* realOrSelf(path);
             const known = homes.get(key);
+
             if (known) {
               known.instances.push(id);
               known.enabled ||= enabled !== false;
-            } else
+            } else {
               homes.set(key, {
                 instances: [id],
                 enabled: enabled !== false,
                 path,
               });
+            }
           }
+
           return [...homes.values()];
         });
 

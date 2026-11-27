@@ -52,12 +52,14 @@ describe("one settings list, three sinks", () => {
       ].join("\n")
     );
     const me = Bun.spawnSync(["id", "-un"]).stdout.toString().trim();
+
     const sourced = (user: string) =>
       Bun.spawnSync([
         "sh",
         "-c",
         `${profileScript(settingsFor("/it's"), user)}printf %s "$CLAUDE_CONFIG_DIR"`,
       ]).stdout.toString();
+
     expect(sourced(me)).toBe("/it's/.claude");
     expect(sourced("someone-else")).toBe("");
   });
@@ -106,6 +108,7 @@ describe("the skills list is data", () => {
     const lines = TEMPLATE.split("\n")
       .filter((l) => l.startsWith("skill "))
       .map((l) => l.replace("git@github.com:", "https://github.com/"));
+
     expect(parseSkillsList(TEMPLATE).hash).toBe(
       createHash("sha256").update(lines.join("\n")).digest("hex")
     );
@@ -171,7 +174,7 @@ describe("browser libraries", () => {
   test("on Ubuntu 24.04 it installs the t64 package that replaced libasound2", async () => {
     const m = makeMachine({ binaries: new Set(["apt-get"]) });
     m.respond = (argv) => {
-      if (argv[0] === "apt-cache")
+      if (argv[0] === "apt-cache") {
         return {
           code: 0,
           stdout:
@@ -180,10 +183,16 @@ describe("browser libraries", () => {
               : "Candidate: (none)\n",
           stderr: "",
         };
-      if (argv[0] === "dpkg") return { code: 1, stdout: "", stderr: "" };
-      if (argv[0] === "sudo") return { code: 0, stdout: "", stderr: "" };
+      }
+      if (argv[0] === "dpkg") {
+        return { code: 1, stdout: "", stderr: "" };
+      }
+      if (argv[0] === "sudo") {
+        return { code: 0, stdout: "", stderr: "" };
+      }
       return undefined;
     };
+
     await runWith(m.host, browserLibraries);
     const install = m.calls.find((c) => c.includes("install"));
     expect(install).toContain("libasound2t64");

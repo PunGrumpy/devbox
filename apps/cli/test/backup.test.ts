@@ -80,6 +80,7 @@ claude-json ~/.claude.json
 grok    ~/.grok
 `
   );
+
   return { m, repo };
 };
 
@@ -102,7 +103,10 @@ const onRestore = (m: ReturnType<typeof makeMachine>, also: () => void) => {
   const respond = m.respond;
   m.respond = (argv) => {
     const ran = respond(argv);
-    if (argv[0] === "restic" && argv[1] === "restore") also();
+
+    if (argv[0] === "restic" && argv[1] === "restore") {
+      also();
+    }
     return ran;
   };
 };
@@ -119,10 +123,12 @@ const snapshotNames = (m: ReturnType<typeof makeMachine>) =>
 describe("the sources file", () => {
   test("is read as `<name> <path>` lines, with ~ expanded and comments ignored", () => {
     const home = absolutePath("/home/agent");
+
     const parsed = parseSources(
       "# agents\n\ncodex ~/.codex\nroot  /srv/data\nhome ~\nspaced   /srv/with space/dir  \n",
       home
     );
+
     expect(parsed.issues).toEqual([]);
     expect(
       parsed.sources.map(({ name, path }) => ({ name, path: String(path) }))
@@ -145,6 +151,7 @@ describe("the sources file", () => {
       `ok /srv/ok\n${line}\n`,
       absolutePath("/home/agent")
     );
+
     expect(parsed.sources.map((s) => s.name)).toEqual(["ok"]);
     expect(parsed.issues.map((i) => i.line)).toEqual([2]);
   });
@@ -154,6 +161,7 @@ describe("the sources file", () => {
       "a /srv/one\na /srv/two\n",
       absolutePath("/home/agent")
     );
+
     expect(parsed.issues).toEqual([
       { line: 2, why: "the name a is already used" },
     ]);
@@ -265,6 +273,7 @@ describe("devbox backup run", () => {
     const snapshotted = m.calls
       .filter((c) => c[0] === "sqlite3" && c.at(-1)?.startsWith(".backup"))
       .map((c) => c.at(-2));
+
     expect(snapshotted.toSorted()).toEqual(
       [
         `${m.home}/.codex/logs_1.sqlite`,
@@ -274,12 +283,14 @@ describe("devbox backup run", () => {
     );
 
     const stage = join(stateDir(m), "sqlite");
+
     for (const staged of [
       "codex/state.sqlite",
       "codex/logs_1.sqlite",
       "gemini/tmp/abc/chat.db",
-    ])
+    ]) {
       expect(existsSync(join(stage, staged))).toBe(true);
+    }
     for (const absent of [
       "codex/notes.sqlite",
       "gemini/cache.db",
@@ -287,8 +298,9 @@ describe("devbox backup run", () => {
       "gemini/link.db",
       "codex/rollout/session.jsonl",
       "claude-json/.claude.json",
-    ])
+    ]) {
       expect(existsSync(join(stage, absent))).toBe(false);
+    }
     expect(existsSync(`${stage}.tmp`)).toBe(false);
     expect(r.err).toContain(`skip grok: ${m.home}/.grok not found`);
     expect(r.err).toContain("sqlite snapshots: 3");
@@ -297,15 +309,18 @@ describe("devbox backup run", () => {
   test("excludes each live database and its -wal, -shm and -journal from restic", async () => {
     const { m } = fixture();
     await backup(m, "run");
+
     const lines = readFileSync(
       join(stateDir(m), "sqlite-excludes"),
       "utf8"
     ).split("\n");
+
     const live = [
       `${m.home}/.codex/state.sqlite`,
       `${m.home}/.codex/logs_1.sqlite`,
       `${m.home}/.gemini/tmp/abc/chat.db`,
     ];
+
     expect(lines.filter((l) => l !== "").toSorted()).toEqual(
       [
         ...live.flatMap((p) => [p, `${p}-wal`, `${p}-shm`, `${p}-journal`]),
@@ -380,6 +395,7 @@ describe("devbox backup run", () => {
       RESTIC_PASSWORD: "hunter2-password",
       AWS_SECRET_ACCESS_KEY: "topsecretvalue",
     });
+
     for (const secret of [
       "hunter2-password",
       "topsecretvalue",
@@ -435,9 +451,11 @@ describe("devbox backup run", () => {
     expect(r.err).toContain(
       `${busy} changes too fast for .backup, using VACUUM INTO`
     );
+
     const vacuums = m.calls.filter(
       (c) => c[0] === "sqlite3" && c.at(-1)?.startsWith("vacuum")
     );
+
     expect(vacuums).toEqual([
       [
         "sqlite3",
@@ -447,9 +465,11 @@ describe("devbox backup run", () => {
         `vacuum into '${stateDir(m)}/sqlite.tmp/codex/state.sqlite'`,
       ],
     ]);
+
     const timeouts = m.runs
       .filter((c) => c.argv.at(-1)?.startsWith("vacuum"))
       .map((c) => c.timeoutMs);
+
     expect(timeouts).toEqual([120_000]);
     expect(existsSync(join(stateDir(m), "sqlite/codex/state.sqlite"))).toBe(
       true
@@ -643,12 +663,16 @@ describe("one repository shared by several machines", () => {
     await backup(m, "run");
     await backup(m, "verify");
     await backup(m, "restore", join(m.base, "out"));
+
     const hosts = resticCalls(m)
       .filter((c) => ["forget", "restore"].includes(c[1]!))
       .map((c) => c[c.indexOf("--host") + 1]);
+
     expect(hosts).toEqual(["vps-2", "vps-2", "vps-2"]);
-    for (const run of m.runs.filter((r) => r.argv[0] === "restic"))
+
+    for (const run of m.runs.filter((r) => r.argv[0] === "restic")) {
       expect(run.env?.RESTIC_HOST).toBe("vps-2");
+    }
   });
 
   test("verify restores the latest snapshot of this machine only", async () => {
@@ -722,6 +746,7 @@ describe("what discovery leaves alone", () => {
     makeSqlite(join(secret, "a.db"), 1);
     excludes(m, "$HOME/.gemini/private\n");
     chmodSync(secret, 0o000);
+
     try {
       const r = await backup(m, "run");
       expect(r.code).toBe(0);
@@ -744,13 +769,15 @@ describe("devbox backup restore", () => {
     const target = join(m.base, "restored");
     const r = await backup(m, "restore", target);
     expect(r.code).toBe(0);
+
     for (const [rel, n] of [
       [".codex/state.sqlite", 3],
       [".codex/logs_1.sqlite", 1],
       [".gemini/tmp/abc/chat.db", 2],
       ["single.sqlite", 5],
-    ] as const)
+    ] as const) {
       expect(rows(restoredAt(m, target, rel))).toEqual({ n });
+    }
     expect(existsSync(join(target, stateDir(m), "sqlite"))).toBe(false);
     expect(r.err).toContain(`${target}${m.home}/.codex`);
     expect(r.err).toContain(`-> ${m.home}/.codex`);
@@ -783,12 +810,14 @@ describe("devbox backup restore", () => {
     const { m } = fixture();
     await backup(m, "run");
     m.calls.length = 0;
+
     const r = await backup(
       m,
       "restore",
       join(m.base, "restored"),
       "--snapshot=-rf"
     );
+
     expect(r.code).toBe(1);
     expect(resticCalls(m)).toEqual([]);
   });
@@ -920,6 +949,7 @@ describe("devbox backup restore", () => {
 
 describe("exclude patterns", () => {
   const vars = { HOME: "/home/a", DEVBOX_DATA: "/data" };
+
   const excluded = (text: string, ...paths: Array<string>) =>
     paths.map(excludedBy(text, vars));
 
@@ -1016,9 +1046,11 @@ describe("the real host", () => {
       Effect.runPromise(
         Effect.gen(function* () {
           const host = yield* Host;
+
           return yield* host.run(argv, { timeoutMs });
         }).pipe(Effect.provide(Host.layer))
       );
+
     expect((await run(["sleep", "5"], 200)).code).toBe(TIMED_OUT);
     expect((await run(["sh", "-c", "exit 3"], 5000)).code).toBe(3);
     expect((await run(["true"], 5000)).code).toBe(0);
@@ -1032,6 +1064,7 @@ describe("sources with $DATA", () => {
       absolutePath("/home/agent"),
       "/workspace/home"
     );
+
     expect(issues).toEqual([]);
     expect(sources.map((s): string => s.path)).toEqual([
       "/workspace/home/.claude",

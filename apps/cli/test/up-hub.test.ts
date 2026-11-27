@@ -22,13 +22,18 @@ const machine = (options: { tree?: string; buildFails?: boolean } = {}) => {
     self: ["/opt/bun", join(checkout, "apps", "cli", "src", "cli.ts")],
   };
   m.respond = (argv) => {
-    if (argv[0] === "git" && argv[3] === "rev-parse")
+    if (argv[0] === "git" && argv[3] === "rev-parse") {
       return ok(`${state.tree}\n`);
-    if (argv[0] === "/opt/bun" && argv[1] === "install") return ok();
-    if (argv[0] === "/opt/bun" && argv[1] === "run")
+    }
+    if (argv[0] === "/opt/bun" && argv[1] === "install") {
+      return ok();
+    }
+    if (argv[0] === "/opt/bun" && argv[1] === "run") {
       return options.buildFails ? { code: 1, stdout: "", stderr: "" } : ok();
+    }
     return undefined;
   };
+
   return { m, checkout, state };
 };
 

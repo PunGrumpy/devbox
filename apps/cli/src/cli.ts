@@ -51,10 +51,12 @@ const presenter = Layer.effect(
   CliOutput.Presenter,
   Effect.gen(function* () {
     const out = yield* Output;
+
     const formatter = CliOutput.defaultFormatter({
       colors: out.stdoutColor,
       globalFlags: "summary",
     });
+
     return {
       present: (event) => {
         switch (event._tag) {
@@ -86,14 +88,18 @@ export const runCli = (args: ReadonlyArray<string>) =>
     Effect.as(0),
     Effect.catch((error) =>
       Effect.gen(function* () {
-        if (isHelp(error)) return error.errors.length === 0 ? 0 : 2;
+        if (isHelp(error)) {
+          return error.errors.length === 0 ? 0 : 2;
+        }
         yield* (yield* Output).error(error.message, hintOf(error));
+
         return Runtime.getErrorExitCode(error);
       })
     ),
     Effect.catchCause((cause) =>
       Effect.gen(function* () {
         yield* (yield* Output).error(String(Cause.squash(cause)));
+
         return 1;
       })
     ),

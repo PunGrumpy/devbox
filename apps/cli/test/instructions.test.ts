@@ -73,6 +73,7 @@ const machine = () => {
   const source = join(m.base, "devbox", "instructions", "AGENTS.md");
   mkdirSync(join(source, ".."), { recursive: true });
   writeFileSync(source, "# Rules\n\n- Reply in Thai.\n");
+
   const run = () =>
     runWith(
       m.host,
@@ -82,11 +83,14 @@ const machine = () => {
         source
       )
     );
+
   const file = (home: string) => join(m.home, home, "CLAUDE.md");
+
   const put = (home: string, text: string) => {
     mkdirSync(join(m.home, home), { recursive: true });
     writeFileSync(file(home), text);
   };
+
   return { m, run, file, put, source };
 };
 

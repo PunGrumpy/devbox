@@ -38,9 +38,11 @@ const sample = (states: Record<string, MachineState>): Snapshot => ({
 /** Feeds samples to the reducer in turn and returns what each one announced. */
 const announce = (...samples: ReadonlyArray<Record<string, MachineState>>) => {
   let watch: Watch | undefined;
+
   return samples.map((states) => {
     const next = nextWatch(watch, sample(states));
     watch = next.watch;
+
     return next.notices.map(sentence);
   });
 };
@@ -155,6 +157,7 @@ describe("what a hub takes over when it starts again", () => {
       },
       savedAt
     );
+
   const at = (iso: string) => Date.parse(iso);
 
   test("the time it was down becomes unknown samples", () => {
@@ -163,6 +166,7 @@ describe("what a hub takes over when it starts again", () => {
       at("2026-11-27T00:03:10.000Z"),
       HISTORY_LIMIT
     );
+
     expect(Option.getOrThrow(resumed).history.states).toEqual({
       a: "2222   ",
       gone: "1      ",
@@ -212,6 +216,7 @@ const onlineComputer = () => {
         }
       : undefined;
   m.pages.set(REGISTRY, JSON.stringify({ name: "t3", version: "0.3.0" }));
+
   return m;
 };
 
@@ -221,6 +226,7 @@ const running = async (
 ) => {
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
+
   const hub = start(
     { HOME: m.home, ...env },
     ["hub", "--port", String(port), "--ui", empty],
@@ -228,12 +234,16 @@ const running = async (
       host: m.host,
     }
   );
-  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1)
+
+  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
+  }
   const answered = await fetch(`http://127.0.0.1:${port}/api/machines`, {
     headers: asOwner(m.home),
   });
+
   const json = (await answered.json()) as HubSnapshot;
+
   return { hub, json };
 };
 
@@ -269,9 +279,11 @@ describe("devbox hub over a restart", () => {
         new Date().toISOString()
       )
     );
+
     const { hub, json } = await running(m, {
       DEVBOX_HUB_NOTIFY: "https://ntfy.example.com/hub",
     });
+
     await hub.stop();
     expect(json.history.states).toEqual({ "edge-7": "0001" });
     expect(m.posts).toEqual([
@@ -305,9 +317,11 @@ describe("devbox hub over a restart", () => {
         new Date().toISOString()
       )
     );
+
     const { hub, json } = await running(m, {
       DEVBOX_HUB_NOTIFY: "https://ntfy.example.com/secret",
     });
+
     const logged = hub.err();
     await hub.stop();
     expect(json.machines).toHaveLength(1);

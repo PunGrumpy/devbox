@@ -69,28 +69,36 @@ const systemctl = (scope: "system" | "user", args: ReadonlyArray<string>) =>
 const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
   Effect.gen(function* () {
     const host = yield* Host;
+
     const userBus = Effect.map(
       host.run(["systemctl", "--user", "show-environment"]),
       (r) => r.code === 0
     );
+
     switch (config.supervisor) {
       case "detached":
         return Supervisor.Detached();
       case "system":
-        if (host.systemd && sudo)
+        if (host.systemd && sudo) {
           return Supervisor.Systemd({ scope: "system" });
+        }
         return yield* new UpFailed({
           message: "a system unit needs systemd and passwordless sudo",
         });
       case "user":
-        if (yield* userBus) return Supervisor.Systemd({ scope: "user" });
+        if (yield* userBus) {
+          return Supervisor.Systemd({ scope: "user" });
+        }
         return yield* new UpFailed({
           message: "systemctl --user does not answer here",
         });
       case "auto":
-        if (host.systemd && sudo)
+        if (host.systemd && sudo) {
           return Supervisor.Systemd({ scope: "system" });
-        if (yield* userBus) return Supervisor.Systemd({ scope: "user" });
+        }
+        if (yield* userBus) {
+          return Supervisor.Systemd({ scope: "user" });
+        }
         return Supervisor.Detached();
     }
   });
@@ -101,14 +109,21 @@ const resolveNpm = (config: MachineConfig) =>
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
     const { mise, npmShim } = pathsOf(config.data);
+
     const shimReady = fs
       .exists(npmShim)
       .pipe(Effect.orElseSucceed(() => false));
-    if (yield* host.which("npm")) return "npm";
-    if (yield* shimReady) return npmShim;
+
+    if (yield* host.which("npm")) {
+      return "npm";
+    }
+    if (yield* shimReady) {
+      return npmShim;
+    }
     const env = processEnv(settingsFor(config.data), process.env.PATH ?? "");
     yield* out.log("node: npm is missing, installing Node LTS with mise");
-    if ((yield* host.run(["dpkg", "-s", "libatomic1"])).code === 1)
+
+    if ((yield* host.run(["dpkg", "-s", "libatomic1"])).code === 1) {
       yield* host.run(
         ["sudo", "-n", "apt-get", "install", "-y", "-qq", "libatomic1"],
         {
@@ -116,11 +131,13 @@ const resolveNpm = (config: MachineConfig) =>
           inherit: true,
         }
       );
-    if (yield* ensureMise(config.data, env))
+    }
+    if (yield* ensureMise(config.data, env)) {
       yield* host.run([mise, "use", "--global", "--yes", "node@lts"], {
         env,
         inherit: true,
       });
+    }
     return (yield* shimReady) ? npmShim : "npm";
   });
 
@@ -141,6 +158,7 @@ const gather = (
     const read = (path: string) => fs.readFileString(path).pipe(Effect.option);
     const sudo = (yield* host.run(["sudo", "-n", "true"])).code === 0;
     const supervisor = yield* resolveSupervisor(config, sudo);
+
     const filePaths = [
       machineInfoPath(ctx.etc),
       profilePath(ctx.etc),
@@ -160,17 +178,20 @@ const gather = (
         Detached: () => [],
       }),
     ];
+
     const files = new Map(
       yield* Effect.forEach(filePaths, (path) =>
         Effect.map(read(path), (c) => [path, c] as const)
       )
     );
+
     const git = new Map(
       yield* Effect.forEach(gitEntries(ctx.settings), ({ key }) =>
         Effect.map(
           host.run(["git", "config", "--global", "--get-all", key]),
           (r) => {
             const lines = r.code === 0 ? r.stdout.split("\n") : [];
+
             return [
               key,
               lines.slice(0, Math.max(0, lines.length - 1)),
@@ -179,9 +200,12 @@ const gather = (
         )
       )
     );
+
     const real = (path: string) =>
       fs.realPath(path).pipe(Effect.orElseSucceed(() => path));
+
     const dataIsHome = (yield* real(config.data)) === (yield* real(ctx.home));
+
     const links = new Map(
       yield* Effect.forEach(
         [`${ctx.home}/.agents`, `${ctx.home}/.config/gh`],
@@ -192,25 +216,30 @@ const gather = (
           )
       )
     );
+
     const ghLoginSaved = yield* fs
       .exists(`${config.data}/.config/gh/hosts.yml`)
       .pipe(Effect.orElseSucceed(() => false));
+
     const installed = yield* read(pathsOf(config.data).t3Package).pipe(
       Effect.map(
         Option.flatMap((text) => Schema.decodeUnknownOption(T3Package)(text))
       ),
       Effect.map(Option.map((pkg) => pkg.version))
     );
+
     const view = yield* host.run(
       [npm, "view", `t3@${config.channel}`, "version"],
       {
         env: processEnv(settingsFor(config.data), process.env.PATH ?? ""),
       }
     );
+
     const latest = Option.filter(
       Option.some(view.stdout.trim()),
       (v) => view.code === 0 && v !== ""
     );
+
     const serve = yield* Supervisor.$match(supervisor, {
       Systemd: ({ scope }) =>
         Effect.map(
@@ -227,6 +256,7 @@ const gather = (
       Detached: () =>
         Effect.map(host.processes, (processes) => {
           const want = [...ctx.self, ...serveArgs(config)];
+
           const ours = processes.filter(
             (p) =>
               ctx.self.every((part, i) => p.argv[i] === part) &&
@@ -236,14 +266,19 @@ const gather = (
                   arg === config.baseDir && p.argv[i - 1] === "--base-dir"
               )
           );
+
           const pids = ours.map((p) => p.pid);
-          if (ours.length === 0) return ServeState.Stopped();
+
+          if (ours.length === 0) {
+            return ServeState.Stopped();
+          }
           return ours.length === 1 &&
             ours[0]!.argv.join("\0") === want.join("\0")
             ? ServeState.Running({ pids })
             : ServeState.Stale({ pids });
         }),
     });
+
     const linger = Supervisor.$match(supervisor, {
       Systemd: ({ scope }) =>
         scope === "user"
@@ -262,7 +297,9 @@ const gather = (
           : Effect.succeed(Option.none<boolean>()),
       Detached: () => Effect.succeed(Option.none<boolean>()),
     });
+
     const envPath = backupPaths(ctx.home).env;
+
     const backup = yield* Option.match(
       Option.flatten(Option.fromUndefinedOr(files.get(envPath))),
       {
@@ -275,6 +312,7 @@ const gather = (
                   ["restic", "sqlite3"],
                   (name) => Effect.map(host.which(name), (found) => !found)
                 );
+
                 const timer = yield* Supervisor.$match(supervisor, {
                   Systemd: ({ scope }) =>
                     Effect.map(
@@ -292,6 +330,7 @@ const gather = (
                   Detached: () =>
                     Effect.succeed({ active: false, enabled: false }),
                 });
+
                 return BackupFact.On({
                   missing,
                   apt: yield* host.which("apt-get"),
@@ -300,10 +339,12 @@ const gather = (
               }),
       }
     );
+
     const checkout =
       ctx.self.length === 2
         ? Option.some(resolve(dirname(ctx.self[1]!), "../../.."))
         : Option.none<string>();
+
     const running = (unit: string) =>
       Supervisor.$match(supervisor, {
         Systemd: ({ scope }) =>
@@ -318,7 +359,9 @@ const gather = (
           ),
         Detached: () => Effect.succeed(false),
       });
+
     const hubRunning = running(HUB_UNIT);
+
     const hubBuilt = Option.match(checkout, {
       onNone: () => Effect.succeed(false),
       onSome: (dir) =>
@@ -329,10 +372,12 @@ const gather = (
             (Option.isNone(tree) || stamp.value.trim() === tree.value)
         ),
     });
+
     // Without --hub nothing asks systemd or git about it.
     const hub = config.hub
       ? { running: yield* hubRunning, built: yield* hubBuilt, checkout }
       : { running: false, built: false, checkout };
+
     return {
       sudo,
       files,
@@ -366,6 +411,7 @@ const hubStamp = (checkout: string) => join(checkout, HUB_DIR, "out", ".built");
 const hubTree = (checkout: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
+
     const tree = yield* host.run([
       "git",
       "-C",
@@ -373,6 +419,7 @@ const hubTree = (checkout: string) =>
       "rev-parse",
       "HEAD:apps/hub",
     ]);
+
     return tree.code === 0
       ? Option.some(tree.stdout.trim())
       : Option.none<string>();
@@ -418,6 +465,7 @@ const apply = (
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
+
     const must = (
       argv: ReadonlyArray<string>,
       options?: { stdin?: string; env?: Record<string, string> }
@@ -432,6 +480,7 @@ const apply = (
               })
             )
       );
+
     const enable = (unit: string) =>
       Supervisor.$match(supervisor, {
         Systemd: ({ scope }) =>
@@ -445,6 +494,7 @@ const apply = (
           ),
         Detached: () => Effect.void,
       });
+
     const remove = (unit: string, path: string, privileged: boolean) =>
       Supervisor.$match(supervisor, {
         Systemd: ({ scope }) =>
@@ -457,6 +507,7 @@ const apply = (
           }),
         Detached: () => Effect.void,
       });
+
     yield* Change.$match(change, {
       Write: ({ path, content, privileged, mode }) =>
         privileged
@@ -491,6 +542,7 @@ const apply = (
               Effect.map((entries) => entries.length === 0),
               Effect.orElseSucceed(() => false)
             );
+
           const move = (from: string, to: string) =>
             fs
               .rename(from, to)
@@ -501,9 +553,11 @@ const apply = (
                     .pipe(Effect.andThen(fs.remove(from, { recursive: true })))
                 )
               );
+
           const isLink = Option.isSome(
             yield* fs.readLink(path).pipe(Effect.option)
           );
+
           if (isLink) {
             yield* fs.remove(path);
           } else if (yield* fs.exists(path)) {
@@ -521,6 +575,7 @@ const apply = (
               );
             }
           }
+
           yield* fs.makeDirectory(target, { recursive: true });
           yield* fs.makeDirectory(dirname(path), { recursive: true });
           yield* fs.symlink(target, path);
@@ -636,10 +691,12 @@ const apply = (
             settingsFor(config.data),
             process.env.PATH ?? ""
           );
-          if (!(yield* ensureMise(config.data, env)))
+
+          if (!(yield* ensureMise(config.data, env))) {
             return yield* new UpFailed({
               message: "cannot download mise to install cloudflared",
             });
+          }
           const { mise } = pathsOf(config.data);
           yield* must([mise, "use", "--global", "--yes", "cloudflared"], {
             env,
@@ -660,6 +717,7 @@ const apply = (
         Effect.gen(function* () {
           const cwd = join(checkout, HUB_DIR);
           const bun = ctx.self[0] ?? "bun";
+
           for (const { argv, at } of [
             {
               argv: [bun, "install", "--frozen-lockfile", "--filter", "hub"],
@@ -668,12 +726,15 @@ const apply = (
             { argv: [bun, "run", "build"], at: cwd },
           ]) {
             const ran = yield* host.run(argv, { cwd: at, inherit: true });
-            if (ran.code !== 0)
+
+            if (ran.code !== 0) {
               return yield* new UpFailed({
                 message: `the hub page did not build: ${argv.slice(1).join(" ")} exited with ${ran.code}`,
                 hint: `the hub still serves /api/machines. Run \`bun run build\` in ${cwd} to see why`,
               });
+            }
           }
+
           const tree = yield* hubTree(checkout);
           yield* fs
             .writeFileString(
@@ -696,6 +757,7 @@ export const up = Command.make("up", upFlags, (flags) =>
     const saved = yield* readSavedAgents(served.data);
     const agents = yield* chooseAgents(flags.agents, saved);
     const config = yield* machineConfig(flags, home, host.hostname, agents);
+
     const ctx: Context = {
       home,
       etc: host.etc,
@@ -704,6 +766,7 @@ export const up = Command.make("up", upFlags, (flags) =>
       path: host.path,
       settings: settingsFor(config.data),
     };
+
     yield* out.line(
       `${out.paint("bold", "devbox")} ${out.paint("dim", packageJson.version)}`
     );
@@ -718,26 +781,32 @@ export const up = Command.make("up", upFlags, (flags) =>
       ["channel", config.channel],
       ["agents", `${agents.ids.join(", ") || "none"} (${agents.from})`],
     ]);
-    if (agents.from === "default")
+
+    if (agents.from === "default") {
       yield* out.note(
         `no terminal to ask which agent CLIs to install, so using the defaults. Run \`devbox up${config.data === home ? "" : ` --data ${config.data}`} --agents pick\` on a terminal to choose`
       );
+    }
     const token = tunnelTokenFile(home);
+
     if (
       config.tunnel &&
       !(yield* fs.exists(token).pipe(Effect.orElseSucceed(() => false)))
-    )
+    ) {
       return yield* new UpFailed({
         message: `--tunnel needs the tunnel's token in ${token}, and there is none`,
         hint: "the hub saves it when it publishes this machine. Without a hub, see Reach T3 without Tailscale in the README",
       });
+    }
     const npm = yield* resolveNpm(config);
     const facts = yield* gather(config, ctx, npm, saved);
-    if (Option.isNone(facts.t3.installed) && Option.isNone(facts.t3.latest))
+
+    if (Option.isNone(facts.t3.installed) && Option.isNone(facts.t3.latest)) {
       return yield* new UpFailed({
         message: `cannot read t3@${config.channel} from npm, and T3 Code is not installed`,
         hint: "check that npm is on PATH and the registry answers",
       });
+    }
     yield* out.log(
       `supervisor: ${Supervisor.$match(facts.supervisor, {
         Systemd: ({ scope }) => `systemd ${scope} unit ${UNIT}`,
@@ -745,9 +814,11 @@ export const up = Command.make("up", upFlags, (flags) =>
       })}`
     );
     const { changes, skips } = plan(config, ctx, facts);
-    for (const skip of skips)
+
+    for (const skip of skips) {
       yield* out.note(`skipped ${skip.what}: ${skip.why}`);
-    for (const change of changes)
+    }
+    for (const change of changes) {
       yield* apply(change, config, ctx, facts.supervisor, npm).pipe(
         Effect.catchTag("AgentInstallFailed", (error) =>
           out.check(
@@ -757,10 +828,12 @@ export const up = Command.make("up", upFlags, (flags) =>
           )
         )
       );
+    }
     const [elapsed, answers] = yield* Effect.timed(
       answering(config.host, config.port, 600)
     );
-    if (!answers)
+
+    if (!answers) {
       return yield* new UpFailed({
         message: `T3 Code does not answer on port ${config.port}`,
         hint: Supervisor.$match(facts.supervisor, {
@@ -769,10 +842,12 @@ export const up = Command.make("up", upFlags, (flags) =>
           Detached: () => `see ${pathsOf(config.data).logs}/serve.log`,
         }),
       });
+    }
     const where = Option.getOrElse(
       config.publicUrl,
       () => `http://${probeHost(config.host)}:${config.port}`
     );
+
     yield* out.success(
       `${changes.length === 0 ? "No changes. " : ""}T3 Code answers on ${where}`,
       elapsed
