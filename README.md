@@ -220,7 +220,7 @@ To hear when a machine drops off, set `DEVBOX_HUB_NOTIFY` to one webhook URL in 
 The page is a Next.js app that builds to static files, so the hub needs no Node server. Build it once on the machine that runs the hub, and again after an update:
 
 ```sh
-bun install --frozen-lockfile --filter devbox-hub && bun run --cwd apps/hub build
+bun install --frozen-lockfile --filter hub && bun run --cwd apps/hub build
 ```
 
 `devbox hub` then serves `apps/hub/out` from this checkout. `--ui <dir>` serves another build, which a compiled `devbox` binary needs. Without a build, `/` answers 404 with this command and the JSON still works.
@@ -418,7 +418,7 @@ This repo is a [Turborepo](https://turborepo.dev) workspace on Bun, with one loc
 | Package      | Where      | What it is                                               |
 | ------------ | ---------- | -------------------------------------------------------- |
 | `devbox`     | `apps/cli` | The command-line tool, on Bun and Effect.                |
-| `devbox-hub` | `apps/hub` | The hub page, a Next.js app that exports static files.   |
+| `hub`        | `apps/hub` | The hub page, a Next.js app that exports static files.   |
 
 ```sh
 bun install          # every package
@@ -428,6 +428,6 @@ bun run test         # the commands in-process against fixture databases, and th
 bun run build        # apps/cli/dist/devbox and apps/hub/out
 ```
 
-Each command runs through `turbo`, which skips a package whose inputs have not changed. Add `--filter devbox` or `--filter devbox-hub` after `--` to run one package: `bun run test -- --filter devbox`. `turbo` hides `CLAUDE_CONFIG_DIR` from the tests, which must not see it. To run them without `turbo`, use `env -u CLAUDE_CONFIG_DIR bun test` in `apps/cli`.
+Each command runs through `turbo`, which skips a package whose inputs have not changed. Add `--filter devbox` or `--filter hub` after `--` to run one package: `bun run test -- --filter devbox`. `turbo` hides `CLAUDE_CONFIG_DIR` from the tests, which must not see it. To run them without `turbo`, use `env -u CLAUDE_CONFIG_DIR bun test` in `apps/cli`.
 
 `install.sh` installs only what the CLI needs (`bun install --production --filter devbox`), so a machine does not download the page's dependencies unless `devbox up --hub` builds the page. `src/cli.ts` at the root hands over to `apps/cli/src/cli.ts`. It is there for wrappers and systemd units written before the CLI moved.
