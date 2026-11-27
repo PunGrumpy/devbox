@@ -1,19 +1,12 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono as GeistMono } from "next/font/google";
+import { Geist } from "next/font/google";
 import type { PropsWithChildren } from "react";
 
 const sans = Geist({
   display: "swap",
   subsets: ["latin"],
   variable: "--font-geist-sans",
-  weight: "variable",
-});
-
-const mono = GeistMono({
-  display: "swap",
-  subsets: ["latin"],
-  variable: "--font-geist-mono",
   weight: "variable",
 });
 
@@ -34,7 +27,7 @@ export const metadata: Metadata = {
 };
 
 const RootLayout = ({ children }: PropsWithChildren) => (
-  <html className={`${sans.variable} ${mono.variable}`} lang="en">
+  <html className={sans.variable} lang="en">
     <body>{children}</body>
   </html>
 );

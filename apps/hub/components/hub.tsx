@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 
 import { CodeBlock } from "@/components/copy";
-import { Field } from "@/components/field";
-import { HubLogo, OsIcon } from "@/components/icons";
+import { OsIcon } from "@/components/icons";
 import { MachineCard } from "@/components/machine-card";
-import { Filters, Sidebar } from "@/components/sidebar";
+import { Menu } from "@/components/menu";
+import { Search } from "@/components/search";
+import { Sidebar } from "@/components/sidebar";
 import {
   ago,
   bars,
@@ -17,6 +18,7 @@ import {
   summarize,
 } from "@/lib/machines";
 import type { FilterKey, Machine, Snapshot } from "@/lib/machines";
+import { anchorOf } from "@/lib/search";
 import {
   getHubState,
   getNow,
@@ -29,6 +31,11 @@ import {
 const FALLBACK_ORIGIN = "http://127.0.0.1:3780";
 const getOrigin = () => window.location.origin;
 const getServerOrigin = () => FALLBACK_ORIGIN;
+
+const getShortcut = () =>
+  /Macintosh|Mac OS X/u.test(navigator.userAgent) ? "⌘K" : "Ctrl K";
+
+const getServerShortcut = () => "Ctrl K";
 
 const statusText = (
   snapshot: Snapshot | null,
@@ -44,18 +51,10 @@ const statusText = (
   return failing ? `Not answering, checked ${checked}` : `Checked ${checked}`;
 };
 
-const matching = (
-  machines: readonly Machine[],
-  filter: FilterKey,
-  query: string
-) => {
+const matching = (machines: readonly Machine[], filter: FilterKey) => {
   const test = FILTERS.find((candidate) => candidate.key === filter)?.test;
-  const needle = query.trim().toLowerCase();
 
-  return machines.filter(
-    (machine) =>
-      (test?.(machine) ?? true) && machine.name.toLowerCase().includes(needle)
-  );
+  return machines.filter((machine) => test?.(machine) ?? true);
 };
 
 const Agents = () => {
@@ -63,7 +62,7 @@ const Agents = () => {
 
   return (
     <section>
-      <h2 className="text-heading scroll-mt-10 pt-10" id="agents">
+      <h2 className="text-heading pt-16" id="agents">
         For agents
       </h2>
       <p className="text-soft mt-4">
@@ -84,34 +83,54 @@ export const Hub = () => {
   );
 
   const now = useSyncExternalStore(subscribe, getNow, getServerNow);
+
+  const shortcut = useSyncExternalStore(
+    subscribe,
+    getShortcut,
+    getServerShortcut
+  );
+
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [query, setQuery] = useState("");
+  const palette = useRef<HTMLDialogElement>(null);
   const machines = snapshot?.machines ?? [];
-  const groups = groupByOs(matching(machines, filter, query));
+  const groups = groupByOs(matching(machines, filter));
   const { linked, ready } = summarize(machines);
-  const status = statusText(snapshot, failing, now);
+
+  const jump = (name: string) => {
+    setFilter("all");
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`#${CSS.escape(anchorOf(name))}`)
+        ?.scrollIntoView();
+    });
+  };
+
+  const nav = {
+    filter,
+    machines,
+    onFilter: setFilter,
+    onRefresh: () => {
+      void refresh();
+    },
+    sections: groups,
+    status: statusText(snapshot, failing, now),
+  };
 
   return (
-    <>
-      <Field />
+    <div className="side:mr-auto side:ml-[max(15rem,calc(50vw-18rem))] side:pt-20 side:pr-8 side:pl-0 docs:mx-auto docs:px-4 mx-auto min-h-screen max-w-(--measure) px-6 pt-8 pb-16">
       <Sidebar
-        filter={filter}
-        machines={machines}
-        onFilter={setFilter}
-        onQuery={setQuery}
-        onRefresh={() => {
-          void refresh();
+        {...nav}
+        onSearch={() => {
+          palette.current?.showModal();
         }}
-        query={query}
-        sections={groups}
-        status={status}
+        shortcut={shortcut}
       />
-      <main className="side:px-0 side:pt-20 mx-auto w-full max-w-xl px-6 pt-10 pb-24">
-        <div className="side:hidden text-nav text-soft mb-10 flex items-center justify-between gap-4">
-          <HubLogo className="size-9" />
-          <output className="truncate tabular-nums">{status}</output>
-        </div>
-        <h1 className="text-title min-h-[63px] pb-2">Machines</h1>
+      <Menu {...nav} now={now} onJump={jump} />
+      <Search machines={machines} now={now} onJump={jump} ref={palette} />
+      <main className="side:pt-0 pt-10">
+        <h1 className="text-title side:before:inline-block side:before:h-12 pb-2 before:content-['']">
+          Machines
+        </h1>
         <p className="text-soft mt-4">
           <strong className="text-ink font-normal">
             {lead(snapshot?.machines ?? null, failing)}
@@ -130,14 +149,11 @@ export const Hub = () => {
             that machine and its links.
           </p>
         ) : null}
-        <div className="side:hidden text-nav mt-6">
-          <Filters filter={filter} machines={machines} onFilter={setFilter} />
-        </div>
 
-        {groups.map(({ key, label, machines: members }) => (
+        {groups.map(({ key, label, machines: members }, position) => (
           <section key={key}>
             <h2
-              className="text-heading flex scroll-mt-10 items-center pt-10"
+              className={`text-heading flex items-center ${position === 0 ? "pt-10" : "pt-16"}`}
               id={key}
             >
               <OsIcon
@@ -177,6 +193,6 @@ export const Hub = () => {
 
         <Agents />
       </main>
-    </>
+    </div>
   );
 };

@@ -2,96 +2,104 @@ import { HubLogo, SearchIcon } from "@/components/icons";
 import { FILTERS } from "@/lib/machines";
 import type { FilterKey, Machine } from "@/lib/machines";
 
-const NAV_LINK =
-  "-ml-1.5 block w-[calc(100%+0.375rem)] cursor-pointer rounded-md px-1.5 py-1 text-left transition-colors duration-100 hover:text-ink";
-
-interface FiltersProps {
+export interface NavProps {
   filter: FilterKey;
   machines: readonly Machine[];
   onFilter: (filter: FilterKey) => void;
+  onNavigate?: () => void;
+  sections: readonly { key: string; label: string }[];
 }
 
-export const Filters = ({ filter, machines, onFilter }: FiltersProps) => (
-  <ul>
-    {FILTERS.map(({ key, label, test }) => (
-      <li key={key}>
-        <button
-          aria-pressed={key === filter}
-          className={`${NAV_LINK} text-soft aria-pressed:text-ink`}
-          onClick={() => {
-            onFilter(key);
-          }}
-          type="button"
-        >
-          {label}{" "}
-          <span className="text-muted tabular-nums">
-            {machines.filter(test).length}
-          </span>
-        </button>
-      </li>
-    ))}
-  </ul>
+/** The two groups of the docs navigation: which machines to show, and where they are on the page. */
+export const Nav = ({
+  filter,
+  machines,
+  onFilter,
+  onNavigate,
+  sections,
+}: NavProps) => (
+  <>
+    <div>
+      <ul>
+        {FILTERS.map(({ key, label, test }) => (
+          <li key={key}>
+            <button
+              aria-pressed={key === filter}
+              className="nav-link text-soft aria-pressed:text-ink"
+              onClick={() => {
+                onFilter(key);
+                onNavigate?.();
+              }}
+              type="button"
+            >
+              {label}{" "}
+              <span className="text-muted tabular-nums">
+                {machines.filter(test).length}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+    <div>
+      <h2 className="text-muted pb-3">On this page</h2>
+      <ul>
+        {[...sections, { key: "agents", label: "For agents" }].map(
+          ({ key, label }) => (
+            <li key={key}>
+              <a
+                className="nav-link text-soft"
+                href={`#${key}`}
+                onClick={onNavigate}
+              >
+                {label}
+              </a>
+            </li>
+          )
+        )}
+      </ul>
+    </div>
+  </>
 );
 
-interface SidebarProps extends FiltersProps {
-  onQuery: (query: string) => void;
+interface SidebarProps extends NavProps {
   onRefresh: () => void;
-  query: string;
-  sections: readonly { key: string; label: string }[];
+  onSearch: () => void;
+  shortcut: string;
   status: string;
 }
 
 export const Sidebar = ({
-  filter,
-  machines,
-  onFilter,
-  onQuery,
   onRefresh,
-  query,
-  sections,
+  onSearch,
+  shortcut,
   status,
+  ...nav
 }: SidebarProps) => (
-  <aside className="max-side:hidden fixed top-0 left-[clamp(0.5rem,calc(50vw-33rem),4rem)] flex h-dvh w-50 flex-col pt-20 pr-2 pb-8 pl-4">
+  <aside className="max-side:hidden side:fixed side:top-0 side:left-[clamp(0.5rem,calc(50vw-33rem),4rem)] side:max-h-screen side:w-50 side:overflow-y-auto side:pt-20 side:pr-2 side:pl-4 side:[scrollbar-width:none]">
     <HubLogo className="size-12" />
-    <label className="edge text-nav text-muted focus-within:outline-focus mt-7 -ml-3 flex w-[calc(100%+0.75rem)] items-center gap-2 rounded-full px-2.5 py-1.5 [--fill:var(--paper)] focus-within:outline-2 focus-within:outline-offset-2">
-      <SearchIcon className="size-3.5 shrink-0" />
-      <span className="sr-only">Filter machines by name</span>
-      <input
-        className="text-ink placeholder:text-muted min-w-0 flex-1 bg-transparent outline-none"
-        onChange={(event) => {
-          onQuery(event.target.value);
-        }}
-        placeholder="Filter"
-        type="search"
-        value={query}
-      />
-    </label>
-    <nav
-      aria-label="Machines"
-      className="text-nav mt-7 flex flex-col gap-7 overflow-y-auto"
-    >
-      <Filters filter={filter} machines={machines} onFilter={onFilter} />
-      <div>
-        <h2 className="text-muted pb-3">On this page</h2>
-        <ul>
-          {[...sections, { key: "agents", label: "For agents" }].map(
-            ({ key, label }) => (
-              <li key={key}>
-                <a className={`${NAV_LINK} text-soft`} href={`#${key}`}>
-                  {label}
-                </a>
-              </li>
-            )
-          )}
-        </ul>
-      </div>
+    <div className="pt-7">
+      <button
+        className="search-trigger edge text-nav text-muted -ml-3 flex w-[calc(100%+0.75rem)] cursor-pointer items-center gap-2 rounded-full px-2.5 py-1.5 [--fill:var(--paper)]"
+        onClick={onSearch}
+        type="button"
+      >
+        <SearchIcon className="size-3.5 shrink-0" />
+        Search
+        <kbd className="text-muted ml-auto font-sans text-xs">{shortcut}</kbd>
+      </button>
+    </div>
+    <nav aria-label="Machines" className="text-nav flex flex-col gap-7 pt-7">
+      <Nav {...nav} />
     </nav>
-    <button
-      className="text-nav text-soft hover:text-ink mt-auto cursor-pointer self-start pt-6 text-left tabular-nums transition-colors duration-100"
-      onClick={onRefresh}
-      type="button"
-    >
-      {status}
-    </button>
+    <div className="bg-paper before:to-paper sticky bottom-0 mt-6 pt-2 pb-8 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-b before:from-transparent">
+      <button
+        className="text-nav text-soft hover:text-ink cursor-pointer text-left tabular-nums transition-colors duration-100"
+        onClick={onRefresh}
+        type="button"
+      >
+        {status}
+      </button>
+    </div>
   </aside>
 );

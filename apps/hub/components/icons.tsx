@@ -24,31 +24,41 @@ export const SearchIcon = (props: IconProps) => (
   </svg>
 );
 
-export const CopyIcon = (props: IconProps) => (
-  <svg aria-hidden="true" viewBox="0 0 24 24" {...props}>
-    <g
-      fill="none"
+export const CloseIcon = (props: IconProps) => (
+  <svg aria-hidden="true" viewBox="0 0 16 16" {...props}>
+    <path
+      d="m4.5 4.5 7 7m0-7-7 7"
       stroke="currentColor"
       strokeLinecap="round"
-      strokeLinejoin="round"
       strokeWidth="1.5"
-    >
-      <path d="M7.5 14.5c0-3.3 0-4.95 1.025-5.975S11.2 7.5 14.5 7.5s4.95 0 5.975 1.025S21.5 11.2 21.5 14.5s0 4.95-1.025 5.975S17.8 21.5 14.5 21.5s-4.95 0-5.975-1.025S7.5 17.8 7.5 14.5" />
-      <path d="M7.5 16.5c-1.396 0-2.095 0-2.656-.196a3.5 3.5 0 0 1-2.148-2.148C2.5 13.595 2.5 12.896 2.5 11.5v-2c0-3.3 0-4.95 1.025-5.975S6.2 2.5 9.5 2.5h2c1.396 0 2.095 0 2.656.196a3.5 3.5 0 0 1 2.148 2.148c.196.561.196 1.26.196 2.656" />
-    </g>
+    />
   </svg>
 );
 
-export const CheckIcon = (props: IconProps) => (
-  <svg aria-hidden="true" viewBox="0 0 24 24" {...props}>
-    <path
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.5"
-      d="m5 14l3.5 3.5L19 6.5"
-    />
+interface CopyIconProps extends IconProps {
+  copied: boolean;
+}
+
+/** The copy mark of the Rex docs: two sheets, or a tick once the text is on the clipboard. */
+export const CopyIcon = ({ copied, ...props }: CopyIconProps) => (
+  <svg
+    aria-hidden="true"
+    fill="none"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="1.25"
+    viewBox="0 0 16 16"
+    {...props}
+  >
+    {copied ? (
+      <path d="M3.5 8.5l3 3 6-7" />
+    ) : (
+      <g>
+        <rect height="8" rx="2" width="8" x="5.5" y="5.5" />
+        <path d="M10.5 5.5v-1a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h1" />
+      </g>
+    )}
   </svg>
 );
 
@@ -222,10 +232,20 @@ export const KindIcon = ({ kind, state }: KindIconProps) => (
   </span>
 );
 
+const MOUSE_HEAD =
+  "M104 176c-18-6-30-22-30-44 0-40 30-70 70-70 26 0 44 12 60 34l14 18c6 8 2 18-8 20l-44 8c-10 2-16 8-18 18l-4 16c-6 6-26 6-40 0z";
+
+const Mouse = () => (
+  <>
+    <circle cx="92" cy="74" r="38" />
+    <path d={MOUSE_HEAD} />
+  </>
+);
+
 /**
- * The hub's app icon, built like the Rex one: a pale plate with a pink and a cyan tint, a figure
- * that runs from yellow through orange and pink to violet, and a name on a pill. The colors are
- * the ones sampled from the Rex icon. The figure is the hub's own.
+ * The hub's app icon, built like the Rex one: a plate tinted pink and cyan, a figure that runs
+ * from yellow through orange and pink to violet, and a name on a pill. The colors are the ones
+ * sampled from the Rex icon. Where Rex has a dinosaur, the hub has a mouse of its own.
  */
 export const HubLogo = ({ className = "" }: { className?: string }) => {
   const id = useId();
@@ -237,6 +257,14 @@ export const HubLogo = ({ className = "" }: { className?: string }) => {
     >
       <svg aria-hidden="true" className="block size-full" viewBox="0 0 256 256">
         <defs>
+          <radialGradient cx="0" cy="0" id={`${id}-corner`} r="1">
+            <stop className="[stop-color:var(--logo-corner)]" offset="0" />
+            <stop
+              className="[stop-color:var(--logo-corner)]"
+              offset="1"
+              stopOpacity="0"
+            />
+          </radialGradient>
           <radialGradient cx="1" cy="0" id={`${id}-warm`} r="0.9">
             <stop className="[stop-color:var(--logo-warm)]" offset="0" />
             <stop
@@ -256,17 +284,27 @@ export const HubLogo = ({ className = "" }: { className?: string }) => {
           <linearGradient
             gradientUnits="userSpaceOnUse"
             id={`${id}-figure`}
-            x1="196"
-            x2="84"
-            y1="36"
-            y2="176"
+            x1="214"
+            x2="70"
+            y1="52"
+            y2="178"
           >
             <stop offset="0" stopColor="#ffdd57" />
-            <stop offset="0.3" stopColor="#ff8338" />
-            <stop offset="0.58" stopColor="#df6e99" />
+            <stop offset="0.28" stopColor="#ff8338" />
+            <stop offset="0.56" stopColor="#df6e99" />
             <stop offset="0.8" stopColor="#df8aff" />
             <stop offset="1" stopColor="#b47aff" />
           </linearGradient>
+          <radialGradient
+            cx="176"
+            cy="70"
+            gradientUnits="userSpaceOnUse"
+            id={`${id}-gloss`}
+            r="70"
+          >
+            <stop offset="0" stopColor="#ffffff" stopOpacity="0.5" />
+            <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
+          </radialGradient>
           <linearGradient id={`${id}-word`} x1="0" x2="1">
             <stop offset="0" stopColor="#ff8338" />
             <stop offset="0.4" stopColor="#df6e99" />
@@ -283,27 +321,32 @@ export const HubLogo = ({ className = "" }: { className?: string }) => {
             <feDropShadow
               dx="0"
               dy="6"
-              floodColor="#1e015a"
-              floodOpacity="0.26"
+              floodColor="#12002e"
+              floodOpacity="0.35"
               stdDeviation="7"
             />
           </filter>
+          <clipPath id={`${id}-mouse`}>
+            <Mouse />
+          </clipPath>
         </defs>
         <rect className="fill-(--logo-plate)" height="256" width="256" />
+        <rect fill={url("corner")} height="256" width="256" />
         <rect fill={url("warm")} height="256" width="256" />
         <rect fill={url("cool")} height="256" width="256" />
-        <g filter={url("lift")}>
-          <path
-            d="M128 106 88 66M128 106l40-40M128 106v50"
-            fill="none"
-            stroke={url("figure")}
-            strokeLinecap="round"
-            strokeWidth="46"
-          />
-          <circle cx="128" cy="106" fill={url("figure")} r="36" />
+        <g fill={url("figure")} filter={url("lift")}>
+          <Mouse />
         </g>
-        <circle cx="128" cy="108" fill="#1e015a" r="13" />
-        <circle cx="132.5" cy="103.5" fill="#ffffff" opacity="0.85" r="3.6" />
+        <circle cx="92" cy="74" fill="#15013f" opacity="0.16" r="21" />
+        <rect
+          clipPath={url("mouse")}
+          fill={url("gloss")}
+          height="256"
+          width="256"
+        />
+        <ellipse cx="160" cy="106" fill="#1e015a" rx="8.5" ry="12" />
+        <circle cx="163" cy="101" fill="#ffffff" opacity="0.85" r="3" />
+        <circle cx="213" cy="124" fill="#1e015a" r="8" />
         <g filter={url("lift")}>
           <rect
             className="fill-(--logo-pill)"
@@ -311,7 +354,7 @@ export const HubLogo = ({ className = "" }: { className?: string }) => {
             rx="23"
             width="132"
             x="62"
-            y="182"
+            y="186"
           />
         </g>
         <text
@@ -322,7 +365,7 @@ export const HubLogo = ({ className = "" }: { className?: string }) => {
           letterSpacing="3"
           textAnchor="middle"
           x="128"
-          y="215"
+          y="219"
         >
           HUB
         </text>

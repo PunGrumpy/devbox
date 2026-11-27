@@ -198,7 +198,7 @@ devbox up --host "$(tailscale ip -4)" --hub
 
 It writes a `devbox-hub.service` unit beside the one for T3, builds the page in `apps/hub` when it has changed since the last build, and listens on port 3780. The page has no login, so the hub listens on `--host` only when that names one address, and on `127.0.0.1` otherwise. A later `devbox up` without `--hub` stops the hub and removes the unit. The unit reads `~/.config/devbox/hub/env` when it exists, which is where `DEVBOX_HUB_NOTIFY` goes. Without systemd, run `devbox hub` yourself.
 
-The hub saves its history to `~/.local/state/devbox/hub.json` after every check and takes it up again when it starts. The time it was down shows as unknown. Under each machine the page says how much of the last 24 hours it was online, and names a newer T3 Code when the nightly channel has one.
+The hub saves its history to `~/.local/state/devbox/hub.json` after every check and takes it up again when it starts. The time it was down shows as unknown. Under each machine the page says how much of the last 24 hours it was online, and names a newer T3 Code when the nightly channel has one. Ctrl K, or Command K on a Mac, opens a search over machine names, addresses, systems and states.
 
 To hear when a machine drops off, set `DEVBOX_HUB_NOTIFY` to one webhook URL in the hub's environment. A change is sent once it has held for two checks, so one missed answer is not news. Discord gets `{"content": "edge-7 went offline"}`, Slack gets `{"text": ...}`, and any other address, such as an [ntfy](https://ntfy.sh) topic, gets the sentence as plain text. The address is never logged.
 

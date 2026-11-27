@@ -4,10 +4,10 @@
   --font-sans:
     "Suisse Intl", var(--font-geist-sans), -apple-system, BlinkMacSystemFont,
     "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-mono:
-    var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
-  --breakpoint-side: 64rem;
+  --breakpoint-side: 46rem;
+  --breakpoint-docs: 74rem;
 
   --color-ink: var(--ink);
   --color-paper: var(--paper);
@@ -17,6 +17,11 @@
   --color-rule: var(--rule);
   --color-wash: var(--wash);
   --color-accent: var(--accent);
+  --color-hover: var(--hover);
+  --color-mark: var(--mark);
+  --color-code-function: var(--code-function);
+  --color-code-property: var(--code-property);
+  --color-code-operator: var(--code-operator);
 
   --text-title: 1.75rem;
   --text-title--line-height: 1.15;
@@ -30,12 +35,13 @@
   --text-nav: 0.875rem;
   --text-nav--line-height: 1.2;
   --text-nav--letter-spacing: -0.01em;
+  --text-menu: 1.375rem;
+  --text-menu--line-height: 1.375;
 
   --radius-panel: 0.75rem;
   --radius-card: calc(3.5rem * 0.225 + 1rem + 1px);
   --radius-icon: 22.5%;
-
-  --ease-press: cubic-bezier(0.23, 1, 0.32, 1);
+  --radius-search: 1.5rem;
 
   --animate-rise: rise 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
 
@@ -46,22 +52,12 @@
       transform: translateY(12px);
     }
   }
-
-  @keyframes field-ramp {
-    to {
-      transform: translateY(-50%);
-    }
-  }
-
-  @keyframes field-thumb {
-    to {
-      top: calc(100% - 20% - 7px);
-    }
-  }
 }
 
 :root {
   color-scheme: light dark;
+
+  --measure: clamp(38rem, calc(38rem + (100vw - 90rem) * 0.2667), 46rem);
 
   --ink: light-dark(#181d16, #ececea);
   --paper: light-dark(#f5f5f4, #10120f);
@@ -72,46 +68,52 @@
   --wash: light-dark(#181d160d, #ececea12);
   --edge-top: light-dark(#181d160a, #ececea2e);
   --edge-bottom: light-dark(#181d1621, #ececea0f);
-  --focus: light-dark(#873ac2, #c989fe);
-
-  --ramp: light-dark(
-    linear-gradient(
-      to bottom,
-      rgb(216 180 254) 0%,
-      rgb(238 164 196) 12.5%,
-      rgb(255 140 94) 25%,
-      rgb(255 164 98) 37.5%,
-      rgb(243 192 101) 50%,
-      rgb(226 218 103) 62.5%,
-      rgb(208 245 105) 75%,
-      rgb(214 251 124) 87.5%,
-      rgb(219 252 136) 100%
-    ),
-    linear-gradient(
-      to bottom,
-      rgb(216 180 255) 0%,
-      rgb(243 159 180) 12.5%,
-      rgb(249 133 82) 25%,
-      rgb(208 123 59) 37.5%,
-      rgb(175 116 40) 50%,
-      rgb(114 102 0) 62.5%,
-      rgb(56 87 0) 75%,
-      rgb(40 63 0) 87.5%,
-      rgb(35 55 0) 100%
-    )
-  );
   --accent: #ff8b5d;
+  --focus: light-dark(#873ac2, #c989fe);
+  --focus-wash: light-dark(
+    color-mix(in srgb, #873ac2 9%, transparent),
+    color-mix(in srgb, #c989fe 12%, transparent)
+  );
+  --selection: light-dark(
+    color-mix(in srgb, var(--accent) 55%, var(--paper)),
+    color-mix(in srgb, var(--accent) 45%, var(--paper))
+  );
+  --hover: light-dark(
+    color-mix(in srgb, var(--accent) 9%, var(--surface)),
+    color-mix(in srgb, var(--accent) 8%, var(--surface))
+  );
+  --mark: light-dark(
+    color-mix(in srgb, var(--accent) 20%, transparent),
+    color-mix(in srgb, var(--accent) 22%, transparent)
+  );
+  --backdrop: light-dark(#181d1629, #00000073);
+  --code-function: light-dark(#ca4c04, #ff8b5d);
+  --code-property: light-dark(#5a60fe, #8f9fff);
+  --code-operator: light-dark(#a6667a, #c0909c);
+
   --logo-plate: light-dark(#fbfbfc, #262a72);
+  --logo-corner: light-dark(#ffffff, #3d2279);
   --logo-warm: light-dark(#f9d8fd, #5a1f66);
   --logo-cool: light-dark(#c8f1f6, #1f4a70);
   --logo-pill: light-dark(#fcfbff, #223261);
+
   --shadow-icon:
-    light-dark(0 0 0 0.5px #181d160f, 0 0 0 0.5px #ececea14),
-    light-dark(0 1px 1px -0.5px #181d160d, 0 1px 1px -0.5px #0003),
-    light-dark(0 2px 2px -1px #181d160d, 0 2px 2px -1px #0003),
-    light-dark(0 4px 4px -2px #181d160d, 0 4px 4px -2px #0003),
-    light-dark(0 8px 8px -4px #181d160a, 0 8px 8px -4px #00000029),
-    light-dark(0 12px 12px -6px #181d1608, 0 12px 12px -6px #0000001f);
+    0 0 0 0.5px light-dark(#181d160f, #ececea14),
+    0 1px 1px -0.5px light-dark(#181d160d, #0003),
+    0 2px 2px -1px light-dark(#181d160d, #0003),
+    0 4px 4px -2px light-dark(#181d160d, #0003),
+    0 8px 8px -4px light-dark(#181d160a, #00000029),
+    0 12px 12px -6px light-dark(#181d1608, #0000001f);
+  --shadow-search:
+    0 0 0 1px light-dark(#181d1612, #ececea1a),
+    0 1px 1px light-dark(#181d1608, transparent),
+    inset 0 1px 0 light-dark(transparent, #ececea0d),
+    0 2px 2px -1px light-dark(#181d160a, #0000004d),
+    0 4px 4px -2px light-dark(#181d160a, #0000004d),
+    0 8px 8px -4px light-dark(#181d160d, #0000004d),
+    0 16px 16px -8px light-dark(#181d160f, #0000004d),
+    0 32px 32px -16px light-dark(#181d1612, #0000004d),
+    0 48px 64px -24px light-dark(#181d161a, #0006);
 }
 
 @utility edge {
@@ -126,28 +128,24 @@
   corner-shape: squircle;
 }
 
-@utility grain {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-  image-rendering: pixelated;
-  mix-blend-mode: overlay;
-}
+@utility nav-link {
+  display: block;
+  width: calc(100% + 0.375rem);
+  margin-inline-start: -0.375rem;
+  padding: 0.25rem 0.375rem;
+  border-radius: 0.375rem;
+  text-align: start;
+  cursor: pointer;
+  transition: color 100ms;
 
-@utility field-ramp {
-  background-image: var(--ramp);
-
-  @supports (animation-timeline: scroll()) {
-    animation: field-ramp linear both;
-    animation-timeline: scroll(root);
+  &:hover {
+    color: var(--ink);
   }
-}
 
-@utility field-thumb {
-  top: 7px;
-
-  @supports (animation-timeline: scroll()) {
-    animation: field-thumb linear both;
-    animation-timeline: scroll(root);
+  &:focus-visible {
+    outline-offset: -2px;
+    background-color: var(--focus-wash);
+    color: var(--ink);
   }
 }
 
@@ -160,13 +158,16 @@
     -webkit-text-size-adjust: 100%;
   }
 
+  html:has(.menu[data-open]) {
+    overflow: hidden;
+  }
+
   body {
-    @apply bg-paper text-ink text-body min-h-dvh font-sans;
+    @apply bg-paper text-ink text-body font-sans;
   }
 
   ::selection {
-    background-color: var(--ink);
-    color: var(--paper);
+    background-color: var(--selection);
   }
 
   :focus-visible {
@@ -182,6 +183,11 @@
     text-wrap: pretty;
   }
 
+  mark {
+    background: none;
+    color: var(--ink);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-rise {
       animation: none;
@@ -189,6 +195,92 @@
 
     * {
       transition-duration: 1ms !important;
+    }
+  }
+}
+
+@layer components {
+  .search-trigger {
+    transition: filter 100ms;
+
+    &:hover {
+      filter: brightness(0.96);
+    }
+
+    &:focus-visible {
+      --fill: color-mix(in srgb, var(--focus) 9%, var(--paper));
+      color: var(--ink);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      &:hover {
+        filter: brightness(1.25);
+      }
+    }
+  }
+
+  .search {
+    box-shadow: var(--shadow-search);
+  }
+
+  .search::backdrop {
+    background: var(--backdrop);
+  }
+
+  .search-results {
+    scrollbar-width: thin;
+    scroll-padding-block: 0.5rem;
+  }
+
+  .search-title mark {
+    margin-inline: -0.0625rem;
+    padding-inline: 0.0625rem;
+    border-radius: 0.1875rem;
+    background: var(--mark);
+    box-decoration-break: clone;
+  }
+
+  .menu {
+    visibility: hidden;
+    translate: 100%;
+    transition:
+      translate 320ms cubic-bezier(0.32, 0.72, 0, 1),
+      visibility 320ms;
+
+    &[data-open] {
+      visibility: visible;
+      translate: none;
+    }
+  }
+
+  .menu-scroll {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent calc(2rem + 32px),
+      black calc(2rem + 76px)
+    );
+  }
+
+  .menu-toggle {
+    color: color-mix(in srgb, var(--ink) 62%, var(--paper));
+    transition: color 100ms;
+
+    &:hover {
+      color: var(--ink);
+    }
+
+    & path {
+      transform-box: view-box;
+      transform-origin: 10px 10px;
+      transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    &[aria-expanded="true"] .bar-top {
+      transform: rotate(45deg) translateY(2.75px);
+    }
+
+    &[aria-expanded="true"] .bar-bottom {
+      transform: rotate(-45deg) translateY(-2.75px);
     }
   }
 }
