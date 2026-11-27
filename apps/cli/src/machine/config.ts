@@ -42,12 +42,14 @@ export const BindHost = Schema.String.pipe(
   )
 );
 
-// Listening on every interface is what T3 did before --host existed, so a box without the flag
-// keeps the same unit file.
+/**
+ * Listening on every interface is what T3 did before --host existed, so a box without the flag
+ * keeps the same unit file.
+ */
 export const ALL_INTERFACES = "0.0.0.0";
 
-// Where to knock to see whether T3 answers: a wildcard address is not one you can connect to.
-export const probeHost = (bind: string): string =>
+/** Where to knock to see whether T3 answers: a wildcard address is not one you can connect to. */
+export const probeHost = (bind: string) =>
   bind === ALL_INTERFACES || bind === "::" ? "127.0.0.1" : bind;
 
 export const Port = Schema.Int.pipe(
@@ -260,7 +262,7 @@ export const machineConfig = (
     } satisfies MachineConfig;
   });
 
-export const serveArgs = (config: ServeConfig): readonly string[] => [
+export const serveArgs = (config: ServeConfig) => [
   "serve",
   "--data",
   config.data,
@@ -283,7 +285,7 @@ export const serveArgs = (config: ServeConfig): readonly string[] => [
  * an update. Paths are absolute, so it does not matter where it runs from. The agents are left
  * out: a later run reads the ones saved in <data>.
  */
-export const upArgs = (config: MachineConfig): readonly string[] => [
+export const upArgs = (config: MachineConfig) => [
   ...serveArgs(config).slice(1),
   "--name",
   config.name,

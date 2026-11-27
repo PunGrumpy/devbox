@@ -63,40 +63,41 @@ export interface Answer {
 
 const MAX_ANSWER_BYTES = 1024 * 1024;
 
-const capped = async (response: Response): Promise<string | undefined> => {
+const capped = async (response: Response) => {
   if (Number(response.headers.get("content-length") ?? 0) > MAX_ANSWER_BYTES) {
-    return undefined;
+    return Option.none<string>();
   }
 
-  const reader = response.body?.getReader();
-
-  if (reader === undefined) {
-    return "";
+  if (response.body === null) {
+    return Option.some("");
   }
 
   const chunks: Uint8Array[] = [];
   let size = 0;
 
-  for (;;) {
-    const { done, value } = await reader.read();
+  const sink = new WritableStream<Uint8Array>({
+    write: (chunk) => {
+      size += chunk.byteLength;
 
-    if (done) {
-      break;
-    }
+      if (size > MAX_ANSWER_BYTES) {
+        throw new Error(`the answer is past ${MAX_ANSWER_BYTES} bytes`);
+      }
 
-    size += value.byteLength;
+      chunks.push(chunk);
+    },
+  });
 
-    if (size > MAX_ANSWER_BYTES) {
-      await reader.cancel().catch(() => undefined);
-
-      return undefined;
-    }
-
-    chunks.push(value);
+  try {
+    await response.body.pipeTo(sink);
+  } catch {
+    return Option.none<string>();
   }
 
-  return Buffer.concat(chunks).toString("utf-8");
+  return Option.some(Buffer.concat(chunks).toString("utf-8"));
 };
+
+const bracketed = (address: string) =>
+  address.includes(":") ? `[${address}]` : address;
 
 export class Host extends Context.Service<
   Host,
@@ -166,9 +167,10 @@ export class Host extends Context.Service<
     systemd: existsSync("/run/systemd/system"),
     platform: process.platform,
     run: (argv, options = {}) =>
-      Effect.promise(async (): Promise<Ran> => {
+      Effect.promise(async () => {
         try {
           const started = performance.now();
+          const output = options.inherit === true ? "inherit" : "pipe";
 
           const child = Bun.spawn([...argv], {
             env: { ...process.env, ...options.env },
@@ -177,11 +179,9 @@ export class Host extends Context.Service<
               options.stdin === undefined
                 ? "ignore"
                 : new Blob([options.stdin]),
-            stdout: options.inherit ? "inherit" : "pipe",
-            stderr: options.inherit ? "inherit" : "pipe",
-            ...(options.timeoutMs === undefined
-              ? {}
-              : { timeout: options.timeoutMs }),
+            stdout: output,
+            stderr: output,
+            timeout: options.timeoutMs,
           });
 
           const [stdout, stderr, code] = await Promise.all([
@@ -194,9 +194,9 @@ export class Host extends Context.Service<
             code: timedOut(options.timeoutMs, started, code) ? TIMED_OUT : code,
             stdout,
             stderr,
-          };
+          } satisfies Ran;
         } catch (error) {
-          return { code: 127, stdout: "", stderr: String(error) };
+          return { code: 127, stdout: "", stderr: String(error) } satisfies Ran;
         }
       }),
     which: (name) => Effect.sync(() => Bun.which(name) !== null),
@@ -248,20 +248,23 @@ export class Host extends Context.Service<
         }
       }),
     answers: (port, address) =>
-      Effect.promise(() =>
-        fetch(
-          `http://${address.includes(":") ? `[${address}]` : address}:${port}/`,
-          {
-            redirect: "manual",
-            signal: AbortSignal.timeout(2000),
-          }
-        ).then(
-          (response) => response.status < 500,
-          () => false
-        )
-      ),
+      Effect.promise(async () => {
+        try {
+          const response = await fetch(
+            `http://${bracketed(address)}:${port}/`,
+            {
+              redirect: "manual",
+              signal: AbortSignal.timeout(2000),
+            }
+          );
+
+          return response.status < 500;
+        } catch {
+          return false;
+        }
+      }),
     fetchText: (url, timeoutMs) =>
-      Effect.promise(async (): Promise<Option.Option<Fetched>> => {
+      Effect.promise(async () => {
         const started = performance.now();
 
         try {
@@ -276,25 +279,21 @@ export class Host extends Context.Service<
 
           const body = await capped(response);
 
-          if (body === undefined) {
-            return Option.none();
-          }
-
-          return Option.some({
-            body,
+          return Option.map(body, (text) => ({
+            body: text,
             ms: Math.round(performance.now() - started),
-          });
+          }));
         } catch {
           return Option.none();
         }
       }),
     post: (url, { body, contentType, headers = {} }, timeoutMs) =>
-      Effect.promise(async (): Promise<Option.Option<string>> => {
+      Effect.promise(async () => {
         try {
           const response = await fetch(url, {
+            body,
             method: "POST",
             headers: { ...headers, "content-type": contentType },
-            body,
             redirect: "manual",
             signal: AbortSignal.timeout(timeoutMs),
           });
@@ -303,29 +302,28 @@ export class Host extends Context.Service<
             return Option.none();
           }
 
-          return Option.fromUndefinedOr(await capped(response));
+          return await capped(response);
         } catch {
           return Option.none();
         }
       }),
     request: (url, { method, headers = {}, body }, timeoutMs) =>
-      Effect.promise(async (): Promise<Option.Option<Answer>> => {
+      Effect.promise(async () => {
         try {
           const response = await fetch(url, {
             method,
             headers,
-            ...(body === undefined ? {} : { body }),
+            body,
             redirect: "manual",
             signal: AbortSignal.timeout(timeoutMs),
           });
 
-          return Option.map(
-            Option.fromUndefinedOr(await capped(response)),
-            (text) => ({
-              status: response.status,
-              body: text,
-            })
-          );
+          const answer = await capped(response);
+
+          return Option.map(answer, (text) => ({
+            status: response.status,
+            body: text,
+          }));
         } catch {
           return Option.none();
         }
@@ -351,45 +349,36 @@ export class Host extends Context.Service<
           },
         });
       }),
-    readLine: Effect.promise(
-      () =>
-        new Promise<string>((resolve) => {
-          const tty = Bun.file("/dev/tty").stream().getReader();
-          const decoder = new TextDecoder();
-          let line = "";
+    readLine: Effect.suspend(() => {
+      const decoder = new TextDecoder();
+      let line = "";
 
-          const next = (): void => {
-            tty.read().then(
-              ({ done, value }) => {
-                line += value ? decoder.decode(value) : "";
+      const sink = new WritableStream<Uint8Array>({
+        write: (chunk) => {
+          line += decoder.decode(chunk);
 
-                if (done || line.includes("\n")) {
-                  tty.cancel().catch(() => undefined);
-                  resolve(line.split("\n")[0] ?? "");
-                } else {
-                  next();
-                }
-              },
-              () => resolve(line)
-            );
-          };
+          if (line.includes("\n")) {
+            throw new Error("read a whole line");
+          }
+        },
+      });
 
-          next();
-        })
-    ),
+      return Effect.tryPromise(async () => {
+        await Bun.file("/dev/tty").stream().pipeTo(sink);
+      }).pipe(
+        Effect.ignore,
+        Effect.map(() => line.split("\n")[0] ?? "")
+      );
+    }),
   }));
 }
 
-const timedOut = (
-  limit: number | undefined,
-  started: number,
-  code: number
-): boolean =>
+const timedOut = (limit: number | undefined, started: number, code: number) =>
   limit !== undefined && code !== 0 && performance.now() - started >= limit;
 
-const alive = (pid: number): boolean => {
+const kill = (pid: number, name: NodeJS.Signals | 0) => {
   try {
-    process.kill(pid, 0);
+    process.kill(pid, name);
 
     return true;
   } catch {
@@ -397,12 +386,10 @@ const alive = (pid: number): boolean => {
   }
 };
 
-const signal = (pid: number, name: NodeJS.Signals): void => {
-  try {
-    process.kill(-pid, name);
-  } catch {
-    try {
-      process.kill(pid, name);
-    } catch {}
+const alive = (pid: number) => kill(pid, 0);
+
+const signal = (pid: number, name: NodeJS.Signals) => {
+  if (!kill(-pid, name)) {
+    kill(pid, name);
   }
 };
