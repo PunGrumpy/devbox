@@ -131,9 +131,8 @@ export const applyPlan = <E, R>(
           }
 
           const saved = yield* out.step("backup", backup(target.path));
-          yield* out.log(
-            `backup ${saved.path} ${out.paint("dim", `(${formatBytes(saved.bytes)})`)}`
-          );
+          const size = out.paint("dim", `(${formatBytes(saved.bytes)})`);
+          yield* out.log(`backup ${saved.path} ${size}`);
           const restore = restoreHint(saved.path, target.path);
           yield* sql
             .withTransaction(plan.write)

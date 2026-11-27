@@ -85,7 +85,7 @@ export const moveThreads = Command.make(
           });
         }
 
-        if (into.deletedAt) {
+        if (into.deletedAt !== null && into.deletedAt !== "") {
           yield* out.warn(
             `target project "${into.title}" is deleted; its threads would stay hidden`
           );
@@ -119,18 +119,18 @@ export const moveThreads = Command.make(
 
         const dim = (text: string) => out.paint("dim", text);
 
+        const dimCount = (n: number) => dim(`(${n})`);
+
         const counted = yield* Effect.forEach(sources, (source) =>
           Effect.map(
             threadsOf(source.projectId),
-            (n) => `${source.title} ${dim(`(${n})`)}`
+            (n) => `${source.title} ${dimCount(n)}`
           )
         );
 
         const intoBefore = yield* threadsOf(into.projectId);
         yield* out.log(`${dim("from")} ${counted.join(", ")}`);
-        yield* out.log(
-          `${dim("to  ")} ${into.title} ${dim(`(${intoBefore})`)}`
-        );
+        yield* out.log(`${dim("to  ")} ${into.title} ${dimCount(intoBefore)}`);
         yield* out.line();
 
         if (rows.length > 0) {
@@ -143,7 +143,9 @@ export const moveThreads = Command.make(
               {
                 header: "title",
                 cell: (r) =>
-                  r.deletedAt ? { text: r.title, tone: "gray" } : r.title,
+                  r.deletedAt === null || r.deletedAt === ""
+                    ? r.title
+                    : { text: r.title, tone: "gray" },
               },
               {
                 header: "from",
