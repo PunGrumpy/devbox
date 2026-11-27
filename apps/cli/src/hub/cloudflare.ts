@@ -8,13 +8,13 @@ const API = "https://api.cloudflare.com/client/v4";
 const TIMEOUT_MS = 20_000;
 const MAX_SAID = 300;
 
-export type CloudflareRequest = {
+export interface CloudflareRequest {
   readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Under /client/v4, starting with a slash. */
   readonly path: string;
   readonly query?: Readonly<Record<string, string>>;
   readonly body?: unknown;
-};
+}
 
 /** Cloudflare answered with an error, or did not answer at all (status null). */
 export class CloudflareRefused extends Schema.TaggedError<CloudflareRefused>()(
@@ -165,11 +165,11 @@ const DnsRecord = Schema.Struct({
 
 export type DnsRecord = typeof DnsRecord.Type;
 
-export type NewRule = {
+export interface NewRule {
   readonly ref: string;
   readonly description: string;
   readonly expression: string;
-};
+}
 
 const PHASE = "http_request_firewall_custom";
 

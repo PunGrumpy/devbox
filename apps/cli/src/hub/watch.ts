@@ -1,19 +1,19 @@
 import type { MachineState, Snapshot } from "./machines.ts";
 
 /** What has been said about each machine, and what has been seen since but not yet said. */
-export type Watch = {
+export interface Watch {
   readonly announced: Readonly<Record<string, MachineState>>;
   readonly pending: Readonly<
     Record<string, { readonly state: MachineState; readonly samples: number }>
   >;
-};
+}
 
-export type Notice = {
+export interface Notice {
   readonly machine: string;
   readonly from: MachineState;
   readonly to: MachineState;
   readonly at: string;
-};
+}
 
 // One missed probe is not news.
 const HOLD_SAMPLES = 2;
@@ -81,10 +81,10 @@ const JSON_FIELD: Readonly<Record<string, string>> = {
   "hooks.slack.com": "text",
 };
 
-export type WebhookBody = {
+export interface WebhookBody {
   readonly body: string;
   readonly contentType: string;
-};
+}
 
 /** Discord and Slack take JSON. Anything else, such as an ntfy topic, takes the sentence itself. */
 export const webhookBody = (url: URL, text: string): WebhookBody => {

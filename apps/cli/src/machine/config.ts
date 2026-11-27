@@ -166,7 +166,7 @@ export const upFlags = {
   ),
 };
 
-export type ServeConfig = {
+export interface ServeConfig {
   readonly data: AbsolutePath;
   readonly port: number;
   readonly baseDir: AbsolutePath;
@@ -174,7 +174,7 @@ export type ServeConfig = {
   readonly host: string;
   readonly publicUrl: Option.Option<string>;
   readonly setup: boolean;
-};
+}
 
 export type MachineConfig = ServeConfig & {
   readonly name: string;
@@ -189,7 +189,7 @@ export type MachineConfig = ServeConfig & {
   readonly tunnel: boolean;
 };
 
-type ServeFlags = {
+interface ServeFlags {
   readonly data: Option.Option<string>;
   readonly port: number;
   readonly baseDir: Option.Option<string>;
@@ -197,7 +197,7 @@ type ServeFlags = {
   readonly host: Option.Option<string>;
   readonly publicUrl: Option.Option<string>;
   readonly setup: boolean;
-};
+}
 
 type UpFlags = ServeFlags & {
   readonly name: Option.Option<string>;

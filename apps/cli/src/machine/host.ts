@@ -23,37 +23,43 @@ import { Context, Effect, Layer, Option } from "effect";
 import { vitalsOf } from "../spoke/vitals.ts";
 import type { Vitals } from "../spoke/vitals.ts";
 
-export type Ran = {
+export interface Ran {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
-};
+}
 
-export type RunOptions = {
+export interface RunOptions {
   readonly env?: Readonly<Record<string, string>>;
   readonly cwd?: string;
   readonly stdin?: string;
   readonly inherit?: boolean;
   readonly timeoutMs?: number;
-};
+}
 
 export const TIMED_OUT = 124;
 
-export type Proc = {
+export interface Proc {
   readonly pid: number;
   readonly argv: readonly string[];
-};
+}
 
-export type Fetched = { readonly body: string; readonly ms: number };
+export interface Fetched {
+  readonly body: string;
+  readonly ms: number;
+}
 
-export type Request = {
+export interface Request {
   readonly method: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
-};
+}
 
 /** What a server answered, whatever the status. */
-export type Answer = { readonly status: number; readonly body: string };
+export interface Answer {
+  readonly status: number;
+  readonly body: string;
+}
 
 const MAX_ANSWER_BYTES = 1024 * 1024;
 

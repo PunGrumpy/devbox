@@ -38,18 +38,21 @@ export const newNonce = (): string => randomBytes(18).toString("base64url");
 export const KEY_HEADER = "x-devbox-key";
 export const SIGNATURE_HEADER = "x-devbox-signature";
 
-export type Signed = {
+export interface Signed {
   readonly body: string;
   readonly headers: Readonly<
     Record<typeof KEY_HEADER | typeof SIGNATURE_HEADER, string>
   >;
-};
+}
 
 /** What a hub may ask a spoke to do. A spoke does only the ones it has an entry for. */
 export type Do = "update" | "pair" | "tunnel" | "untunnel";
 
 /** What an action needs besides its name. A tunnel sends its run token and the address it serves. */
-export type Fields = { readonly token?: string; readonly url?: string };
+export interface Fields {
+  readonly token?: string;
+  readonly url?: string;
+}
 
 /**
  * The request a hub sends a spoke, signed over the exact bytes of its body. What it asks for is in

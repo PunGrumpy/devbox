@@ -3,19 +3,19 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { Option, Schema } from "effect";
 
 /** A request as the hub reads it, with header names in lower case. */
-export type HubRequest = {
+export interface HubRequest {
   readonly method: string;
   readonly url: string;
   readonly headers: Readonly<Record<string, string | undefined>>;
   /** The body, empty when the hub did not read it, or null when it was longer than the hub reads. */
   readonly body: string | null;
-};
+}
 
-export type Reply = {
+export interface Reply {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
   readonly body: string | Uint8Array;
-};
+}
 
 export const COOKIE = "devbox_hub";
 export const SESSION_SECONDS = 30 * 24 * 60 * 60;

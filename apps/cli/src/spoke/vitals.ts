@@ -1,16 +1,16 @@
 import { Schema } from "effect";
 
-export type Vitals = {
+export interface Vitals {
   /** The one minute load average divided by the number of cores. */
   readonly load: number;
   /** NonNegative. */
   readonly memory: { readonly used: number; readonly total: number };
   /** NonNegative, for the filesystem that holds the home directory. */
   readonly disk: { readonly used: number; readonly total: number };
-};
+}
 
 /** What the system reports, before it means anything. */
-export type Readings = {
+export interface Readings {
   readonly load1: number;
   readonly cores: number;
   readonly memory: { readonly total: number; readonly available: number };
@@ -19,7 +19,7 @@ export type Readings = {
     readonly free: number;
     readonly blockSize: number;
   };
-};
+}
 
 /** Memory in use is what the kernel says a new program could not have without swapping. */
 export const vitalsOf = (r: Readings): Vitals => ({

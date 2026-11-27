@@ -14,11 +14,11 @@ import { Locations } from "./locations.ts";
 import { absolutePath } from "./paths.ts";
 import type { AbsolutePath } from "./paths.ts";
 
-export type ClaudeHome = {
+export interface ClaudeHome {
   readonly instances: readonly string[];
   readonly enabled: boolean;
   readonly path: AbsolutePath;
-};
+}
 
 export class SettingsUnreadable extends Schema.TaggedError<SettingsUnreadable>()(
   "SettingsUnreadable",

@@ -28,11 +28,11 @@ type ProjectRow = Project & {
   readonly rootExists: boolean;
 };
 
-type Issues = {
+interface Issues {
   readonly threadsWithPayloadMismatch: number;
   readonly threadsWithoutProject: number;
   readonly sessionsWithMissingCwd: number;
-};
+}
 
 type QuickCheck = Data.TaggedEnum<{
   Skipped: {};
@@ -60,12 +60,12 @@ type Inspection = Data.TaggedEnum<{
 
 const Inspection = Data.taggedEnum<Inspection>();
 
-type Report = {
+interface Report {
   readonly database: string;
   readonly server: Option.Option<RunningServer>;
   readonly quickCheck: QuickCheck;
   readonly inspection: Inspection;
-};
+}
 
 const Cwd = Schema.Array(Schema.Struct({ cwd: Schema.Unknown }));
 

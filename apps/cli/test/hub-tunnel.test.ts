@@ -33,10 +33,10 @@ import { runWith } from "./support/run.ts";
 
 const HOSTNAME = "t3-edge-7.example.com";
 
-type Spoke = {
+interface Spoke {
   took: boolean;
   told: { readonly action: string; readonly fields: Fields }[];
-};
+}
 
 const setUp = async (cf: FakeCloudflare = makeCloudflare()) => {
   const m = makeMachine();

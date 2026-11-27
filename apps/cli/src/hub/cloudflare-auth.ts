@@ -5,25 +5,25 @@ import { Clock, Effect, FileSystem, Option, Schema, Semaphore } from "effect";
 import { postForm, renew } from "./cloudflare-oauth.ts";
 import type { IsoTimestamp, PostForm } from "./cloudflare-oauth.ts";
 
-export type OAuthLogin = {
+export interface OAuthLogin {
   readonly kind: "oauth";
   readonly clientId: string;
   readonly accessToken: string;
   readonly refreshToken: string;
   readonly expiresAt: IsoTimestamp;
-};
+}
 
 export type CloudflareLogin =
   | { readonly kind: "token"; readonly token: string }
   | OAuthLogin;
 
-export type CloudflareAccount = {
+export interface CloudflareAccount {
   readonly login: CloudflareLogin;
   readonly accountId: string;
   readonly zoneId: string;
   /** The domain, for example `example.com`. */
   readonly zone: string;
-};
+}
 
 /** Cloudflare refused, did not answer, or its login cannot be read. The message never holds a secret. */
 export class CloudflareFailed extends Schema.TaggedError<CloudflareFailed>()(

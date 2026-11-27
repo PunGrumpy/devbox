@@ -131,7 +131,7 @@ const at =
     );
 
 /** What a tunnel job needs: the machine, a way to Cloudflare, and a way to its spoke. */
-export type TunnelJob = {
+export interface TunnelJob {
   readonly home: string;
   readonly machine: Pick<Machine, "name" | "tailscale">;
   /** The names of the hub's other machines, none of which may make the same hostname. */
@@ -145,7 +145,7 @@ export type TunnelJob = {
     action: "tunnel" | "untunnel",
     fields: Fields
   ) => Effect.Effect<boolean, never, Host>;
-};
+}
 
 export const NO_LOGIN = refuse(
   409,

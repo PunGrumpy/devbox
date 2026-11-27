@@ -51,18 +51,21 @@ export type SqliteSnapshot = ManifestEntry & {
   readonly entry: string;
 };
 
-export type BackupPlan = {
+export interface BackupPlan {
   readonly stage: AbsolutePath;
   readonly sources: readonly Source[];
   readonly snapshots: readonly SqliteSnapshot[];
-};
+}
 
-export type SourceIssue = { readonly line: number; readonly why: string };
+export interface SourceIssue {
+  readonly line: number;
+  readonly why: string;
+}
 
-export type ParsedSources = {
+export interface ParsedSources {
   readonly sources: readonly Source[];
   readonly issues: readonly SourceIssue[];
-};
+}
 
 const expand = (location: string, home: string, data: string) => {
   for (const [token, dir] of [

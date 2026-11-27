@@ -31,11 +31,11 @@ const Session = Schema.Struct({
   driver: Schema.NullOr(Schema.String),
 });
 
-type Session = {
+interface Session {
   readonly id: string;
   readonly cwd: string;
   readonly driver: string | null;
-};
+}
 
 const sessions = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

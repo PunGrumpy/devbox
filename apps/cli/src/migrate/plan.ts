@@ -28,7 +28,7 @@ const question = Change.$match({
 
 type Value = number | string;
 
-export type Expectation = {
+export interface Expectation {
   readonly what: string;
   readonly expected: Value;
   readonly actual: Effect.Effect<
@@ -36,13 +36,13 @@ export type Expectation = {
     SqlError.SqlError | Schema.SchemaError,
     SqlClient.SqlClient
   >;
-};
+}
 
-type Mismatch = {
+interface Mismatch {
   readonly what: string;
   readonly expected: Value;
   readonly actual: Value;
-};
+}
 
 export class WriteFailed extends Schema.TaggedError<WriteFailed>()(
   "WriteFailed",
@@ -85,14 +85,17 @@ export class VerificationFailed extends Schema.TaggedError<VerificationFailed>()
   }
 }
 
-export type Plan<E, R> = {
+export interface Plan<E, R> {
   readonly change: Change;
   readonly prepare: Effect.Effect<void, E, R | Scope.Scope>;
   readonly write: Effect.Effect<void, SqlError.SqlError, SqlClient.SqlClient>;
   readonly verify: readonly Expectation[];
-};
+}
 
-export type Mode = { readonly apply: boolean; readonly yes: boolean };
+export interface Mode {
+  readonly apply: boolean;
+  readonly yes: boolean;
+}
 
 export const applyPlan = <E, R>(
   target: DbTarget,

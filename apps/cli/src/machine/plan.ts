@@ -44,14 +44,14 @@ export type ServeState = Data.TaggedEnum<{
 
 export const ServeState = Data.taggedEnum<ServeState>();
 
-export type Context = {
+export interface Context {
   readonly home: string;
   readonly etc: string;
   readonly user: string;
   readonly self: readonly string[];
   readonly path: string;
   readonly settings: readonly Setting[];
-};
+}
 
 export type BackupFact = Data.TaggedEnum<{
   Off: { readonly why: string };
@@ -64,7 +64,7 @@ export type BackupFact = Data.TaggedEnum<{
 
 export const BackupFact = Data.taggedEnum<BackupFact>();
 
-export type Facts = {
+export interface Facts {
   readonly sudo: boolean;
   readonly files: ReadonlyMap<string, Option.Option<string>>;
   readonly git: ReadonlyMap<string, readonly string[]>;
@@ -99,7 +99,7 @@ export type Facts = {
     readonly saved: Option.Option<AgentIds>;
     readonly present: ReadonlyMap<AgentId, boolean>;
   };
-};
+}
 
 export type Change = Data.TaggedEnum<{
   Write: {
@@ -129,12 +129,15 @@ export type Change = Data.TaggedEnum<{
 
 export const Change = Data.taggedEnum<Change>();
 
-export type Skip = { readonly what: string; readonly why: string };
+export interface Skip {
+  readonly what: string;
+  readonly why: string;
+}
 
-export type Plan = {
+export interface Plan {
   readonly changes: readonly Change[];
   readonly skips: readonly Skip[];
-};
+}
 
 export const t3SettingsPath = (baseDir: string) =>
   join(baseDir, "userdata", "settings.json");

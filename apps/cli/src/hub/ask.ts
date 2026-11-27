@@ -29,7 +29,7 @@ const Paired = Schema.fromJsonString(
 );
 
 /** What a request for a machine needs besides the machine. */
-export type AskContext = {
+export interface AskContext {
   readonly secrets: HubSecrets;
   readonly home: string;
   readonly spokePort: number;
@@ -38,7 +38,7 @@ export type AskContext = {
   readonly tunnels: Semaphore.Semaphore;
   /** Every machine the hub knows, by name. */
   readonly names: readonly string[];
-};
+}
 
 type Run = (
   machine: Machine,

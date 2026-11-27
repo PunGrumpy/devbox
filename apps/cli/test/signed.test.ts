@@ -32,11 +32,11 @@ const request = (
   signature: signed.headers["x-devbox-signature"],
 });
 
-type Request = {
+interface Request {
   body: string;
   key: string | undefined;
   signature: string | undefined;
-};
+}
 
 const handedOut = handOut(new Map(), NONCE, NOW);
 

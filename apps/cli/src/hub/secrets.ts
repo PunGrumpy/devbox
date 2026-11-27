@@ -59,13 +59,13 @@ const ownFile = (path: string, make: () => string) =>
 const remakeHint = (path: string) =>
   `move ${path} aside and start the hub again to make a new one`;
 
-export type HubSecrets = {
+export interface HubSecrets {
   readonly privateKey: KeyObject;
   /** Public, base64url. */
   readonly key: string;
   readonly fingerprint: string;
   readonly token: string;
-};
+}
 
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 

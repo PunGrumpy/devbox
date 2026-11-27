@@ -26,7 +26,10 @@ const Saved = Schema.fromJsonString(
   })
 );
 
-export type Resumed = { readonly history: History; readonly watch: Watch };
+export interface Resumed {
+  readonly history: History;
+  readonly watch: Watch;
+}
 
 export const serialize = (resumed: Resumed, savedAt: string): string =>
   `${JSON.stringify({ savedAt, ...resumed })}\n`;

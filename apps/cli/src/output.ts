@@ -20,15 +20,15 @@ export type Cell =
   | { readonly text: string; readonly tone: Tone }
   | readonly Cell[];
 
-export type Column<Row> = {
+export interface Column<Row> {
   readonly header: string;
   readonly cell: (row: Row) => Cell;
   readonly align?: "left" | "right";
-};
+}
 
 export type Paint = (tone: Tone, text: string) => string;
 
-export type Streams = {
+export interface Streams {
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
   readonly paint: Paint;
@@ -43,7 +43,7 @@ export type Streams = {
       readonly selected: boolean;
     }[]
   ) => Effect.Effect<readonly number[], Aborted>;
-};
+}
 
 export class Output extends Context.Service<
   Output,

@@ -14,14 +14,14 @@ import type {
 } from "../../src/machine/host.ts";
 import type { Vitals } from "../../src/spoke/vitals.ts";
 
-export type Posted = {
+export interface Posted {
   readonly url: string;
   readonly body: string;
   readonly contentType: string;
   readonly headers?: Readonly<Record<string, string>>;
-};
+}
 
-export type FakeMachine = {
+export interface FakeMachine {
   base: string;
   home: string;
   etc: string;
@@ -66,7 +66,7 @@ export type FakeMachine = {
   respond: (argv: readonly string[]) => Ran | undefined;
   nextPid: number;
   host: Host["Service"];
-};
+}
 
 const ok = (stdout = ""): Ran => ({ code: 0, stdout, stderr: "" });
 const fail = (code = 1, stderr = ""): Ran => ({ code, stdout: "", stderr });

@@ -9,11 +9,11 @@ import { listen } from "./listen.ts";
 export type IsoTimestamp = string;
 
 /** What a Cloudflare OAuth login holds. None of it is ever printed or logged. */
-export type OAuthTokens = {
+export interface OAuthTokens {
   readonly accessToken: string;
   readonly refreshToken: string;
   readonly expiresAt: IsoTimestamp;
-};
+}
 
 export class OAuthFailed extends Schema.TaggedError<OAuthFailed>()(
   "OAuthFailed",
@@ -23,7 +23,10 @@ export class OAuthFailed extends Schema.TaggedError<OAuthFailed>()(
   }
 ) {}
 
-export type Endpoints = { readonly authorize: string; readonly token: string };
+export interface Endpoints {
+  readonly authorize: string;
+  readonly token: string;
+}
 
 /** From https://developers.cloudflare.com/fundamentals/oauth/integrate-with-cloudflare/ */
 export const CLOUDFLARE: Endpoints = {
@@ -56,7 +59,10 @@ const randomText = () => randomBytes(32).toString("base64url");
 export const challengeOf = (verifier: string) =>
   createHash("sha256").update(verifier).digest("base64url");
 
-export type Pkce = { readonly verifier: string; readonly challenge: string };
+export interface Pkce {
+  readonly verifier: string;
+  readonly challenge: string;
+}
 
 /** A new verifier, 43 characters of base64url, and its challenge. */
 export const makePkce = (): Pkce => {
@@ -184,7 +190,10 @@ export const parseTokens = (
     });
   });
 
-export type Answer = { readonly status: number; readonly body: string };
+export interface Answer {
+  readonly status: number;
+  readonly body: string;
+}
 
 /** Sends a form to a token endpoint. The one function that talks to Cloudflare, so tests replace it. */
 export type PostForm = (
@@ -352,12 +361,12 @@ const callbackListener = (port: number, state: string) =>
   });
 
 /** Where the login talks to and how long it waits. Tests point it at a fake Cloudflare. */
-export type Flow = {
+export interface Flow {
   readonly endpoints: Endpoints;
   readonly port: number;
   readonly waitMs: number;
   readonly post: PostForm;
-};
+}
 
 export const CLOUDFLARE_FLOW: Flow = {
   endpoints: CLOUDFLARE,
@@ -421,12 +430,12 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
   });
 
 /** What the login hands on to be saved. */
-export type SignedIn = {
+export interface SignedIn {
   readonly clientId: string;
   readonly tokens: OAuthTokens;
   readonly account: Option.Option<string>;
   readonly zone: Option.Option<string>;
-};
+}
 
 const ClientId = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[\w.~-]{1,200}$/))

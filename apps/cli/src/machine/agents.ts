@@ -19,7 +19,7 @@ export type Install = Data.TaggedEnum<{
 
 export const Install = Data.taggedEnum<Install>();
 
-type Agent = {
+interface Agent {
   readonly id: string;
   readonly name: string;
   readonly bin: string;
@@ -28,7 +28,7 @@ type Agent = {
   readonly skills: string | undefined;
   readonly login: string;
   readonly byDefault: boolean;
-};
+}
 
 /** The one list of agents. Its order is the display order and the order of agents.json. */
 export const AGENTS = [
@@ -152,10 +152,10 @@ export const parseAgentsFlag = (
   );
 };
 
-export type AgentChoice = {
+export interface AgentChoice {
   readonly ids: AgentIds;
   readonly from: "flag" | "picked" | "saved" | "default";
-};
+}
 
 /** A person made the choice, so it is saved. Defaults used for lack of a terminal are not. */
 export const remembered = (choice: AgentChoice): boolean =>

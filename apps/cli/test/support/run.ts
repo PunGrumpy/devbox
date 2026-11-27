@@ -12,20 +12,20 @@ import type { RunningServer } from "../../src/migrate/t3-process.ts";
 import { Output } from "../../src/output.ts";
 import { makeMachine } from "./host.ts";
 
-export type Asked = {
+export interface Asked {
   readonly question: string;
   readonly choices: readonly {
     readonly title: string;
     readonly selected: boolean;
   }[];
-};
+}
 
-export type Result = {
+export interface Result {
   code: number;
   out: string;
   err: string;
   asked: readonly Asked[];
-};
+}
 
 /** `pick` is a terminal: it lists the titles to tick, and each run of the picker consumes the next list. */
 const capture = (pick?: readonly ReadonlyArray<string>[]) => {

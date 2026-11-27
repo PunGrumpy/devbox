@@ -17,39 +17,39 @@ export const ZONE = {
   name: "example.com",
 };
 
-export type Call = {
+export interface Call {
   readonly method: string;
   readonly path: string;
   readonly query: Readonly<Record<string, string>>;
   readonly body: unknown;
-};
+}
 
-type Rule = {
+interface Rule {
   id: string;
   ref: string;
   expression: string;
   action: string;
   description: string;
-};
+}
 
-type Tunnel = {
+interface Tunnel {
   id: string;
   name: string;
   config_src: string;
   deleted: boolean;
   connections: number;
-};
+}
 
-type DnsRecord = {
+interface DnsRecord {
   id: string;
   type: string;
   name: string;
   content: string;
   comment: string | null;
   proxied: boolean;
-};
+}
 
-export type FakeCloudflare = {
+export interface FakeCloudflare {
   /** The one bearer it takes. */
   bearer: string;
   accounts: { id: string; name: string }[];
@@ -67,7 +67,7 @@ export type FakeCloudflare = {
   /** For each DNS record made, whether the WAF rule for its name existed then. */
   guarded: boolean[];
   answer: (url: string, request: Request) => Answer | undefined;
-};
+}
 
 const ok = (result: unknown, status = 200): Answer => ({
   status,

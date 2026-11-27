@@ -13,29 +13,29 @@ export type { Vitals } from "../spoke/vitals.ts";
 
 export type MachineState = "t3" | "online" | "offline";
 
-export type Tailnet = {
+export interface Tailnet {
   readonly ip: string;
   readonly dns: string;
   readonly os: string;
   readonly online: boolean;
   readonly lastSeen: string | null;
-};
+}
 
-export type LinkSummary = {
+export interface LinkSummary {
   readonly status: string;
   readonly access: string;
   readonly expiresAt: string;
   readonly urls: readonly string[];
-};
+}
 
-export type T3 = {
+export interface T3 {
   readonly environmentId: string;
   readonly label: string;
   readonly version: string | null;
   readonly url: string | null;
   readonly latencyMs: number | null;
   readonly link: LinkSummary | null;
-};
+}
 
 /** What a machine is, as far as this computer can tell without asking it. */
 export type MachineKind =
@@ -46,7 +46,7 @@ export type MachineKind =
   | "computer"
   | "remote";
 
-export type Machine = {
+export interface Machine {
   readonly name: string;
   readonly here: boolean;
   readonly kind: MachineKind;
@@ -57,13 +57,13 @@ export type Machine = {
   readonly vitals: Vitals | null;
   /** Whether the machine's spoke takes signed requests from this hub, or null when no spoke answered. */
   readonly spoke: "trusted" | "untrusted" | null;
-};
+}
 
-export type Snapshot = {
+export interface Snapshot {
   readonly generatedAt: string;
   readonly tailscale: boolean;
   readonly machines: readonly Machine[];
-};
+}
 
 // The three sources, parsed where they enter.
 
@@ -112,7 +112,7 @@ export type T3Link = typeof T3Link.Type;
 const T3Links = Schema.fromJsonString(Schema.Array(T3Link));
 
 /** A machine as Tailscale (or this host alone) sees it, with what its descriptor said. */
-export type Seen = {
+export interface Seen {
   readonly name: string;
   readonly here: boolean;
   readonly tailscale: Tailnet | null;
@@ -123,7 +123,7 @@ export type Seen = {
   readonly platform: string | null;
   /** What the machine's `devbox spoke` answered. */
   readonly spoke: SpokeAnswer | null;
-};
+}
 
 /** `systemd-detect-virt` when this machine is not virtual, or has no such command. */
 export const BARE_METAL = "none";
@@ -487,13 +487,13 @@ const linksOf = (flag: Option.Option<string>) =>
     );
   });
 
-export type SnapshotOptions = {
+export interface SnapshotOptions {
   readonly t3: Option.Option<string>;
   readonly t3Port: number;
   readonly spokePort: number;
   /** The fingerprint of the hub's key, which tells which spokes trust this hub. */
   readonly hubKey?: string;
-};
+}
 
 export const takeSnapshot = ({
   t3,

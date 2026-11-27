@@ -23,50 +23,50 @@ const NOTHING_CHANGED = "nothing was changed; fix the problem named above";
 const fail = (message: string, hint = NOTHING_CHANGED) =>
   new ClaudeFilesError({ message, hint });
 
-export type RootMove = {
+export interface RootMove {
   readonly from: AbsolutePath;
   readonly to: AbsolutePath;
   readonly cwds: readonly string[];
-};
+}
 
-type SlugMove = {
+interface SlugMove {
   readonly fromSlug: string;
   readonly toSlug: string;
   readonly isRoot: boolean;
-};
+}
 
-type FileCopy = {
+interface FileCopy {
   readonly src: string;
   readonly dest: string;
   readonly base: string;
-};
+}
 
-type SlugCopy = {
+interface SlugCopy {
   readonly home: ClaudeHome;
   readonly move: SlugMove;
   readonly destDir: string;
   readonly files: readonly FileCopy[];
   readonly skipped: number;
-};
+}
 
-type Scan = {
+interface Scan {
   readonly copies: readonly SlugCopy[];
   readonly linkedSlugs: readonly string[];
   readonly missingHomes: readonly ClaudeHome[];
   readonly rootSlugSeen: boolean;
-};
+}
 
-export type CopyPlan = {
+export interface CopyPlan {
   readonly homes: readonly ClaudeHome[];
   readonly moves: readonly SlugMove[];
   readonly scan: Scan;
-};
+}
 
-export type CopyResult = {
+export interface CopyResult {
   readonly files: number;
   readonly bytes: number;
   readonly conflicts: readonly string[];
-};
+}
 
 type Outcome = "copy" | "identical" | "conflict";
 
@@ -643,7 +643,7 @@ export const reportConflicts = (result: CopyResult) =>
     }
   });
 
-export type StrandedMemory = {
+export interface StrandedMemory {
   readonly project: string;
   readonly projectId: string;
   readonly home: string;
@@ -653,7 +653,7 @@ export type StrandedMemory = {
   readonly files: number;
   readonly missing: number;
   readonly liveFiles: number;
-};
+}
 
 export const strandedMemory = Effect.fn("strandedMemory")(function* (
   projects: readonly {

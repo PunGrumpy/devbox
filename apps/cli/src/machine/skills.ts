@@ -24,11 +24,11 @@ export const SkillSource = Schema.Struct({
 
 export type SkillSource = typeof SkillSource.Type;
 
-export type SkillsList = {
+export interface SkillsList {
   readonly sources: readonly SkillSource[];
   readonly rejected: readonly string[];
   readonly hash: string;
-};
+}
 
 const tokens = (line: string) => {
   const [, repo, ...rest] = line.trim().split(/\s+/);

@@ -70,10 +70,10 @@ export type InstructionsLink = Data.TaggedEnum<{
 
 export const InstructionsLink = Data.taggedEnum<InstructionsLink>();
 
-export type InstructionsSource = {
+export interface InstructionsSource {
   readonly path: string;
   readonly text: string;
-};
+}
 
 // A regular file that is a byte-for-byte copy of the source loses nothing as a link. Neither does
 // a link whose target is gone, which is what a link becomes when its source moves in this repo.

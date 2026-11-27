@@ -70,7 +70,10 @@ const lastSetUp = (home: string) =>
     );
   });
 
-type Reply = { readonly status: number; readonly body: object };
+interface Reply {
+  readonly status: number;
+  readonly body: object;
+}
 
 const reply = (status: number, body: object): Reply => ({ status, body });
 const refuse = (status: number, error: string) => reply(status, { error });

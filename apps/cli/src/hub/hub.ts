@@ -48,13 +48,13 @@ import { loadTunnels, tunnelOf } from "./tunnel.ts";
 import { nextWatch, sentence, webhookBody } from "./watch.ts";
 import type { Notice, Watch } from "./watch.ts";
 
-export type History = {
+export interface History {
   readonly sampleSeconds: number;
   readonly startedAt: string;
   readonly states: Readonly<Record<string, string>>;
   /** T3 Code's answer time in whole milliseconds per sample, null where it did not answer. */
   readonly latency: Readonly<Record<string, readonly (number | null)[]>>;
-};
+}
 
 /** A machine as the hub shows it, with the address of its tunnel once it answers. */
 export type HubMachine = Machine & {
@@ -161,7 +161,10 @@ export const nextHistory = (
   };
 };
 
-export type Asset = { readonly body: Uint8Array; readonly path: string };
+export interface Asset {
+  readonly body: Uint8Array;
+  readonly path: string;
+}
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".css": "text/css; charset=utf-8",
@@ -260,12 +263,12 @@ const page = (
 };
 
 /** What the hub knows when it answers a request. */
-export type HubState = {
+export interface HubState {
   readonly snapshot: HubSnapshot;
   readonly token: string;
   /** Milliseconds since the epoch. */
   readonly now: number;
-};
+}
 
 /**
  * The reply to a request, or what to ask a machine's spoke when only it can answer. Every path

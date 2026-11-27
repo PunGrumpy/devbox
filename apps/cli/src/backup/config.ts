@@ -54,10 +54,10 @@ const EnvName = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/))
 );
 
-export type ParsedEnv = {
+export interface ParsedEnv {
   readonly values: Readonly<Record<string, string>>;
   readonly invalid: readonly number[];
-};
+}
 
 const unquote = (value: string) =>
   value.length >= 2 &&

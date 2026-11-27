@@ -53,12 +53,12 @@ CREATE TABLE scheduled_tasks (
 const sessionPayload = (cwd: string) =>
   JSON.stringify({ id: "s", status: "ready", cwd, model: "m" });
 
-export type Fixture = {
+export interface Fixture {
   dir: string;
   db: string;
   backups: string;
   env: Record<string, string>;
-};
+}
 
 export const makeFixture = (
   options: { events?: number; dropSessions?: boolean } = {}
@@ -169,7 +169,7 @@ export const query = <T>(
   }
 };
 
-export type World = {
+export interface World {
   base: string;
   home: string;
   real: string;
@@ -177,7 +177,7 @@ export type World = {
   db: string;
   homes: { a: string; b: string };
   env: Record<string, string>;
-};
+}
 
 export const slug = (path: string): string =>
   path.replace(/[^A-Za-z0-9]/g, "-");

@@ -3,10 +3,10 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { Locations } from "./locations.ts";
 
-export type RunningServer = {
+export interface RunningServer {
   readonly pid: number;
   readonly version: string | null;
-};
+}
 
 export class T3Running extends Schema.TaggedError<T3Running>()("T3Running", {
   pid: Schema.Number,

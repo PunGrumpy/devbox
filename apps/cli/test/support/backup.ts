@@ -41,7 +41,11 @@ export const sourcesFile = (home: string, text: string) =>
 export const envFile = (home: string, text: string) =>
   write(join(home, ".config/devbox/backup/env"), text);
 
-export type FakeRepo = { exists: boolean; failCheck: boolean; stage?: string };
+export interface FakeRepo {
+  exists: boolean;
+  failCheck: boolean;
+  stage?: string;
+}
 
 export const withBackupTools = (
   m: FakeMachine,
