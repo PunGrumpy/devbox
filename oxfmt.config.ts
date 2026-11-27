@@ -3,5 +3,5 @@ import ultracite from "ultracite/oxfmt";
 
 export default defineConfig({
   ...ultracite,
-  ignorePatterns: ["out", ".next", "next-env.d.ts"],
+  ignorePatterns: ["out", "dist", ".next", "next-env.d.ts"],
 });

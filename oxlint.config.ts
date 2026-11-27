@@ -22,7 +22,7 @@ export default defineConfig({
     landmines,
     jsPlugins,
   ],
-  ignorePatterns: [...(core.ignorePatterns ?? []), "out"],
+  ignorePatterns: [...(core.ignorePatterns ?? []), "out", "dist"],
   jsPlugins: [...jsPlugins.jsPlugins, ...landmines.jsPlugins],
   options: { typeAware: true },
   overrides: [
