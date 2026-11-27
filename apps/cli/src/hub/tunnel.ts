@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import path from "node:path";
 
 import { Effect, FileSystem, Option, Schema } from "effect";
 
@@ -6,33 +6,34 @@ import type { Host } from "../machine/host.ts";
 import type { Fields } from "../spoke/signed.ts";
 import { loadCloudflare } from "./cloudflare-auth.ts";
 import type { CloudflareAccount } from "./cloudflare-auth.ts";
-import type {
-  CloudflareApi,
-  CloudflareRefused,
-  DnsRecord,
-  NewRule,
-} from "./cloudflare.ts";
+import type { CloudflareRefused } from "./cloudflare-refused.ts";
+import type { CloudflareApi, DnsRecord, NewRule } from "./cloudflare.ts";
 import { json, refuse } from "./login.ts";
 import type { Reply } from "./login.ts";
 import { origin } from "./machines.ts";
 import type { Machine } from "./machines.ts";
 
-/** The machine name in lower case, with anything outside a-z and 0-9 turned into a dash. */
-export const slugOf = (name: string): string =>
-  name.toLowerCase().replaceAll(/[^a-z0-9]/g, "-");
+/**
+ * The machine name in lower case, with anything outside a-z and 0-9 turned into a dash, one for
+ * each UTF-16 code unit.
+ */
+export const slugOf = (name: string) =>
+  name
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]/gu, (outside) => "-".repeat(outside.length));
 
-export const hostnameOf = (name: string, zone: string): string =>
+export const hostnameOf = (name: string, zone: string) =>
   `t3-${slugOf(name)}.${zone}`;
 
 const DNS_LABEL_UP_TO_63 = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
-const ONE_DNS_LABEL = new RegExp(`^${DNS_LABEL_UP_TO_63}$`);
-const ZONE = new RegExp(`^(?:${DNS_LABEL_UP_TO_63}\\.)+[a-z0-9-]{2,63}$`);
+const ONE_DNS_LABEL = new RegExp(`^${DNS_LABEL_UP_TO_63}$`, "u");
+const ZONE = new RegExp(`^(?:${DNS_LABEL_UP_TO_63}\\.)+[a-z0-9-]{2,63}$`, "u");
 
-const hostable = (name: string, zone: string): boolean =>
+const hostable = (name: string, zone: string) =>
   ONE_DNS_LABEL.test(`t3-${slugOf(name)}`) && ZONE.test(zone);
 
 /** The WAF expression the README gives, which blocks T3's MCP paths on the hostname. */
-export const expressionFor = (hostname: string): string =>
+export const expressionFor = (hostname: string) =>
   `(http.host eq "${hostname}" and (starts_with(lower(http.request.uri.path), "/mcp") or starts_with(lower(http.request.uri.path), "/oauth/mcp")))`;
 
 /**
@@ -50,10 +51,13 @@ const Made = Schema.Struct({
   hostname: Schema.String,
   accountId: Schema.String,
   zoneId: Schema.String,
-  /** Whether every step was done and the spoke took the token, so the hostname answers. */
   published: Schema.Boolean,
 });
 
+/**
+ * What the hub made for a machine. `published` is whether every step was done and the spoke took
+ * the token, so the hostname answers.
+ */
 export type Made = typeof Made.Type;
 
 const Tunnels = Schema.fromJsonString(Schema.Record(Schema.String, Made));
@@ -61,7 +65,7 @@ const Tunnels = Schema.fromJsonString(Schema.Record(Schema.String, Made));
 export type Tunnels = Readonly<Record<string, Made>>;
 
 export const tunnelsFile = (home: string) =>
-  join(home, ".local", "state", "devbox", "tunnels.json");
+  path.join(home, ".local", "state", "devbox", "tunnels.json");
 
 /** What the hub made, by machine name. A file that does not parse holds nothing. */
 export const loadTunnels = (home: string) =>
@@ -72,31 +76,30 @@ export const loadTunnels = (home: string) =>
       .readFileString(tunnelsFile(home))
       .pipe(Effect.option);
 
-    return Option.getOrElse(
+    const tunnels: Tunnels = Option.getOrElse(
       Option.flatMap(text, (t) => Schema.decodeUnknownOption(Tunnels)(t)),
-      (): Tunnels => ({})
+      () => ({})
     );
+
+    return tunnels;
   });
 
 const remember = (home: string, name: string, made: Made | undefined) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const path = tunnelsFile(home);
+    const file = tunnelsFile(home);
     const { [name]: _, ...others } = yield* loadTunnels(home);
     const next = made === undefined ? others : { ...others, [name]: made };
-    yield* fs.makeDirectory(dirname(path), { recursive: true });
+    yield* fs.makeDirectory(path.dirname(file), { recursive: true });
     yield* fs.writeFileString(
-      `${path}.tmp`,
+      `${file}.tmp`,
       `${JSON.stringify(next, null, 2)}\n`
     );
-    yield* fs.rename(`${path}.tmp`, path);
+    yield* fs.rename(`${file}.tmp`, file);
   }).pipe(Effect.orDie);
 
 /** The tunnel's address for the snapshot, once it answers. */
-export const tunnelOf = (
-  tunnels: Tunnels,
-  name: string
-): { readonly url: string } | null => {
+export const tunnelOf = (tunnels: Tunnels, name: string) => {
   const made = Object.hasOwn(tunnels, name) ? tunnels[name] : undefined;
 
   return made?.published === true ? { url: `https://${made.hostname}` } : null;
@@ -163,7 +166,7 @@ const tunnelsNamed = <
 >(
   found: readonly T[],
   name: string
-): readonly T[] =>
+) =>
   found.filter(
     (t) => t.name === name && (t.config_src ?? "cloudflare") === "cloudflare"
   );

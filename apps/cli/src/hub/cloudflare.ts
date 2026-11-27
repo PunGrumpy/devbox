@@ -3,24 +3,21 @@ import { Effect, Option, Schema } from "effect";
 import { Host } from "../machine/host.ts";
 import { CloudflareFailed, saveCloudflare } from "./cloudflare-auth.ts";
 import type { CloudflareAccount } from "./cloudflare-auth.ts";
+import { CloudflareRefused } from "./cloudflare-refused.ts";
 
 const API = "https://api.cloudflare.com/client/v4";
 const TIMEOUT_MS = 20_000;
 const MAX_SAID = 300;
 
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
 export interface CloudflareRequest {
-  readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  readonly method: Method;
   /** Under /client/v4, starting with a slash. */
   readonly path: string;
   readonly query?: Readonly<Record<string, string>>;
   readonly body?: unknown;
 }
-
-/** Cloudflare answered with an error, or did not answer at all (status null). */
-export class CloudflareRefused extends Schema.TaggedError<CloudflareRefused>()(
-  "CloudflareRefused",
-  { status: Schema.NullOr(Schema.Number), said: Schema.String }
-) {}
 
 const Envelope = Schema.fromJsonString(
   Schema.Struct({
@@ -34,14 +31,14 @@ const Envelope = Schema.fromJsonString(
   })
 );
 
-const quote = (text: string, bearer: string): string => {
-  const plain = text.replaceAll(/\s+/g, " ").trim();
+const quote = (text: string, bearer: string) => {
+  const plain = text.replaceAll(/\s+/gu, " ").trim();
   const clean = bearer === "" ? plain : plain.replaceAll(bearer, "<token>");
 
   return clean.length > MAX_SAID ? `${clean.slice(0, MAX_SAID - 1)}…` : clean;
 };
 
-const urlOf = ({ path, query = {} }: CloudflareRequest): string => {
+const urlOf = ({ path, query = {} }: CloudflareRequest) => {
   const url = new URL(`${API}${path}`);
 
   for (const [name, value] of Object.entries(query)) {
@@ -58,21 +55,18 @@ const urlOf = ({ path, query = {} }: CloudflareRequest): string => {
 export const call = (bearer: string, request: CloudflareRequest) =>
   Effect.gen(function* () {
     const host = yield* Host;
+    const { method } = request;
+    const authorization = `Bearer ${bearer}`;
 
     const answered = yield* host.request(
       urlOf(request),
-      {
-        method: request.method,
-        headers: {
-          authorization: `Bearer ${bearer}`,
-          ...(request.body === undefined
-            ? {}
-            : { "content-type": "application/json" }),
-        },
-        ...(request.body === undefined
-          ? {}
-          : { body: JSON.stringify(request.body) }),
-      },
+      request.body === undefined
+        ? { method, headers: { authorization } }
+        : {
+            method,
+            headers: { authorization, "content-type": "application/json" },
+            body: JSON.stringify(request.body),
+          },
       TIMEOUT_MS
     );
 
@@ -112,17 +106,19 @@ export const call = (bearer: string, request: CloudflareRequest) =>
 
 const read =
   <T, E>(schema: Schema.Codec<T, E>) =>
-  (result: unknown) =>
-    Option.match(Schema.decodeUnknownOption(schema)(result), {
-      onNone: () =>
-        Effect.fail(
-          new CloudflareRefused({
-            status: 200,
-            said: "Cloudflare answered in a shape devbox does not know",
-          })
-        ),
-      onSome: (value: T) => Effect.succeed(value),
-    });
+  <R>(answer: Effect.Effect<unknown, CloudflareRefused, R>) =>
+    Effect.flatMap(answer, (result) =>
+      Option.match(Schema.decodeUnknownOption(schema)(result), {
+        onNone: () =>
+          Effect.fail(
+            new CloudflareRefused({
+              status: 200,
+              said: "Cloudflare answered in a shape devbox does not know",
+            })
+          ),
+        onSome: (value: T) => Effect.succeed(value),
+      })
+    );
 
 const PER_PAGE = "50";
 
@@ -175,45 +171,51 @@ const PHASE = "http_request_firewall_custom";
 
 const tunnels = (accountId: string) => `/accounts/${accountId}/cfd_tunnel`;
 
-/** The calls devbox makes, each with the bearer it was given. */
+/**
+ * The calls devbox makes, each with the bearer it was given.
+ *
+ * - `verify` asks whether the token is active, as a user token and then as one owned by the account.
+ * - `firewall` is the zone's custom rules, or none when the zone has none yet.
+ * - `createFirewall` adds the zone's first custom rule, which makes the ruleset that holds them.
+ * - `deleteTunnel` drops the tunnel's connections first, since Cloudflare deletes no tunnel that has
+ *   one.
+ * - `putIngress` sends what reaches `hostname` to `service`, and answers 404 to anything else.
+ */
 export const cloudflareApi = (bearer: string) => {
   const ask = (request: CloudflareRequest) => call(bearer, request);
 
   return {
-    /** Whether the token is active, asked as a user token and then as one owned by the account. */
     verify: (accountId: string) =>
       ask({ method: "GET", path: "/user/tokens/verify" }).pipe(
         Effect.catch(() =>
           ask({ method: "GET", path: `/accounts/${accountId}/tokens/verify` })
         ),
-        Effect.flatMap(read(Verified))
+        read(Verified)
       ),
     accounts: ask({
       method: "GET",
       path: "/accounts",
       query: { per_page: PER_PAGE },
-    }).pipe(Effect.flatMap(read(Schema.Array(Named)))),
+    }).pipe(read(Schema.Array(Named))),
     zones: (accountId: string) =>
       ask({
         method: "GET",
         path: "/zones",
         query: { "account.id": accountId, per_page: PER_PAGE },
-      }).pipe(Effect.flatMap(read(Schema.Array(Named)))),
+      }).pipe(read(Schema.Array(Named))),
 
-    /** The zone's custom rules, or none when the zone has none yet. */
     firewall: (zoneId: string) =>
       ask({
         method: "GET",
         path: `/zones/${zoneId}/rulesets/phases/${PHASE}/entrypoint`,
       }).pipe(
-        Effect.flatMap(read(Ruleset)),
+        read(Ruleset),
         Effect.map(Option.some),
         Effect.catchIf(
           (error) => error._tag === "CloudflareRefused" && error.status === 404,
           () => Effect.succeed(Option.none<Ruleset>())
         )
       ),
-    /** The zone's first custom rule, which makes the ruleset that holds them. */
     createFirewall: (zoneId: string, rule: NewRule) =>
       ask({
         method: "POST",
@@ -224,13 +226,13 @@ export const cloudflareApi = (bearer: string) => {
           phase: PHASE,
           rules: [{ ...rule, action: "block", enabled: true }],
         },
-      }).pipe(Effect.flatMap(read(Ruleset))),
+      }).pipe(read(Ruleset)),
     addRule: (zoneId: string, rulesetId: string, rule: NewRule) =>
       ask({
         method: "POST",
         path: `/zones/${zoneId}/rulesets/${rulesetId}/rules`,
         body: { ...rule, action: "block", enabled: true },
-      }).pipe(Effect.flatMap(read(Ruleset))),
+      }).pipe(read(Ruleset)),
     deleteRule: (zoneId: string, rulesetId: string, ruleId: string) =>
       Effect.asVoid(
         ask({
@@ -244,14 +246,13 @@ export const cloudflareApi = (bearer: string) => {
         method: "GET",
         path: tunnels(accountId),
         query: { name, is_deleted: "false" },
-      }).pipe(Effect.flatMap(read(Schema.Array(Tunnel)))),
+      }).pipe(read(Schema.Array(Tunnel))),
     createTunnel: (accountId: string, name: string) =>
       ask({
         method: "POST",
         path: tunnels(accountId),
         body: { name, config_src: "cloudflare" },
-      }).pipe(Effect.flatMap(read(Tunnel))),
-    /** Drops the tunnel's connections first, since Cloudflare deletes no tunnel that has one. */
+      }).pipe(read(Tunnel)),
     deleteTunnel: (accountId: string, tunnelId: string) =>
       Effect.asVoid(
         ask({
@@ -263,7 +264,6 @@ export const cloudflareApi = (bearer: string) => {
           )
         )
       ),
-    /** Sends what reaches `hostname` to `service`, and answers 404 to anything else. */
     putIngress: (
       accountId: string,
       tunnelId: string,
@@ -285,14 +285,14 @@ export const cloudflareApi = (bearer: string) => {
       ask({
         method: "GET",
         path: `${tunnels(accountId)}/${tunnelId}/token`,
-      }).pipe(Effect.flatMap(read(Schema.String))),
+      }).pipe(read(Schema.String)),
 
     findRecords: (zoneId: string, hostname: string) =>
       ask({
         method: "GET",
         path: `/zones/${zoneId}/dns_records`,
         query: { "name.exact": hostname, per_page: PER_PAGE },
-      }).pipe(Effect.flatMap(read(Schema.Array(DnsRecord)))),
+      }).pipe(read(Schema.Array(DnsRecord))),
     createRecord: (
       zoneId: string,
       record: { name: string; content: string; comment: string }
@@ -301,13 +301,13 @@ export const cloudflareApi = (bearer: string) => {
         method: "POST",
         path: `/zones/${zoneId}/dns_records`,
         body: { ...record, type: "CNAME", proxied: true, ttl: 1 },
-      }).pipe(Effect.flatMap(read(DnsRecord))),
-    editRecord: (zoneId: string, recordId: string, content: string) =>
+      }).pipe(read(DnsRecord)),
+    editRecord: (zoneId: string, recordId: string, target: string) =>
       ask({
         method: "PATCH",
         path: `/zones/${zoneId}/dns_records/${recordId}`,
-        body: { type: "CNAME", content, proxied: true },
-      }).pipe(Effect.flatMap(read(DnsRecord))),
+        body: { type: "CNAME", content: target, proxied: true },
+      }).pipe(read(DnsRecord)),
     deleteRecord: (zoneId: string, recordId: string) =>
       Effect.asVoid(
         ask({
@@ -328,7 +328,7 @@ export const failed = (doing: string) => (error: CloudflareRefused) =>
 
 /** One Cloudflare API token: printable ASCII, no spaces, at most 1024 characters. */
 export const ApiToken = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[\u0021-\u007E]{1,1024}$/))
+  Schema.check(Schema.isPattern(/^[\u0021-\u007E]{1,1024}$/u))
 );
 
 /**
@@ -342,7 +342,7 @@ export class PickOne extends Schema.TaggedError<PickOne>()("PickOne", {
 }) {}
 
 const choose = <A extends Named>(
-  what: PickOne["what"],
+  kind: PickOne["what"],
   choices: readonly A[],
   wanted: Option.Option<string>,
   matches: (choice: A, wanted: string) => boolean
@@ -356,7 +356,7 @@ const choose = <A extends Named>(
   return found === undefined
     ? Effect.fail(
         new PickOne({
-          what,
+          what: kind,
           choices: choices.map(({ id, name }) => ({ id, name })),
           named,
         })

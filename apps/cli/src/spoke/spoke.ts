@@ -1,7 +1,7 @@
 import type http from "node:http";
-import { dirname, join } from "node:path";
+import path from "node:path";
 
-import { Effect, FileSystem, Option, Schema } from "effect";
+import { Effect, Exit, FileSystem, Option, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { header, listen, readBody } from "../hub/listen.ts";
@@ -28,7 +28,7 @@ import {
 } from "./signed.ts";
 import type { Challenges, Do, Fields } from "./signed.ts";
 import { SPOKE_PORT } from "./vitals.ts";
-import type { SelfKind } from "./vitals.ts";
+import type { SelfKind, Vitals } from "./vitals.ts";
 
 /** What this machine is, from what it can see of itself. */
 export const kindHere = Effect.gen(function* () {
@@ -70,12 +70,25 @@ const lastSetUp = (home: string) =>
     );
   });
 
+type ReplyBody =
+  | { readonly error: string }
+  | { readonly asked: true }
+  | { readonly url: string }
+  | { readonly nonce: string }
+  | {
+      readonly kind: SelfKind;
+      readonly vitals: Vitals;
+      readonly trusts: readonly string[];
+    };
+
 interface Reply {
   readonly status: number;
-  readonly body: object;
+  readonly body: ReplyBody;
 }
 
-const reply = (status: number, body: object): Reply => ({ status, body });
+const reply = (status: number, body: ReplyBody) =>
+  ({ status, body }) satisfies Reply;
+
 const refuse = (status: number, error: string) => reply(status, { error });
 
 export const MAX_BODY_BYTES = 4096;
@@ -87,11 +100,14 @@ type Action = (
 const saveToken = (home: string, token: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const path = tunnelTokenFile(home);
-    const temp = `${path}.${newNonce()}`;
-    yield* fs.makeDirectory(dirname(path), { recursive: true, mode: 0o700 });
+    const file = tunnelTokenFile(home);
+    const temp = `${file}.${newNonce()}`;
+    yield* fs.makeDirectory(path.dirname(file), {
+      recursive: true,
+      mode: 0o700,
+    });
     yield* fs.writeFileString(temp, token, { flag: "wx", mode: 0o600 }).pipe(
-      Effect.andThen(fs.rename(temp, path)),
+      Effect.andThen(fs.rename(temp, file)),
       Effect.tapError(() =>
         fs.remove(temp, { force: true }).pipe(Effect.ignore)
       )
@@ -110,7 +126,7 @@ export const PAIR_MS = 25_000;
 const singleFlight = <A>(whileRunning: A) => {
   let running = false;
 
-  return <E, R>(run: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  return <E, R>(run: Effect.Effect<A, E, R>) =>
     Effect.suspend(() => {
       if (running) {
         return Effect.succeed(whileRunning);
@@ -202,7 +218,10 @@ export const spoke = Command.make(
 
           updating = yield* computer.spawnDetached(
             [...computer.self, "up", ...flags(setUp.value.up)],
-            { env: {}, log: join(pathsOf(setUp.value.data).logs, "update.log") }
+            {
+              env: {},
+              log: path.join(pathsOf(setUp.value.data).logs, "update.log"),
+            }
           );
           yield* out.log(`spoke: ${said}, running devbox up again`);
 
@@ -322,8 +341,8 @@ export const spoke = Command.make(
             return refuse(405, "use POST");
           }
 
-          const body = yield* Effect.promise(() =>
-            readBody(req, MAX_BODY_BYTES)
+          const body = yield* Effect.promise(
+            async () => await readBody(req, MAX_BODY_BYTES)
           );
 
           if (body === null) {
@@ -345,7 +364,7 @@ export const spoke = Command.make(
             return refuse(403, verdict.why);
           }
 
-          challenges = verdict.challenges;
+          ({ challenges } = verdict);
           const action = actions.get(verdict.do);
 
           if (action === undefined) {
@@ -355,21 +374,38 @@ export const spoke = Command.make(
           return yield* action(verdict.fields);
         });
 
+      const respond = (
+        res: http.ServerResponse,
+        answered: Exit.Exit<Reply>
+      ) => {
+        if (Exit.isFailure(answered)) {
+          res.writeHead(500);
+          res.end();
+
+          return;
+        }
+
+        const { status, body } = answered.value;
+
+        const headers: http.OutgoingHttpHeaders = {
+          "cache-control": "no-store",
+          "content-type": "application/json; charset=utf-8",
+        };
+
+        if (status === 413) {
+          headers.connection = "close";
+        }
+
+        res.writeHead(status, headers);
+        res.end(`${JSON.stringify(body)}\n`);
+      };
+
       yield* listen(host, port, (req, res) => {
-        Effect.runPromiseWith(context)(answer(req)).then(
-          (answered) => {
-            res.writeHead(answered.status, {
-              "cache-control": "no-store",
-              "content-type": "application/json; charset=utf-8",
-              ...(answered.status === 413 ? { connection: "close" } : {}),
-            });
-            res.end(`${JSON.stringify(answered.body)}\n`);
+        Effect.runCallbackWith(context)(answer(req), {
+          onExit: (answered) => {
+            respond(res, answered);
           },
-          () => {
-            res.writeHead(500);
-            res.end();
-          }
-        );
+        });
       });
       yield* out.log(
         `spoke: ${origin(host, port)}/api/spoke, taking requests from ${trusts.length} hub key${trusts.length === 1 ? "" : "s"}`

@@ -1,16 +1,17 @@
-import { dirname, join } from "node:path";
+import path from "node:path";
 
 import { Clock, Effect, FileSystem, Option, Schema, Semaphore } from "effect";
 
 import { postForm, renew } from "./cloudflare-oauth.ts";
-import type { IsoTimestamp, PostForm } from "./cloudflare-oauth.ts";
+import type { PostForm } from "./cloudflare-oauth.ts";
 
 export interface OAuthLogin {
   readonly kind: "oauth";
   readonly clientId: string;
   readonly accessToken: string;
   readonly refreshToken: string;
-  readonly expiresAt: IsoTimestamp;
+  /** When the access token ends, as an ISO 8601 timestamp. */
+  readonly expiresAt: string;
 }
 
 export type CloudflareLogin =
@@ -35,7 +36,7 @@ export class CloudflareFailed extends Schema.TaggedError<CloudflareFailed>()(
 ) {}
 
 export const cloudflareFile = (home: string) =>
-  join(home, ".local", "state", "devbox", "cloudflare.json");
+  path.join(home, ".local", "state", "devbox", "cloudflare.json");
 
 const Login = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("token"), token: Schema.String }),
@@ -69,9 +70,10 @@ export const loadCloudflare = (home: string) =>
       .pipe(Effect.option);
 
     return Option.flatMap(text, (t) => {
-      const saved = Schema.decodeUnknownOption(Saved)(t);
+      const saved: Option.Option<CloudflareAccount> =
+        Schema.decodeUnknownOption(Saved)(t);
 
-      return Option.map(saved, (account): CloudflareAccount => account);
+      return saved;
     });
   });
 
@@ -79,9 +81,9 @@ export const loadCloudflare = (home: string) =>
 export const saveCloudflare = (home: string, account: CloudflareAccount) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const path = cloudflareFile(home);
-    const temporary = `${path}.tmp`;
-    yield* fs.makeDirectory(dirname(path), { recursive: true });
+    const file = cloudflareFile(home);
+    const temporary = `${file}.tmp`;
+    yield* fs.makeDirectory(path.dirname(file), { recursive: true });
     yield* fs.remove(temporary, { force: true });
     yield* fs.writeFileString(
       temporary,
@@ -92,7 +94,7 @@ export const saveCloudflare = (home: string, account: CloudflareAccount) =>
       }
     );
     yield* fs.chmod(temporary, OWNER_ONLY);
-    yield* fs.rename(temporary, path);
+    yield* fs.rename(temporary, file);
   }).pipe(
     Effect.mapError(
       () =>
@@ -106,17 +108,17 @@ export const saveCloudflare = (home: string, account: CloudflareAccount) =>
 export const forgetCloudflare = (home: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const path = cloudflareFile(home);
+    const file = cloudflareFile(home);
 
-    if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)))) {
+    if (!(yield* fs.exists(file).pipe(Effect.orElseSucceed(() => false)))) {
       return false;
     }
 
     yield* fs
-      .remove(path)
+      .remove(file)
       .pipe(
         Effect.mapError(
-          () => new CloudflareFailed({ message: `cannot delete ${path}` })
+          () => new CloudflareFailed({ message: `cannot delete ${file}` })
         )
       );
 

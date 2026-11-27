@@ -11,8 +11,8 @@ import { Option, Schema } from "effect";
 
 export const WINDOW_MS = 60_000;
 
-const isRawKey = (text: string): boolean =>
-  /^[A-Za-z0-9_-]{43}$/.test(text) &&
+const isRawKey = (text: string) =>
+  /^[A-Za-z0-9_-]{43}$/u.test(text) &&
   Buffer.from(text, "base64url").toString("base64url") === text;
 
 /** An Ed25519 public key, its 32 raw bytes in base64url. */
@@ -25,15 +25,15 @@ export const PublicKey = Schema.String.pipe(
 );
 
 /** The base64url SHA-256 of a key's raw bytes. */
-export const fingerprint = (publicKey: string): string =>
+export const fingerprint = (publicKey: string) =>
   createHash("sha256")
     .update(Buffer.from(publicKey, "base64url"))
     .digest("base64url");
 
-export const publicKeyOf = (privateKey: KeyObject): string =>
+export const publicKeyOf = (privateKey: KeyObject) =>
   String(createPublicKey(privateKey).export({ format: "jwk" }).x);
 
-export const newNonce = (): string => randomBytes(18).toString("base64url");
+export const newNonce = () => randomBytes(18).toString("base64url");
 
 export const KEY_HEADER = "x-devbox-key";
 export const SIGNATURE_HEADER = "x-devbox-signature";
@@ -64,7 +64,7 @@ export const signRequest = (
   nonce: string,
   action: Do,
   fields: Fields = {}
-): Signed => {
+) => {
   const body = JSON.stringify({
     ...fields,
     at: at.toISOString(),
@@ -80,11 +80,11 @@ export const signRequest = (
         "base64url"
       ),
     },
-  };
+  } satisfies Signed;
 };
 
 export const Nonce = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[A-Za-z0-9_-]{16,128}$/))
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9_-]{16,128}$/u))
 );
 
 const Body = Schema.fromJsonString(
@@ -106,11 +106,7 @@ const open = (challenges: Challenges, now: number) =>
   [...challenges].filter(([, time]) => time >= now - WINDOW_MS);
 
 /** The challenges once `nonce` is handed out at `now`, without the oldest past the limit. */
-export const handOut = (
-  challenges: Challenges,
-  nonce: string,
-  now: number
-): Challenges =>
+export const handOut = (challenges: Challenges, nonce: string, now: number) =>
   new Map(
     [...open(challenges, now), [nonce, now] as const].slice(-MAX_CHALLENGES)
   );
@@ -125,13 +121,9 @@ export type Verdict =
     }
   | { readonly ok: false; readonly why: string };
 
-const refuse = (why: string): Verdict => ({ ok: false, why });
+const refuse = (why: string) => ({ ok: false, why }) satisfies Verdict;
 
-const verifies = (
-  publicKey: string,
-  body: string,
-  signature: string
-): boolean => {
+const verifies = (publicKey: string, body: string, signature: string) => {
   try {
     return verify(
       null,
@@ -161,7 +153,7 @@ export const verifyRequest = (
   trusted: readonly string[],
   now: number,
   challenges: Challenges
-): Verdict => {
+) => {
   const publicKey = trusted.find((key) => fingerprint(key) === request.key);
 
   if (publicKey === undefined) {
@@ -183,7 +175,7 @@ export const verifyRequest = (
 
   const at = Date.parse(body.value.at);
 
-  if (!(Math.abs(now - at) <= WINDOW_MS)) {
+  if (Number.isNaN(at) || Math.abs(now - at) > WINDOW_MS) {
     return refuse("the request is too old or too new");
   }
 
@@ -197,15 +189,16 @@ export const verifyRequest = (
     return refuse("the challenge is too old");
   }
 
+  const { token, url } = body.value;
+  const withToken: Fields = token === undefined ? {} : { token };
+  const fields: Fields = url === undefined ? withToken : { ...withToken, url };
+
   return {
     ok: true,
     challenges: new Map(
       open(challenges, now).filter(([nonce]) => nonce !== body.value.nonce)
     ),
     do: body.value.do,
-    fields: {
-      ...(body.value.token === undefined ? {} : { token: body.value.token }),
-      ...(body.value.url === undefined ? {} : { url: body.value.url }),
-    },
-  };
+    fields,
+  } satisfies Verdict;
 };

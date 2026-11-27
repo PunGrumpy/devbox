@@ -15,19 +15,19 @@ export interface Notice {
   readonly at: string;
 }
 
-// One missed probe is not news.
 const HOLD_SAMPLES = 2;
 
+interface Said {
+  [machine: string]: MachineState;
+}
+
 /**
- * A change of state is announced once it has held for two samples in a row. The first sample of a
- * machine sets its baseline and says nothing. A machine missing from a sample keeps what was last
- * said about it.
+ * A change of state is announced once it has held for two samples in a row, since one missed probe
+ * is not news. The first sample of a machine sets its baseline and says nothing. A machine missing
+ * from a sample keeps what was last said about it.
  */
-export const nextWatch = (
-  previous: Watch | undefined,
-  snapshot: Snapshot
-): { readonly watch: Watch; readonly notices: readonly Notice[] } => {
-  const announced: Record<string, MachineState> = { ...previous?.announced };
+export const nextWatch = (previous: Watch | undefined, snapshot: Snapshot) => {
+  const announced: Said = { ...previous?.announced };
   const pending: Record<string, { state: MachineState; samples: number }> = {};
   const notices: Notice[] = [];
 
@@ -47,22 +47,25 @@ export const nextWatch = (
 
     if (samples < HOLD_SAMPLES) {
       pending[name] = { state, samples };
-      continue;
+    } else {
+      announced[name] = state;
+      notices.push({
+        machine: name,
+        from: said,
+        to: state,
+        at: snapshot.generatedAt,
+      });
     }
-
-    announced[name] = state;
-    notices.push({
-      machine: name,
-      from: said,
-      to: state,
-      at: snapshot.generatedAt,
-    });
   }
 
-  return { watch: { announced, pending }, notices };
+  return { watch: { announced, pending } satisfies Watch, notices };
 };
 
-const SENTENCES: Readonly<Record<string, (machine: string) => string>> = {
+interface Sentences {
+  readonly [change: string]: (machine: string) => string;
+}
+
+const SENTENCES: Sentences = {
   "t3>offline": (m) => `${m} went offline`,
   "online>offline": (m) => `${m} went offline`,
   "offline>online": (m) => `${m} is back online`,
@@ -71,11 +74,14 @@ const SENTENCES: Readonly<Record<string, (machine: string) => string>> = {
   "online>t3": (m) => `T3 Code answers on ${m} again`,
 };
 
-export const sentence = ({ machine, from, to }: Notice): string =>
+export const sentence = ({ machine, from, to }: Notice) =>
   SENTENCES[`${from}>${to}`]?.(machine) ?? `${machine} is now ${to}`;
 
-// The services that want JSON, by host, and the field their message goes in.
-const JSON_FIELD: Readonly<Record<string, string>> = {
+interface MessageFieldByHost {
+  readonly [host: string]: string;
+}
+
+const JSON_SERVICES: MessageFieldByHost = {
   "discord.com": "content",
   "discordapp.com": "content",
   "hooks.slack.com": "text",
@@ -87,13 +93,15 @@ export interface WebhookBody {
 }
 
 /** Discord and Slack take JSON. Anything else, such as an ntfy topic, takes the sentence itself. */
-export const webhookBody = (url: URL, text: string): WebhookBody => {
-  const field = JSON_FIELD[url.hostname];
+export const webhookBody = (url: URL, text: string) => {
+  const field = JSON_SERVICES[url.hostname];
 
-  return field === undefined
-    ? { body: text, contentType: "text/plain; charset=utf-8" }
-    : {
-        body: JSON.stringify({ [field]: text }),
-        contentType: "application/json",
-      };
+  return (
+    field === undefined
+      ? { body: text, contentType: "text/plain; charset=utf-8" }
+      : {
+          body: JSON.stringify({ [field]: text }),
+          contentType: "application/json",
+        }
+  ) satisfies WebhookBody;
 };

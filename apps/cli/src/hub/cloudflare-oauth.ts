@@ -6,13 +6,12 @@ import { Command, Flag } from "effect/cli";
 import { Output, plural } from "../output.ts";
 import { listen } from "./listen.ts";
 
-export type IsoTimestamp = string;
-
 /** What a Cloudflare OAuth login holds. None of it is ever printed or logged. */
 export interface OAuthTokens {
   readonly accessToken: string;
   readonly refreshToken: string;
-  readonly expiresAt: IsoTimestamp;
+  /** When the access token ends, as an ISO 8601 timestamp. */
+  readonly expiresAt: string;
 }
 
 export class OAuthFailed extends Schema.TaggedError<OAuthFailed>()(
@@ -65,10 +64,10 @@ export interface Pkce {
 }
 
 /** A new verifier, 43 characters of base64url, and its challenge. */
-export const makePkce = (): Pkce => {
+export const makePkce = () => {
   const verifier = randomText();
 
-  return { verifier, challenge: challengeOf(verifier) };
+  return { verifier, challenge: challengeOf(verifier) } satisfies Pkce;
 };
 
 /** The state that ties Cloudflare's answer to this login. */
@@ -81,7 +80,7 @@ export const authorizeUrl = (request: {
   readonly redirectUri: string;
   readonly challenge: string;
   readonly state: string;
-}): string => {
+}) => {
   const url = new URL(request.authorize);
   url.search = new URLSearchParams({
     response_type: "code",
@@ -96,7 +95,7 @@ export const authorizeUrl = (request: {
   return url.href;
 };
 
-const ERROR_CODE = /^[a-z_]{1,64}$/;
+const ERROR_CODE = /^[a-z_]{1,64}$/u;
 
 const printableVendorCodeOrPlaceholder = (value: string | null | undefined) =>
   value !== null && value !== undefined && ERROR_CODE.test(value)
@@ -114,7 +113,7 @@ export type Callback =
 const AGAIN = "run the login again";
 
 /** What the browser brought back, read from the callback's path and query. */
-export const readCallback = (url: string, state: string): Callback => {
+export const readCallback = (url: string, state: string) => {
   const query = new URL(url, "http://127.0.0.1").searchParams;
 
   if (query.get("state") !== state) {
@@ -123,7 +122,7 @@ export const readCallback = (url: string, state: string): Callback => {
       message:
         "the answer did not come from this login, its state does not match",
       hint: AGAIN,
-    };
+    } satisfies Callback;
   }
 
   const error = query.get("error");
@@ -136,7 +135,7 @@ export const readCallback = (url: string, state: string): Callback => {
         error === "access_denied"
           ? `${AGAIN} and select Authorize`
           : "check the client's redirect URL and scopes in the Cloudflare dashboard",
-    };
+    } satisfies Callback;
   }
 
   const code = query.get("code");
@@ -146,14 +145,12 @@ export const readCallback = (url: string, state: string): Callback => {
       _tag: "Refused",
       message: "Cloudflare's answer has no code",
       hint: AGAIN,
-    };
+    } satisfies Callback;
   }
 
-  return { _tag: "Code", code };
+  return { _tag: "Code", code } satisfies Callback;
 };
 
-// Cloudflare's documentation does not say how long an access token lasts. When it names no
-// lifetime, the login is renewed after five minutes rather than used past its end.
 const ASSUMED_SECONDS = 300;
 
 const TokenAnswer = Schema.fromJsonString(
@@ -168,12 +165,12 @@ const TokenAnswer = Schema.fromJsonString(
 /**
  * The tokens in a token endpoint's answer, given the time it came. A renewal that brings no new
  * refresh token keeps `refreshToken`. None when the answer is not a bearer token with one.
+ *
+ * Cloudflare's documentation does not say how long an access token lasts. When an answer names no
+ * lifetime, the token is taken to end after five minutes, so the login is renewed then rather than
+ * used past its end.
  */
-export const parseTokens = (
-  body: string,
-  now: number,
-  refreshToken?: string
-): Option.Option<OAuthTokens> =>
+export const parseTokens = (body: string, now: number, refreshToken?: string) =>
   Option.flatMap(Schema.decodeUnknownOption(TokenAnswer)(body), (answer) => {
     const refresh = answer.refresh_token ?? refreshToken;
 
@@ -187,7 +184,7 @@ export const parseTokens = (
       accessToken: answer.access_token,
       refreshToken: refresh,
       expiresAt: new Date(now + seconds * 1000).toISOString(),
-    });
+    } satisfies OAuthTokens);
   });
 
 export interface Answer {
@@ -339,7 +336,9 @@ const callbackListener = (port: number, state: string) =>
 
       taken = true;
       const callback = readCallback(url, state);
-      res.on("close", () => arrive(callback));
+      res.on("close", () => {
+        arrive(callback);
+      });
       res.writeHead(callback._tag === "Code" ? 200 : 400, {
         "cache-control": "no-store",
         connection: "close",
@@ -357,7 +356,7 @@ const callbackListener = (port: number, state: string) =>
       )
     );
 
-    return Effect.promise(() => arrived);
+    return Effect.promise(async () => await arrived);
   });
 
 /** Where the login talks to and how long it waits. Tests point it at a fake Cloudflare. */
@@ -391,7 +390,7 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
         );
         yield* out.line();
         yield* out.line(
-          `  ${authorizeUrl({ authorize: flow.endpoints.authorize, clientId, redirectUri: redirect, challenge: pkce.challenge, state })}`
+          `  ${authorizeUrl({ clientId, state, authorize: flow.endpoints.authorize, redirectUri: redirect, challenge: pkce.challenge })}`
         );
         yield* out.line();
         yield* out.log(
@@ -421,8 +420,8 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
     }
 
     return yield* exchange(flow.post, {
-      token: flow.endpoints.token,
       clientId,
+      token: flow.endpoints.token,
       code: callback.value.code,
       verifier: pkce.verifier,
       redirectUri: redirect,
@@ -438,7 +437,7 @@ export interface SignedIn {
 }
 
 const ClientId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[\w.~-]{1,200}$/))
+  Schema.check(Schema.isPattern(/^[\w.~-]{1,200}$/u))
 );
 
 /** `devbox hub cloudflare login`: signs the hub in with OAuth and hands the result to `save`. */
