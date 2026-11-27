@@ -9,7 +9,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "bun src/cli.ts",
+    "dev": "bun --watch src/cli.ts hub",
     "build": "bun build src/cli.ts --compile --minify --outfile dist/devbox",
     "test": "bun test",
     "typecheck": "tsrs --noEmit",

@@ -8,8 +8,8 @@ const config: NextConfig =
         // oxlint-disable-next-line require-await -- Next takes rewrites only as a promise
         rewrites: async () => [
           {
-            destination: `${hubUrl}/api/machines`,
-            source: "/api/machines",
+            destination: `${hubUrl}/api/:path*`,
+            source: "/api/:path*",
           },
         ],
       }
