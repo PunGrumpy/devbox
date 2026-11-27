@@ -7,7 +7,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import { Option } from "effect";
 
@@ -56,10 +56,10 @@ describe("which Claude homes get instructions", () => {
 
 const machine = () => {
   const m = makeMachine();
-  const baseDir = join(m.home, ".t3");
-  mkdirSync(join(baseDir, "userdata"), { recursive: true });
+  const baseDir = path.join(m.home, ".t3");
+  mkdirSync(path.join(baseDir, "userdata"), { recursive: true });
   writeFileSync(
-    join(baseDir, "userdata", "settings.json"),
+    path.join(baseDir, "userdata", "settings.json"),
     JSON.stringify({
       providerInstances: {
         claudeAgent: { driver: "claudeAgent" },
@@ -70,12 +70,12 @@ const machine = () => {
       },
     })
   );
-  const source = join(m.base, "devbox", "instructions", "AGENTS.md");
-  mkdirSync(join(source, ".."), { recursive: true });
+  const source = path.join(m.base, "devbox", "instructions", "AGENTS.md");
+  mkdirSync(path.join(source, ".."), { recursive: true });
   writeFileSync(source, "# Rules\n\n- Reply in Thai.\n");
 
-  const run = () =>
-    runWith(
+  const run = async () =>
+    await runWith(
       m.host,
       linkInstructions(
         { data: absolutePath(m.home), baseDir: absolutePath(baseDir) },
@@ -84,10 +84,10 @@ const machine = () => {
       )
     );
 
-  const file = (home: string) => join(m.home, home, "CLAUDE.md");
+  const file = (home: string) => path.join(m.home, home, "CLAUDE.md");
 
   const put = (home: string, text: string) => {
-    mkdirSync(join(m.home, home), { recursive: true });
+    mkdirSync(path.join(m.home, home), { recursive: true });
     writeFileSync(file(home), text);
   };
 
@@ -138,9 +138,9 @@ describe("linkInstructions", () => {
 
   test("leaves a link that points somewhere else", async () => {
     const { m, run, file } = machine();
-    const mine = join(m.base, "mine.md");
+    const mine = path.join(m.base, "mine.md");
     writeFileSync(mine, "# Mine\n");
-    mkdirSync(join(m.home, ".claude"), { recursive: true });
+    mkdirSync(path.join(m.home, ".claude"), { recursive: true });
     symlinkSync(mine, file(".claude"));
     await run();
     expect(readlinkSync(file(".claude"))).toBe(mine);
@@ -148,8 +148,8 @@ describe("linkInstructions", () => {
 
   test("links again a link whose target is gone, as after AGENTS.md moved", async () => {
     const { m, run, file, source } = machine();
-    mkdirSync(join(m.home, ".claude"), { recursive: true });
-    symlinkSync(join(m.base, "moved-away", "AGENTS.md"), file(".claude"));
+    mkdirSync(path.join(m.home, ".claude"), { recursive: true });
+    symlinkSync(path.join(m.base, "moved-away", "AGENTS.md"), file(".claude"));
     await run();
     expect(readlinkSync(file(".claude"))).toBe(source);
   });

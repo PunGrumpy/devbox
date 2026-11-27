@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import {
   gitEntries,
@@ -13,6 +13,13 @@ import { browserLibraries, installSkills } from "../src/machine/setup.ts";
 import { parseSkillsList, skillsAddArgs } from "../src/machine/skills.ts";
 import { makeMachine } from "./support/host.ts";
 import { runWith } from "./support/run.ts";
+
+const sourcedProfileClaudeDir = (user: string) =>
+  Bun.spawnSync([
+    "sh",
+    "-c",
+    `${profileScript(settingsFor("/it's"), user)}printf %s "$CLAUDE_CONFIG_DIR"`,
+  ]).stdout.toString();
 
 describe("one settings list, three sinks", () => {
   const settings = settingsFor("/data");
@@ -53,15 +60,8 @@ describe("one settings list, three sinks", () => {
     );
     const me = Bun.spawnSync(["id", "-un"]).stdout.toString().trim();
 
-    const sourced = (user: string) =>
-      Bun.spawnSync([
-        "sh",
-        "-c",
-        `${profileScript(settingsFor("/it's"), user)}printf %s "$CLAUDE_CONFIG_DIR"`,
-      ]).stdout.toString();
-
-    expect(sourced(me)).toBe("/it's/.claude");
-    expect(sourced("someone-else")).toBe("");
+    expect(sourcedProfileClaudeDir(me)).toBe("/it's/.claude");
+    expect(sourcedProfileClaudeDir("someone-else")).toBe("");
   });
 });
 
@@ -86,7 +86,14 @@ describe("the skills list is data", () => {
       },
     ]);
     expect(list.rejected).toEqual([]);
-    expect(skillsAddArgs(list.sources[2]!, ["claude-code", "codex"])).toEqual([
+    const thirdSource = list.sources.at(2);
+    expect(thirdSource).toBeDefined();
+
+    if (thirdSource === undefined) {
+      throw new Error("expected third skill source");
+    }
+
+    expect(skillsAddArgs(thirdSource, ["claude-code", "codex"])).toEqual([
       "npx",
       "-y",
       "skills",
@@ -129,14 +136,18 @@ describe("the skills list is data", () => {
 
   test("a malicious line never runs, and the stamp waits for a clean list", async () => {
     const m = makeMachine();
-    const marker = join(m.base, "pwned");
+    const marker = path.join(m.base, "pwned");
     const remote = `${TEMPLATE}skill foo/bar; touch ${marker}\nskill $(touch ${marker})\n`;
-    m.respond = (argv) =>
-      argv[0] === "curl"
-        ? { code: 0, stdout: remote, stderr: "" }
-        : argv[0] === "npx"
-          ? { code: 0, stdout: "", stderr: "" }
-          : undefined;
+    m.respond = (argv) => {
+      if (argv[0] === "curl") {
+        return { code: 0, stdout: remote, stderr: "" };
+      }
+
+      if (argv[0] === "npx") {
+        return { code: 0, stdout: "", stderr: "" };
+      }
+    };
+
     const { err } = await runWith(m.host, installSkills(m.home, {}, BOTH));
     expect(existsSync(marker)).toBe(false);
     expect(m.calls.filter((c) => c[0] === "npx").map((c) => c[4])).toEqual([
@@ -149,7 +160,7 @@ describe("the skills list is data", () => {
       `ignored a line that is not a skill source: skill foo/bar; touch ${marker}`
     );
     expect(err).toContain("2 sources failed, trying again on the next start");
-    expect(existsSync(join(m.home, ".devbox-skills"))).toBe(false);
+    expect(existsSync(path.join(m.home, ".devbox-skills"))).toBe(false);
   });
 
   test("a clean list writes the stamp, and the next start skips the install", async () => {
@@ -159,14 +170,14 @@ describe("the skills list is data", () => {
         ? { code: 0, stdout: TEMPLATE, stderr: "" }
         : undefined;
     await runWith(m.host, installSkills(m.home, {}, BOTH));
-    expect(readFileSync(join(m.home, ".devbox-skills"), "utf-8").trim()).toBe(
-      `${parseSkillsList(TEMPLATE).hash} ${BOTH.join(",")}`
-    );
+    expect(
+      readFileSync(path.join(m.home, ".devbox-skills"), "utf-8").trim()
+    ).toBe(`${parseSkillsList(TEMPLATE).hash} ${BOTH.join(",")}`);
     const before = m.calls.length;
     const { err } = await runWith(m.host, installSkills(m.home, {}, BOTH));
     expect(err).toContain("skills: up to date");
     expect(m.calls.slice(before).filter((c) => c[0] === "npx")).toEqual([]);
-    writeFileSync(join(m.home, ".devbox-skills"), "stale\n");
+    writeFileSync(path.join(m.home, ".devbox-skills"), "stale\n");
   });
 });
 
@@ -192,8 +203,6 @@ describe("browser libraries", () => {
       if (argv[0] === "sudo") {
         return { code: 0, stdout: "", stderr: "" };
       }
-
-      return undefined;
     };
 
     await runWith(m.host, browserLibraries);
