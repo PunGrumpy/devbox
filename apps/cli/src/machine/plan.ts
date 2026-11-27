@@ -198,7 +198,7 @@ export const withPrettyHostname = (current: string, name: string): string =>
     .join("");
 
 const systemdQuote = (arg: string): string =>
-  /^[A-Za-z0-9_@+=:,./-]+$/.test(arg)
+  /^[A-Za-z0-9_@+=:,./-]+$/u.test(arg)
     ? arg
     : `"${arg.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%").replaceAll("$", "$$$$")}"`;
 

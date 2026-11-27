@@ -202,7 +202,7 @@ export class Host extends Context.Service<
     which: (name) => Effect.sync(() => Bun.which(name) !== null),
     processes: Effect.sync(() =>
       readdirSync("/proc").flatMap((entry) => {
-        if (!/^\d+$/.test(entry)) {
+        if (!/^\d+$/u.test(entry)) {
           return [];
         }
 

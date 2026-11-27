@@ -56,7 +56,7 @@ export const browserLibraries = Effect.gen(function* () {
 
   const packages = yield* Effect.forEach(BROWSER_PACKAGES, (name) =>
     Effect.map(host.run(["apt-cache", "policy", `${name}t64`]), (policy) =>
-      /Candidate: (?!\(none\))/.test(policy.stdout) ? `${name}t64` : name
+      /Candidate: (?!\(none\))/u.test(policy.stdout) ? `${name}t64` : name
     )
   );
 

@@ -12,7 +12,7 @@ import type { AgentChoice, AgentsFlag } from "./agents.ts";
 
 export const Name = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, {
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u, {
       message: "use letters, digits, '.', '_' and '-'",
     })
   )
@@ -20,7 +20,7 @@ export const Name = Schema.String.pipe(
 
 export const PublicUrl = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^https?:\/\/[^/\s?#]+\/?$/, {
+    Schema.isPattern(/^https?:\/\/[^/\s?#]+\/?$/u, {
       message: "expected an origin such as https://box.example.com",
     })
   )
@@ -30,13 +30,13 @@ export const originFlag = (name: string, description: string) =>
   Flag.String(name).pipe(
     Flag.withDescription(description),
     Flag.withSchema(PublicUrl),
-    Flag.map((url) => url.replace(/\/$/, "")),
+    Flag.map((url) => url.replace(/\/$/u, "")),
     Flag.optional
   );
 
 export const BindHost = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[A-Za-z0-9._:-]+$/, {
+    Schema.isPattern(/^[A-Za-z0-9._:-]+$/u, {
       message: "expected an IP address or host name such as 100.64.0.7",
     })
   )
@@ -56,7 +56,7 @@ export const Port = Schema.Int.pipe(
 
 const Channel = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.+-]*$/, {
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.+-]*$/u, {
       message: "expected an npm tag",
     })
   )

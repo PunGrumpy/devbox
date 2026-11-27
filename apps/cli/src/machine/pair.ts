@@ -8,8 +8,10 @@ import { Host } from "./host.ts";
 import { processEnv, settingsFor } from "./settings.ts";
 
 export const Pairing = Schema.Struct({
-  url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/))),
-  token: Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/))),
+  url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/u))),
+  token: Schema.String.pipe(
+    Schema.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/u))
+  ),
 });
 
 export type Pairing = typeof Pairing.Type;
@@ -35,7 +37,7 @@ const tailscaleName = Effect.gen(function* () {
   }
 
   return Schema.decodeUnknownOption(TailscaleSelf)(status.stdout).pipe(
-    Option.map((json) => json.Self.DNSName.replace(/\.$/, "")),
+    Option.map((json) => json.Self.DNSName.replace(/\.$/u, "")),
     Option.filter((name) => name !== "")
   );
 });
@@ -101,7 +103,8 @@ export const pair = Command.make(
         }
       );
 
-      const token = /^Token: (\S+)$/m.exec(minted.stdout)?.[1];
+      const token = /^Token: (?<token>\S+)$/mu.exec(minted.stdout)?.groups
+        ?.token;
 
       if (minted.code !== 0 || token === undefined) {
         return yield* new PairFailed({

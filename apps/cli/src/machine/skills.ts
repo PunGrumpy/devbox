@@ -8,13 +8,13 @@ export const SKILLS_LIST_URL =
 const Source = Schema.String.pipe(
   Schema.check(
     Schema.isPattern(
-      /^(?!.*\.\.)(?:[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*|https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_./-]+)$/
+      /^(?!.*\.\.)(?:[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*|https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_./-]+)$/u
     )
   )
 );
 
 const SkillName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/))
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u))
 );
 
 export const SkillSource = Schema.Struct({
@@ -31,7 +31,7 @@ export interface SkillsList {
 }
 
 const tokens = (line: string) => {
-  const [, repo, ...rest] = line.trim().split(/\s+/);
+  const [, repo, ...rest] = line.trim().split(/\s+/u);
   const [flag, ...skills] = rest;
 
   return rest.length === 0
