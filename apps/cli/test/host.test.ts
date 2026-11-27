@@ -4,8 +4,8 @@ import { Effect, Option } from "effect";
 
 import { Host } from "../src/machine/host.ts";
 
-const answers = (port: number, address: string) =>
-  Effect.runPromise(
+const answers = async (port: number, address: string) =>
+  await Effect.runPromise(
     Effect.gen(function* () {
       const host = yield* Host;
 
@@ -17,17 +17,23 @@ const listen = (hostname: string) => {
   try {
     return Bun.serve({ hostname, port: 0, fetch: () => new Response("ok") });
   } catch {
-    return undefined;
+    return null;
   }
 };
 
 describe("Host.answers", () => {
   test("probes the address it is given, not loopback", async () => {
-    const server = listen("127.0.0.1")!;
+    const server = listen("127.0.0.1");
+
+    if (server === null || server.port === undefined) {
+      throw new Error("expected server listening on 127.0.0.1");
+    }
+
+    const { port } = server;
 
     try {
-      expect(await answers(server.port!, "127.0.0.1")).toBe(true);
-      expect(await answers(server.port!, "127.0.0.2")).toBe(false);
+      expect(await answers(port, "127.0.0.1")).toBe(true);
+      expect(await answers(port, "127.0.0.2")).toBe(false);
     } finally {
       await server.stop(true);
     }
@@ -36,20 +42,26 @@ describe("Host.answers", () => {
   test("puts an IPv6 address in brackets", async () => {
     const server = listen("::1");
 
-    if (server === undefined) {
+    if (server === null) {
       return;
     }
 
+    const { port } = server;
+
+    if (port === undefined) {
+      throw new Error("expected listening port on ::1");
+    }
+
     try {
-      expect(await answers(server.port!, "::1")).toBe(true);
+      expect(await answers(port, "::1")).toBe(true);
     } finally {
       await server.stop(true);
     }
   });
 });
 
-const fetchText = (url: string) =>
-  Effect.runPromise(
+const fetchText = async (url: string) =>
+  await Effect.runPromise(
     Effect.gen(function* () {
       const host = yield* Host;
 
@@ -85,8 +97,8 @@ describe("Host.fetchText", () => {
   });
 });
 
-const host = <A>(use: (h: Host["Service"]) => Effect.Effect<A>) =>
-  Effect.runPromise(
+const host = async <A>(use: (h: Host["Service"]) => Effect.Effect<A>) =>
+  await Effect.runPromise(
     Effect.gen(function* () {
       return yield* use(yield* Host);
     }).pipe(Effect.provide(Host.layer))
@@ -125,8 +137,8 @@ describe("Host.fetchText", () => {
     });
 
     try {
-      const at = (path: string) =>
-        host((h) =>
+      const at = async (path: string) =>
+        await host((h) =>
           h.fetchText(`http://127.0.0.1:${server.port}${path}`, 2000)
         );
 

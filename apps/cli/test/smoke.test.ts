@@ -1,12 +1,22 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
+
+import { Schema } from "effect";
 
 import { makeFixture } from "./support/fixture.ts";
+import { readJson } from "./support/json.ts";
 
-const buildDir = mkdtempSync(join(tmpdir(), "devbox-build-"));
-const binary = join(buildDir, "devbox");
+const DoctorSchema = Schema.Struct({
+  schema: Schema.Struct({
+    ok: Schema.Boolean,
+    missing: Schema.Array(Schema.String),
+  }),
+});
+
+const buildDir = mkdtempSync(path.join(tmpdir(), "devbox-build-"));
+const binary = path.join(buildDir, "devbox");
 
 beforeAll(() => {
   const build = Bun.spawnSync([
@@ -21,7 +31,9 @@ beforeAll(() => {
   expect(build.exitCode).toBe(0);
 }, 60_000);
 
-afterAll(() => rmSync(buildDir, { recursive: true, force: true }));
+afterAll(() => {
+  rmSync(buildDir, { recursive: true, force: true });
+});
 
 test("the compiled binary runs a command, prints JSON on stdout and exits with the usage code", () => {
   const f = makeFixture();
@@ -36,7 +48,7 @@ test("the compiled binary runs a command, prints JSON on stdout and exits with t
   );
 
   expect(doctor.exitCode).toBe(0);
-  expect(JSON.parse(doctor.stdout.toString()).schema).toEqual({
+  expect(readJson(DoctorSchema, doctor.stdout.toString()).schema).toEqual({
     ok: true,
     missing: [],
   });

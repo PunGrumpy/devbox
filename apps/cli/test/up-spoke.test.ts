@@ -1,26 +1,35 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
+
+import { Schema } from "effect";
 
 import { publicKeyOf } from "../src/spoke/signed.ts";
 import { makeMachine, SELF } from "./support/host.ts";
+import { readJson } from "./support/json.ts";
 import { devbox } from "./support/run.ts";
 
 const KEY_A = publicKeyOf(generateKeyPairSync("ed25519").privateKey);
 const KEY_B = publicKeyOf(generateKeyPairSync("ed25519").privateKey);
 
-const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
+const MachineRecordSchema = Schema.Struct({
+  up: Schema.Array(Schema.String),
+});
+
+const up = async (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
+  await devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });
 
 const unitPath = (m: ReturnType<typeof makeMachine>) =>
-  join(m.home, ".config/systemd/user/devbox-spoke.service");
+  path.join(m.home, ".config/systemd/user/devbox-spoke.service");
 
 const recorded = (m: ReturnType<typeof makeMachine>) =>
-  JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8"))
-    .up;
+  readJson(
+    MachineRecordSchema,
+    readFileSync(path.join(m.home, ".config/devbox/machine.json"), "utf-8")
+  ).up;
 
 describe("devbox up --spoke", () => {
   test("keeps the spoke running on loopback, and then has nothing to do", async () => {
@@ -40,7 +49,8 @@ describe("devbox up --spoke", () => {
     expect(first.err).toContain(
       "enabled devbox-spoke.service on 127.0.0.1:3782"
     );
-    expect((await up(m, "--spoke")).err).toContain("No changes.");
+    const again = await up(m, "--spoke");
+    expect(again.err).toContain("No changes.");
   });
 
   test("trusts each --trust key, listens on --host, and records the flags for an update", async () => {
@@ -114,7 +124,8 @@ describe("devbox up --spoke", () => {
       active: false,
       enabled: false,
     });
-    expect((await up(m)).err).toContain("No changes.");
+    const third = await up(m);
+    expect(third.err).toContain("No changes.");
   });
 
   test("--trust without --spoke is a usage error", async () => {

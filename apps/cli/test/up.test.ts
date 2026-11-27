@@ -9,22 +9,30 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import path from "node:path";
 
-import { Option } from "effect";
+import { Option, Schema } from "effect";
 
 import { t3Bind } from "../src/machine/serve.ts";
 import { absolutePath } from "../src/migrate/paths.ts";
 import { makeMachine, SELF } from "./support/host.ts";
+import { readJson } from "./support/json.ts";
 import { devbox } from "./support/run.ts";
 
-const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
+const MachineRecordSchema = Schema.Struct({
+  url: Schema.optional(Schema.String),
+  host: Schema.optional(Schema.String),
+});
+
+const NO_RELEASE = Option.getOrUndefined(Option.none<string>());
+
+const up = async (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
+  await devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });
 
 const MUTATING =
-  /^(<detached>|<stop>|tee|npm install|git config --global (--add|--unset-all)|systemctl (enable|restart|daemon-reload)|loginctl enable-linger)/;
+  /^(?:<detached>|<stop>|tee|npm install|git config --global (?:--add|--unset-all)|systemctl (?:enable|restart|daemon-reload)|loginctl enable-linger)/u;
 
 const mutations = (m: ReturnType<typeof makeMachine>, from: number) =>
   m.calls
@@ -33,6 +41,15 @@ const mutations = (m: ReturnType<typeof makeMachine>, from: number) =>
       argv.filter((a) => a !== "sudo" && a !== "-n" && a !== "--user").join(" ")
     )
     .filter((line) => MUTATING.test(line));
+
+const settingsFile = (m: ReturnType<typeof makeMachine>) =>
+  path.join(m.home, ".t3/userdata/settings.json");
+
+const readMachineRecord = (m: ReturnType<typeof makeMachine>) =>
+  readJson(
+    MachineRecordSchema,
+    readFileSync(path.join(m.home, ".config/devbox/machine.json"), "utf-8")
+  );
 
 describe("flags become one machine config", () => {
   test("defaults come from the hostname and $HOME", async () => {
@@ -46,7 +63,7 @@ describe("flags become one machine config", () => {
     expect(r.err).toContain("channel     nightly");
     expect(
       JSON.parse(
-        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8")
+        readFileSync(path.join(m.home, ".config/devbox/machine.json"), "utf-8")
       )
     ).toEqual({
       name: "box-1.example.internal",
@@ -75,7 +92,7 @@ describe("flags become one machine config", () => {
 
   test("every machine fact is a flag, and the serve process gets them", async () => {
     const m = makeMachine();
-    const data = join(m.base, "persist");
+    const data = path.join(m.base, "persist");
 
     const r = await up(
       m,
@@ -113,11 +130,7 @@ describe("flags become one machine config", () => {
         "--no-setup",
       ],
     ]);
-    expect(
-      JSON.parse(
-        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8")
-      ).url
-    ).toBe("https://edge-7.example.com");
+    expect(readMachineRecord(m).url).toBe("https://edge-7.example.com");
     expect(r.err).toContain("T3 Code answers on https://edge-7.example.com");
   });
 
@@ -137,9 +150,6 @@ describe("flags become one machine config", () => {
 });
 
 describe("linked environments", () => {
-  const settingsFile = (m: ReturnType<typeof makeMachine>) =>
-    join(m.home, ".t3/userdata/settings.json");
-
   test("a new box gets a private settings.json that turns it on, and a rerun changes nothing", async () => {
     const m = makeMachine();
     const first = await up(m, "--supervisor", "detached");
@@ -157,7 +167,7 @@ describe("linked environments", () => {
 
   test("it keeps every other key and the file's mode when it turns the setting on", async () => {
     const m = makeMachine();
-    mkdirSync(dirname(settingsFile(m)), { recursive: true });
+    mkdirSync(path.dirname(settingsFile(m)), { recursive: true });
     writeFileSync(
       settingsFile(m),
       JSON.stringify({
@@ -179,7 +189,7 @@ describe("linked environments", () => {
 
   test("a setting that is already on is left byte for byte as it is", async () => {
     const m = makeMachine();
-    mkdirSync(dirname(settingsFile(m)), { recursive: true });
+    mkdirSync(path.dirname(settingsFile(m)), { recursive: true });
     const text = '{"linkedEnvironmentsEnabled":true,   "a": 1}';
     writeFileSync(settingsFile(m), text);
     const r = await up(m, "--supervisor", "detached");
@@ -196,7 +206,7 @@ describe("linked environments", () => {
     "when settings.json is %s it skips with a note and does not overwrite it",
     async (_, text) => {
       const m = makeMachine();
-      mkdirSync(dirname(settingsFile(m)), { recursive: true });
+      mkdirSync(path.dirname(settingsFile(m)), { recursive: true });
       writeFileSync(settingsFile(m), text);
       const r = await up(m, "--supervisor", "detached");
       expect(r.code).toBe(0);
@@ -207,10 +217,12 @@ describe("linked environments", () => {
 
   test("it follows --base-dir", async () => {
     const m = makeMachine();
-    const baseDir = join(m.base, "t3-home");
+    const baseDir = path.join(m.base, "t3-home");
     await up(m, "--supervisor", "detached", "--base-dir", baseDir);
     expect(
-      JSON.parse(readFileSync(join(baseDir, "userdata/settings.json"), "utf-8"))
+      JSON.parse(
+        readFileSync(path.join(baseDir, "userdata/settings.json"), "utf-8")
+      )
     ).toEqual({
       linkedEnvironmentsEnabled: true,
     });
@@ -224,7 +236,13 @@ describe("linked environments", () => {
     const r = await up(m, "--supervisor", "detached");
     expect(r.err).toContain(`wrote ${settingsFile(m)}`);
     expect(r.err).not.toContain("started T3 Code");
-    expect(m.processes.map((p) => p.pid)).toEqual([first!.pid]);
+    expect(first).toBeDefined();
+
+    if (first === undefined) {
+      throw new Error("expected running T3 process");
+    }
+
+    expect(m.processes.map((p) => p.pid)).toEqual([first.pid]);
   });
 });
 
@@ -235,12 +253,12 @@ describe("--host", () => {
     const m = makeMachine();
     const r = await up(m, "--supervisor", "detached");
     expect(r.code).toBe(0);
-    expect(m.processes[0]!.argv).not.toContain("--host");
+    expect(m.processes[0]?.argv).not.toContain("--host");
     expect(m.probes.at(-1)).toEqual({ address: "127.0.0.1", port: 3773 });
     expect(r.err).toContain("host        0.0.0.0");
     expect(
       JSON.parse(
-        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8")
+        readFileSync(path.join(m.home, ".config/devbox/machine.json"), "utf-8")
       )
     ).not.toHaveProperty("host");
   });
@@ -251,23 +269,20 @@ describe("--host", () => {
     expect(r.code).toBe(0);
 
     const unit = readFileSync(
-      join(m.home, ".config/systemd/user/devbox.service"),
+      path.join(m.home, ".config/systemd/user/devbox.service"),
       "utf-8"
     );
 
     expect(unit).toContain(
       `--port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --host ${TAILNET}\n`
     );
-    expect(
-      JSON.parse(
-        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8")
-      ).host
-    ).toBe(TAILNET);
+    expect(readMachineRecord(m).host).toBe(TAILNET);
     expect(m.probes.at(-1)).toEqual({ address: TAILNET, port: 3773 });
     expect(r.err).toContain(`T3 Code answers on http://${TAILNET}:3773`);
 
     const before = m.calls.length;
-    expect((await up(m, "--host", TAILNET)).err).toContain("No changes.");
+    const second = await up(m, "--host", TAILNET);
+    expect(second.err).toContain("No changes.");
     expect(mutations(m, before)).toEqual([]);
   });
 
@@ -281,14 +296,14 @@ describe("--host", () => {
     ]);
     const back = await up(m, "--supervisor", "detached");
     expect(back.err).toContain("because its flags changed");
-    expect(m.processes[0]!.argv).not.toContain("--host");
+    expect(m.processes[0]?.argv).not.toContain("--host");
   });
 
   test("an IPv6 address is a valid host", async () => {
     const m = makeMachine();
     const r = await up(m, "--supervisor", "detached", "--host", "fd7a:115c::7");
     expect(r.code).toBe(0);
-    expect(m.probes.at(-1)!.address).toBe("fd7a:115c::7");
+    expect(m.probes.at(-1)?.address).toBe("fd7a:115c::7");
   });
 
   test.each([
@@ -297,7 +312,7 @@ describe("--host", () => {
   ])("a wildcard %p is probed on loopback", async (args, address) => {
     const m = makeMachine();
     await up(m, "--supervisor", "detached", ...args);
-    expect(m.probes.at(-1)!.address).toBe(address);
+    expect(m.probes.at(-1)?.address).toBe(address);
   });
 
   test.each([[["--host", "two words"]], [["--host", "http://x"]]])(
@@ -325,7 +340,7 @@ describe("--host", () => {
     );
 
     expect(r.code).toBe(0);
-    expect(m.processes[0]!.argv.slice(-4)).toEqual([
+    expect(m.processes[0]?.argv.slice(-4)).toEqual([
       "--host",
       TAILNET,
       "--public-url",
@@ -381,14 +396,19 @@ describe("devbox up converges", () => {
   test("it writes the name, the profile and git as one list of settings when sudo works", async () => {
     const m = makeMachine({ sudo: true });
     writeFileSync(
-      join(m.etc, "machine-info"),
+      path.join(m.etc, "machine-info"),
       "PRETTY_HOSTNAME=old\nCHASSIS=vm\n"
     );
     await up(m, "--supervisor", "detached", "--name", "edge-7");
-    expect(readFileSync(join(m.etc, "machine-info"), "utf-8")).toBe(
+    expect(readFileSync(path.join(m.etc, "machine-info"), "utf-8")).toBe(
       "PRETTY_HOSTNAME=edge-7\nCHASSIS=vm\n"
     );
-    const profile = readFileSync(join(m.etc, "profile.d/devbox.sh"), "utf-8");
+
+    const profile = readFileSync(
+      path.join(m.etc, "profile.d/devbox.sh"),
+      "utf-8"
+    );
+
     expect(profile).toContain(`export CLAUDE_CONFIG_DIR='${m.home}/.claude'`);
     expect(profile).toContain(
       `export PATH='${m.home}/.local/bin':'${m.home}/.local/share/mise/shims':"$PATH"`
@@ -412,7 +432,7 @@ describe("devbox up converges", () => {
     expect(r.err).toContain(
       `skipped ${m.etc}/profile.d/devbox.sh: no passwordless sudo`
     );
-    expect(existsSync(join(m.etc, "machine-info"))).toBe(false);
+    expect(existsSync(path.join(m.etc, "machine-info"))).toBe(false);
     expect(m.processes).toHaveLength(1);
   });
 
@@ -426,7 +446,8 @@ describe("devbox up converges", () => {
     expect(updated.err).toContain(
       "started T3 Code, because T3 Code was updated"
     );
-    expect(m.calls).toContainEqual(["<stop>", String(first!.pid)]);
+    expect(first).toBeDefined();
+    expect(m.calls).toContainEqual(["<stop>", String(first?.pid)]);
 
     const moved = await up(m, "--supervisor", "detached", "--port", "3800");
     expect(moved.err).toContain("because its flags changed");
@@ -436,7 +457,7 @@ describe("devbox up converges", () => {
   test("npm down keeps the installed T3 and is not a change", async () => {
     const m = makeMachine();
     await up(m, "--supervisor", "detached");
-    m.latest = undefined;
+    m.latest = NO_RELEASE;
     const r = await up(m, "--supervisor", "detached");
     expect(r.code).toBe(0);
     expect(r.err).toContain(
@@ -446,7 +467,7 @@ describe("devbox up converges", () => {
   });
 
   test("with no npm and no T3 it fails before touching anything", async () => {
-    const m = makeMachine({ latest: undefined });
+    const m = makeMachine({ latest: NO_RELEASE });
     const r = await up(m, "--supervisor", "detached");
     expect(r.code).toBe(1);
     expect(r.err).toContain("cannot read t3@nightly from npm");
@@ -460,7 +481,7 @@ describe("devbox up converges", () => {
     expect(r.err).toContain("supervisor: systemd user unit devbox.service");
 
     const unit = readFileSync(
-      join(m.home, ".config/systemd/user/devbox.service"),
+      path.join(m.home, ".config/systemd/user/devbox.service"),
       "utf-8"
     );
 
@@ -479,9 +500,8 @@ describe("devbox up converges", () => {
     });
 
     const before = m.calls.length;
-    expect(
-      (await up(m, "--public-url", "https://edge-7.example.com")).err
-    ).toContain("No changes.");
+    const second = await up(m, "--public-url", "https://edge-7.example.com");
+    expect(second.err).toContain("No changes.");
     expect(mutations(m, before)).toEqual([]);
   });
 
@@ -491,7 +511,7 @@ describe("devbox up converges", () => {
     expect(r.code).toBe(0);
 
     const unit = readFileSync(
-      join(m.etc, "systemd/system/devbox.service"),
+      path.join(m.etc, "systemd/system/devbox.service"),
       "utf-8"
     );
 
@@ -508,49 +528,65 @@ describe("devbox up converges", () => {
 
   test("on a machine whose $HOME does not survive, agent folders and a saved gh login live in --data", async () => {
     const m = makeMachine();
-    const data = join(m.base, "persist");
-    mkdirSync(join(data, ".config/gh"), { recursive: true });
-    writeFileSync(join(data, ".config/gh/hosts.yml"), "github.com: {}\n");
-    mkdirSync(join(m.home, ".config/gh"), { recursive: true });
+    const data = path.join(m.base, "persist");
+    mkdirSync(path.join(data, ".config/gh"), { recursive: true });
+    writeFileSync(path.join(data, ".config/gh/hosts.yml"), "github.com: {}\n");
+    mkdirSync(path.join(m.home, ".config/gh"), { recursive: true });
     await up(m, "--supervisor", "detached", "--data", data);
-    expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
-    expect(readlinkSync(join(m.home, ".config/gh"))).toBe(
-      join(data, ".config/gh")
+    expect(readlinkSync(path.join(m.home, ".agents"))).toBe(
+      path.join(data, ".agents")
     );
-    expect(lstatSync(join(data, ".agents")).isDirectory()).toBe(true);
+    expect(readlinkSync(path.join(m.home, ".config/gh"))).toBe(
+      path.join(data, ".config/gh")
+    );
+    expect(lstatSync(path.join(data, ".agents")).isDirectory()).toBe(true);
   });
 
   test("moving agent folders to --data keeps the files already in $HOME", async () => {
     const m = makeMachine();
-    const data = join(m.base, "persist");
-    mkdirSync(join(m.home, ".agents/skills/tdd"), { recursive: true });
-    writeFileSync(join(m.home, ".agents/skills/tdd/SKILL.md"), "keep me\n");
+    const data = path.join(m.base, "persist");
+    mkdirSync(path.join(m.home, ".agents/skills/tdd"), { recursive: true });
+    writeFileSync(
+      path.join(m.home, ".agents/skills/tdd/SKILL.md"),
+      "keep me\n"
+    );
     const r = await up(m, "--supervisor", "detached", "--data", data);
     expect(r.code).toBe(0);
-    expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
+    expect(readlinkSync(path.join(m.home, ".agents"))).toBe(
+      path.join(data, ".agents")
+    );
     expect(
-      readFileSync(join(data, ".agents/skills/tdd/SKILL.md"), "utf-8")
+      readFileSync(path.join(data, ".agents/skills/tdd/SKILL.md"), "utf-8")
     ).toBe("keep me\n");
   });
 
   test("when $HOME and --data both hold agent files it keeps --data and moves the other aside", async () => {
     const m = makeMachine();
-    const data = join(m.base, "persist");
-    mkdirSync(join(m.home, ".agents"), { recursive: true });
-    writeFileSync(join(m.home, ".agents/home.md"), "home\n");
-    mkdirSync(join(data, ".agents"), { recursive: true });
-    writeFileSync(join(data, ".agents/data.md"), "data\n");
+    const data = path.join(m.base, "persist");
+    mkdirSync(path.join(m.home, ".agents"), { recursive: true });
+    writeFileSync(path.join(m.home, ".agents/home.md"), "home\n");
+    mkdirSync(path.join(data, ".agents"), { recursive: true });
+    writeFileSync(path.join(data, ".agents/data.md"), "data\n");
     const r = await up(m, "--supervisor", "detached", "--data", data);
     expect(r.code).toBe(0);
-    expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
-    expect(readFileSync(join(data, ".agents/data.md"), "utf-8")).toBe("data\n");
+    expect(readlinkSync(path.join(m.home, ".agents"))).toBe(
+      path.join(data, ".agents")
+    );
+    expect(readFileSync(path.join(data, ".agents/data.md"), "utf-8")).toBe(
+      "data\n"
+    );
 
     const aside = readdirSync(m.home).find((name) =>
       name.startsWith(".agents.devbox-")
     );
 
     expect(aside).toBeDefined();
-    expect(readFileSync(join(m.home, aside!, "home.md"), "utf-8")).toBe(
+
+    if (aside === undefined) {
+      throw new Error("expected moved-aside .agents directory");
+    }
+
+    expect(readFileSync(path.join(m.home, aside, "home.md"), "utf-8")).toBe(
       "home\n"
     );
   });
@@ -558,32 +594,32 @@ describe("devbox up converges", () => {
   test("on a machine without npm it installs Node with mise and uses that npm for T3", async () => {
     const m = makeMachine({ binaries: new Set() });
     const data = m.home;
-    const shim = join(data, ".local/share/mise/shims/npm");
+    const shim = path.join(data, ".local/share/mise/shims/npm");
     m.respond = (argv) => {
       if (argv[0] === "curl" && argv.includes("https://mise.run")) {
         return { code: 0, stdout: "install mise", stderr: "" };
       }
 
       if (argv[0] === "sh") {
-        mkdirSync(join(data, ".local/bin"), { recursive: true });
-        writeFileSync(join(data, ".local/bin/mise"), "");
+        mkdirSync(path.join(data, ".local/bin"), { recursive: true });
+        writeFileSync(path.join(data, ".local/bin/mise"), "");
 
         return { code: 0, stdout: "", stderr: "" };
       }
 
-      if (argv[0]?.endsWith("/mise") && argv.includes("node@lts")) {
-        mkdirSync(dirname(shim), { recursive: true });
+      if (argv[0]?.endsWith("/mise") === true && argv.includes("node@lts")) {
+        mkdirSync(path.dirname(shim), { recursive: true });
         writeFileSync(shim, "");
 
         return { code: 0, stdout: "", stderr: "" };
       }
-
-      return undefined;
     };
 
     const r = await up(m, "--supervisor", "detached");
     expect(
-      m.calls.some((c) => c[0]?.endsWith("/mise") && c.includes("node@lts"))
+      m.calls.some(
+        (c) => c[0]?.endsWith("/mise") === true && c.includes("node@lts")
+      )
     ).toBe(true);
     expect(m.calls.some((c) => c[0] === shim && c[1] === "install")).toBe(true);
     expect(r.code).toBe(0);
@@ -609,24 +645,26 @@ describe("devbox up converges", () => {
 
   test("an empty agent folder left in --data does not block moving the one in $HOME", async () => {
     const m = makeMachine();
-    const data = join(m.base, "persist");
-    mkdirSync(join(data, ".agents"), { recursive: true });
-    mkdirSync(join(m.home, ".agents"), { recursive: true });
-    writeFileSync(join(m.home, ".agents/home.md"), "home\n");
+    const data = path.join(m.base, "persist");
+    mkdirSync(path.join(data, ".agents"), { recursive: true });
+    mkdirSync(path.join(m.home, ".agents"), { recursive: true });
+    writeFileSync(path.join(m.home, ".agents/home.md"), "home\n");
     const r = await up(m, "--supervisor", "detached", "--data", data);
     expect(r.code).toBe(0);
-    expect(readFileSync(join(data, ".agents/home.md"), "utf-8")).toBe("home\n");
+    expect(readFileSync(path.join(data, ".agents/home.md"), "utf-8")).toBe(
+      "home\n"
+    );
   });
 
   test("npm runs with the mise data dir from --data", async () => {
     const m = makeMachine();
-    const data = join(m.base, "persist");
+    const data = path.join(m.base, "persist");
     const seen: (string | undefined)[] = [];
     const { host } = m;
     m.host = {
       ...host,
       run: (argv, options) => {
-        if (argv[0]?.endsWith("npm")) {
+        if (argv[0]?.endsWith("npm") === true) {
           seen.push(options?.env?.MISE_DATA_DIR);
         }
 
@@ -635,8 +673,8 @@ describe("devbox up converges", () => {
     };
     await up(m, "--supervisor", "detached", "--data", data);
     expect(seen.length).toBeGreaterThan(0);
-    expect(seen.every((dir) => dir === join(data, ".local/share/mise"))).toBe(
-      true
-    );
+    expect(
+      seen.every((dir) => dir === path.join(data, ".local/share/mise"))
+    ).toBe(true);
   });
 });

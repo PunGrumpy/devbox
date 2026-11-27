@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import {
   AGENTS,
@@ -21,12 +21,17 @@ import {
 } from "../src/machine/skills.ts";
 import { absolutePath } from "../src/migrate/paths.ts";
 import { makeMachine } from "./support/host.ts";
+import { readJson } from "./support/json.ts";
 import { devbox, runWith } from "./support/run.ts";
 
 type Machine = ReturnType<typeof makeMachine>;
 
-const up = (m: Machine, ...args: string[]) =>
-  devbox(
+const AgentsFileSchema = Schema.Struct({
+  agents: Schema.Array(Schema.String),
+});
+
+const up = async (m: Machine, ...args: string[]) =>
+  await devbox(
     { HOME: m.home, PATH: "/usr/bin:/bin" },
     ["up", "--supervisor", "detached", ...args],
     {
@@ -34,12 +39,12 @@ const up = (m: Machine, ...args: string[]) =>
     }
   );
 
-const upPicking = (
+const upPicking = async (
   m: Machine,
-  pick: readonly ReadonlyArray<string>[],
+  pick: readonly (readonly string[])[],
   ...args: string[]
 ) =>
-  devbox(
+  await devbox(
     { HOME: m.home, PATH: "/usr/bin:/bin" },
     ["up", "--supervisor", "detached", ...args],
     {
@@ -49,7 +54,7 @@ const upPicking = (
   );
 
 const MUTATING =
-  /^(<detached>|<stop>|tee|npm install|bash|git config --global (--add|--unset-all))/;
+  /^(?:<detached>|<stop>|tee|npm install|bash|git config --global (?:--add|--unset-all))/u;
 
 const mutations = (m: Machine, from: number) =>
   m.calls
@@ -57,13 +62,37 @@ const mutations = (m: Machine, from: number) =>
     .map((argv) => argv.filter((a) => a !== "sudo" && a !== "-n").join(" "))
     .filter((line) => MUTATING.test(line));
 
-const savedFile = (m: Machine) => join(m.home, ".config/devbox/agents.json");
+const savedFile = (m: Machine) =>
+  path.join(m.home, ".config/devbox/agents.json");
 
-const saved = (m: Machine): unknown =>
-  JSON.parse(readFileSync(savedFile(m), "utf-8"));
+const saved = (m: Machine) =>
+  readJson(AgentsFileSchema, readFileSync(savedFile(m), "utf-8"));
 
-const binOf = (m: Machine, id: AgentId) =>
-  join(m.home, ".local/bin", AGENTS.find((agent) => agent.id === id)!.bin);
+const binOf = (m: Machine, id: AgentId) => {
+  const agent = AGENTS.find((entry) => entry.id === id);
+
+  if (agent === undefined) {
+    throw new Error(`unknown agent id: ${id}`);
+  }
+
+  return path.join(m.home, ".local/bin", agent.bin);
+};
+
+const serving = (m: Machine) =>
+  serveConfig(
+    {
+      data: Option.some(m.home),
+      port: 3773,
+      baseDir: Option.none(),
+      workspace: Option.none(),
+      host: Option.none(),
+      publicUrl: Option.none(),
+      setup: true,
+    },
+    absolutePath(m.home)
+  );
+
+const miseUse = (m: Machine) => m.calls.find((c) => c.includes("--global"));
 
 const starts = (m: Machine) =>
   m.calls.filter((c) => c[0] === "<detached>").length;
@@ -110,20 +139,20 @@ describe("with no terminal and no saved choice", () => {
 
   test("the NOTE names --data when it is not $HOME", async () => {
     const m = makeMachine();
-    const data = join(m.base, "persist");
+    const data = path.join(m.base, "persist");
     const r = await up(m, "--data", data);
     expect(r.err).toContain(`Run \`devbox up --data ${data} --agents pick\``);
   });
 
   test("a script installer runs with HOME=<data>, detached from any terminal when setsid exists", async () => {
     const m = makeMachine({ binaries: new Set(["npm", "setsid"]) });
-    const data = join(m.base, "persist");
+    const data = path.join(m.base, "persist");
     await up(m, "--data", data, "--agents", "claude");
     const bash = m.runs.find((run) => run.argv.includes("bash"));
     expect(bash?.argv).toEqual(["setsid", "bash"]);
     expect(bash?.env?.HOME).toBe(data);
     expect(bash?.timeoutMs).toBe(300_000);
-    expect(existsSync(join(data, ".local/bin/claude"))).toBe(true);
+    expect(existsSync(path.join(data, ".local/bin/claude"))).toBe(true);
   });
 });
 
@@ -218,7 +247,7 @@ describe("--agents", () => {
     );
 
     expect(skills.err).toContain("skills: no chosen agent takes skills");
-    expect(m.calls.length).toBe(before);
+    expect(m.calls).toHaveLength(before);
   });
 
   test("an unknown agent exits 2 naming it and the known ones, before any command", async () => {
@@ -269,7 +298,7 @@ describe("the picker", () => {
     const r = await upPicking(m, [["Claude Code", "Devin"]]);
     expect(r.code).toBe(0);
     expect(r.asked).toHaveLength(1);
-    expect(r.asked[0]!.choices).toEqual([
+    expect(r.asked[0]?.choices).toEqual([
       { title: "Claude Code", selected: true },
       { title: "Codex", selected: true },
       { title: "Devin", selected: false },
@@ -293,7 +322,7 @@ describe("the picker", () => {
     await up(m, "--agents", "codex,opencode");
     const r = await upPicking(m, [["Codex"]], "--agents", "pick");
     expect(
-      r.asked[0]!.choices.filter((c) => c.selected).map((c) => c.title)
+      r.asked[0]?.choices.filter((c) => c.selected).map((c) => c.title)
     ).toEqual(["Codex", "OpenCode"]);
     expect(saved(m)).toEqual({ agents: ["codex"] });
     expect(r.err).toContain("agents      codex (picked)");
@@ -304,7 +333,7 @@ describe("the picker", () => {
 describe("the saved file", () => {
   test("ids this devbox does not know are dropped with a warning", async () => {
     const m = makeMachine();
-    mkdirSync(join(m.home, ".config/devbox"), { recursive: true });
+    mkdirSync(path.join(m.home, ".config/devbox"), { recursive: true });
     writeFileSync(savedFile(m), '{"agents":["claude","aider"]}\n');
     const r = await up(m);
     expect(r.err).toContain("ignoring aider");
@@ -314,7 +343,7 @@ describe("the saved file", () => {
 
   test("a file that does not decode counts as absent, with a warning", async () => {
     const m = makeMachine();
-    mkdirSync(join(m.home, ".config/devbox"), { recursive: true });
+    mkdirSync(path.join(m.home, ".config/devbox"), { recursive: true });
     writeFileSync(savedFile(m), "not json");
     const r = await up(m);
     expect(r.err).toContain('is not {"agents": [...]}, ignoring it');
@@ -323,9 +352,11 @@ describe("the saved file", () => {
 
   test("the file lives in --data, next to nothing in $HOME", async () => {
     const m = makeMachine();
-    const data = join(m.base, "persist");
+    const data = path.join(m.base, "persist");
     await up(m, "--data", data, "--agents", "codex");
-    expect(existsSync(join(data, ".config/devbox/agents.json"))).toBe(true);
+    expect(existsSync(path.join(data, ".config/devbox/agents.json"))).toBe(
+      true
+    );
     expect(existsSync(savedFile(m))).toBe(false);
     const rerun = await up(m, "--data", data);
     expect(rerun.err).toContain("agents      codex (saved)");
@@ -371,8 +402,15 @@ describe("skills follow the choice", () => {
       "devin",
       "opencode",
     ]);
+    const firstSource = list.sources.at(0);
+    expect(firstSource).toBeDefined();
+
+    if (firstSource === undefined) {
+      throw new Error("expected first skill source");
+    }
+
     expect(
-      skillsAddArgs(list.sources[0]!, ["claude-code", "devin"]).slice(-3)
+      skillsAddArgs(firstSource, ["claude-code", "devin"]).slice(-3)
     ).toEqual(["--agent", "claude-code", "devin"]);
   });
 
@@ -393,9 +431,9 @@ describe("skills follow the choice", () => {
     const npx = () => m.calls.filter((c) => c[0] === "npx");
 
     await runWith(m.host, installSkills(m.home, {}, BOTH));
-    expect(readFileSync(join(m.home, ".devbox-skills"), "utf-8").trim()).toBe(
-      `${list.hash} claude-code,codex`
-    );
+    expect(
+      readFileSync(path.join(m.home, ".devbox-skills"), "utf-8").trim()
+    ).toBe(`${list.hash} claude-code,codex`);
     expect(npx()).toHaveLength(2);
 
     await runWith(m.host, installSkills(m.home, {}, BOTH));
@@ -409,53 +447,42 @@ describe("skills follow the choice", () => {
       "codex",
       "devin",
     ]);
-    expect(readFileSync(join(m.home, ".devbox-skills"), "utf-8").trim()).toBe(
-      `${list.hash} claude-code,codex,devin`
-    );
+    expect(
+      readFileSync(path.join(m.home, ".devbox-skills"), "utf-8").trim()
+    ).toBe(`${list.hash} claude-code,codex,devin`);
   });
 });
 
 describe("devbox serve keeps the chosen agents current", () => {
-  const serving = (m: Machine) =>
-    serveConfig(
-      {
-        data: Option.some(m.home),
-        port: 3773,
-        baseDir: Option.none(),
-        workspace: Option.none(),
-        host: Option.none(),
-        publicUrl: Option.none(),
-        setup: true,
-      },
-      absolutePath(m.home)
-    );
-
   test("npm agents reinstall @latest, Claude and Devin are left alone, and skills get the targets", async () => {
     const m = makeMachine();
-    mkdirSync(join(m.home, ".config/devbox"), { recursive: true });
+    mkdirSync(path.join(m.home, ".config/devbox"), { recursive: true });
     writeFileSync(
       savedFile(m),
       '{"agents":["claude","codex","devin","opencode"]}\n'
     );
-    mkdirSync(join(m.home, ".local/bin"), { recursive: true });
+    mkdirSync(path.join(m.home, ".local/bin"), { recursive: true });
 
     for (const bin of ["claude", "codex", "devin"]) {
-      writeFileSync(join(m.home, ".local/bin", bin), "");
+      writeFileSync(path.join(m.home, ".local/bin", bin), "");
     }
 
-    m.respond = (argv) =>
-      argv[0] === "curl" && argv.some((a) => a.includes("dotfiles"))
-        ? { code: 0, stdout: TEMPLATE, stderr: "" }
-        : argv[0] === "npx"
-          ? { code: 0, stdout: "", stderr: "" }
-          : undefined;
+    m.respond = (argv) => {
+      if (argv[0] === "curl" && argv.some((a) => a.includes("dotfiles"))) {
+        return { code: 0, stdout: TEMPLATE, stderr: "" };
+      }
+
+      if (argv[0] === "npx") {
+        return { code: 0, stdout: "", stderr: "" };
+      }
+    };
 
     const { err } = await runWith(
       m.host,
       Effect.flatMap(serving(m), (config) => postStart(config, m.home))
     );
 
-    const prefix = join(m.home, ".local");
+    const prefix = path.join(m.home, ".local");
     expect(m.calls).toContainEqual([
       "npm",
       "install",
@@ -490,17 +517,16 @@ describe("devbox serve keeps the chosen agents current", () => {
     const withGh = makeMachine({ binaries: new Set(["npm", "gh"]) });
     const without = makeMachine();
 
-    for (const m of [withGh, without]) {
-      mkdirSync(join(m.home, ".local/bin"), { recursive: true });
-      writeFileSync(join(m.home, ".local/bin/mise"), "");
-      await runWith(
-        m.host,
-        Effect.flatMap(serving(m), (config) => postStart(config, m.home))
-      );
-    }
-
-    const miseUse = (m: Machine) =>
-      m.calls.find((c) => c.includes("--global"))!;
+    await Promise.all(
+      [withGh, without].map(async (m) => {
+        mkdirSync(path.join(m.home, ".local/bin"), { recursive: true });
+        writeFileSync(path.join(m.home, ".local/bin/mise"), "");
+        await runWith(
+          m.host,
+          Effect.flatMap(serving(m), (config) => postStart(config, m.home))
+        );
+      })
+    );
 
     expect(miseUse(without)).toContain("gh@latest");
     expect(miseUse(withGh)).not.toContain("gh@latest");
@@ -509,7 +535,7 @@ describe("devbox serve keeps the chosen agents current", () => {
 
 describe("the README", () => {
   const readme = readFileSync(
-    join(import.meta.dir, "..", "..", "..", "README.md"),
+    path.join(import.meta.dir, "..", "..", "..", "README.md"),
     "utf-8"
   );
 

@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { Effect, Exit, Scope } from "effect";
 
@@ -53,7 +53,7 @@ describe("rewriteHeaders", () => {
   });
 });
 
-describe("the in-process proxy", async () => {
+const startProxyFixture = async () => {
   const upstream = Bun.serve<string | null>({
     port: 0,
     hostname: "127.0.0.1",
@@ -67,42 +67,73 @@ describe("the in-process proxy", async () => {
           }),
     websocket: {
       message: (ws, msg) => {
-        ws.send(`${ws.data}:${msg}`);
+        ws.send(`${ws.data}:${String(msg)}`);
       },
     },
   });
 
+  const upstreamPort = upstream.port;
+
+  if (upstreamPort === undefined) {
+    throw new Error("expected upstream server port");
+  }
+
   const scope = await Effect.runPromise(Scope.make());
   const port = await Effect.runPromise(freePort);
+
   await Effect.runPromise(
     proxy({
-      host: "127.0.0.1",
       port,
-      upstream: upstream.port!,
+      host: "127.0.0.1",
+      upstream: upstreamPort,
       publicUrl: "http://example.test",
     }).pipe(Scope.provide(scope))
   );
-  afterAll(async () => {
-    await Effect.runPromise(Scope.close(scope, Exit.void));
-    upstream.stop(true);
+
+  return { upstream, scope, port };
+};
+
+describe("the in-process proxy", () => {
+  let fixture: Awaited<ReturnType<typeof startProxyFixture>> | undefined;
+
+  beforeAll(async () => {
+    fixture = await startProxyFixture();
   });
 
+  afterAll(async () => {
+    if (fixture !== undefined) {
+      await Effect.runPromise(Scope.close(fixture.scope, Exit.void));
+      await fixture.upstream.stop(true);
+    }
+  });
+
+  const proxyPort = () => {
+    if (fixture === undefined) {
+      throw new Error("proxy fixture not initialized");
+    }
+
+    return fixture.port;
+  };
+
   test("forwards HTTP and rewrites Host for edge traffic", async () => {
-    const local = await (await fetch(`http://127.0.0.1:${port}/a?b=1`)).json();
+    const port = proxyPort();
+    const localRes = await fetch(`http://127.0.0.1:${port}/a?b=1`);
+    const local = await localRes.json();
+
     expect(local).toEqual({
       host: `127.0.0.1:${port}`,
       proto: null,
       path: "/a",
     });
 
-    const edge = await (
-      await fetch(
-        `http://127.0.0.1:${port}/.well-known/oauth-protected-resource`,
-        {
-          headers: { "x-forwarded-proto": "https" },
-        }
-      )
-    ).json();
+    const edgeRes = await fetch(
+      `http://127.0.0.1:${port}/.well-known/oauth-protected-resource`,
+      {
+        headers: { "x-forwarded-proto": "https" },
+      }
+    );
+
+    const edge = await edgeRes.json();
 
     expect(edge).toEqual({
       host: "example.test",
@@ -112,15 +143,23 @@ describe("the in-process proxy", async () => {
   });
 
   test("passes WebSocket upgrades through with the rewritten Host", async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
+    const ws = new WebSocket(`ws://127.0.0.1:${proxyPort()}/ws`, {
       headers: { "x-forwarded-proto": "https" },
     });
 
-    const reply = await new Promise<string>((resolve, reject) => {
-      ws.addEventListener("open", () => ws.send("ping"));
-      ws.addEventListener("message", (event) => resolve(String(event.data)));
-      ws.addEventListener("error", () => reject(new Error("websocket failed")));
+    const { promise, resolve, reject } = Promise.withResolvers<string>();
+
+    ws.addEventListener("open", () => {
+      ws.send("ping");
     });
+    ws.addEventListener("message", (event) => {
+      resolve(String(event.data));
+    });
+    ws.addEventListener("error", () => {
+      reject(new Error("websocket failed"));
+    });
+
+    const reply = await promise;
 
     ws.close();
     expect(reply).toBe("example.test:ping");
@@ -130,6 +169,7 @@ describe("the in-process proxy", async () => {
     const deadPort = await Effect.runPromise(freePort);
     const scope2 = await Effect.runPromise(Scope.make());
     const port2 = await Effect.runPromise(freePort);
+
     await Effect.runPromise(
       proxy({
         host: "127.0.0.1",
@@ -138,7 +178,9 @@ describe("the in-process proxy", async () => {
         publicUrl: "http://example.test",
       }).pipe(Scope.provide(scope2))
     );
-    expect((await fetch(`http://127.0.0.1:${port2}/`)).status).toBe(502);
+
+    const res = await fetch(`http://127.0.0.1:${port2}/`);
+    expect(res.status).toBe(502);
     await Effect.runPromise(Scope.close(scope2, Exit.void));
   });
 });

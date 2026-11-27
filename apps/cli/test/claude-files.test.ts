@@ -12,10 +12,10 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import path from "node:path";
 
 import { BunServices } from "@effect/platform-bun";
-import { ConfigProvider, Effect, Layer, Option } from "effect";
+import { ConfigProvider, Effect, Layer, Option, Schema } from "effect";
 
 import { ClaudeFiles } from "../src/migrate/claude-files.ts";
 import { ClaudeHomes } from "../src/migrate/claude-homes.ts";
@@ -31,17 +31,49 @@ import {
   snapshot,
 } from "./support/fixture.ts";
 import type { World } from "./support/fixture.ts";
+import { readJson } from "./support/json.ts";
 import { migrate } from "./support/run.ts";
 
-const runIn = (world: World, ...args: string[]) => migrate(world.env, ...args);
+const ProviderInstanceSchema = Schema.Struct({
+  driver: Schema.String,
+  enabled: Schema.optional(Schema.Boolean),
+  config: Schema.optional(
+    Schema.Struct({
+      homePath: Schema.optional(Schema.String),
+    })
+  ),
+});
+
+const SettingsSchema = Schema.Struct({
+  providerInstances: Schema.Record(Schema.String, ProviderInstanceSchema),
+});
+
+const StrandedEntrySchema = Schema.Struct({
+  project: Schema.String,
+  projectId: Schema.String,
+  home: Schema.String,
+  cwd: Schema.String,
+  unresolvedSlug: Schema.String,
+  liveSlug: Schema.String,
+  files: Schema.Number,
+  missing: Schema.Number,
+  liveFiles: Schema.Number,
+});
+
+const DoctorStrandedSchema = Schema.Struct({
+  strandedMemory: Schema.NullOr(Schema.Array(StrandedEntrySchema)),
+});
+
+const runIn = async (world: World, ...args: string[]) =>
+  await migrate(world.env, ...args);
 
 const OLD = new Date("2020-01-02T03:04:05Z");
 
 const dotfiles = () => {
   const w = makeWorld();
-  const root = join(w.home, ".dotfiles");
+  const root = path.join(w.home, ".dotfiles");
   mkdirSync(root);
-  const to = join(w.home, "Developments", "dotfiles");
+  const to = path.join(w.home, "Developments", "dotfiles");
   addProject(w, "p1", "dotfiles", root, [
     { cwd: root },
     { cwd: `${root}/sub` },
@@ -51,10 +83,10 @@ const dotfiles = () => {
   ]);
 
   const from = (home: string, extra = "") =>
-    join(home, "projects", slug(root) + extra);
+    path.join(home, "projects", slug(root) + extra);
 
   const dest = (home: string, extra = "") =>
-    join(home, "projects", slug(join(w.real, "dotfiles")) + extra);
+    path.join(home, "projects", slug(path.join(w.real, "dotfiles")) + extra);
 
   const seed = (home: string, tag: string) => {
     putFiles(from(home), {
@@ -63,8 +95,11 @@ const dotfiles = () => {
       "memory/x.md": `${tag} x`,
       "s1/sub/deep.jsonl": `${tag} deep`,
     });
-    symlinkSync(join(from(home), "a.jsonl"), join(from(home), "link.jsonl"));
-    utimesSync(join(from(home), "a.jsonl"), OLD, OLD);
+    symlinkSync(
+      path.join(from(home), "a.jsonl"),
+      path.join(from(home), "link.jsonl")
+    );
+    utimesSync(path.join(from(home), "a.jsonl"), OLD, OLD);
     putFiles(from(home, "-sub"), { "b.jsonl": `${tag} sub` });
     putFiles(from(home, "-codex-only"), {
       "never.jsonl": "codex sessions are not copied",
@@ -77,14 +112,14 @@ const dotfiles = () => {
   seed(w.homes.a, "A");
   seed(w.homes.b, "B");
 
-  const rename = (...extra: string[]) =>
-    runIn(w, "rename-root", "--project", "p1", "--to", to, ...extra);
+  const rename = async (...extra: string[]) =>
+    await runIn(w, "rename-root", "--project", "p1", "--to", to, ...extra);
 
   const currentRoot = () =>
     query<{ r: string }>(
       w.db,
       "SELECT workspace_root AS r FROM projection_projects"
-    )[0]!.r;
+    )[0]?.r;
 
   return { w, root, to, from, dest, rename, workspaceRoot: currentRoot };
 };
@@ -99,28 +134,30 @@ describe("rename-root carries Claude files", () => {
     expect(r.err).toContain("> Success!");
     expect(d.workspaceRoot()).toBe(d.to);
 
-    expect(existsSync(join(d.w.homes.a, "projects", slug(d.to)))).toBe(false);
+    expect(existsSync(path.join(d.w.homes.a, "projects", slug(d.to)))).toBe(
+      false
+    );
 
     for (const [home, tag] of [
       [d.w.homes.a, "A"],
       [d.w.homes.b, "B"],
     ] as const) {
-      expect(readFileSync(join(d.dest(home), "a.jsonl"), "utf-8")).toBe(
+      expect(readFileSync(path.join(d.dest(home), "a.jsonl"), "utf-8")).toBe(
         `${tag} transcript`
       );
-      expect(readFileSync(join(d.dest(home), "memory", "x.md"), "utf-8")).toBe(
-        `${tag} x`
-      );
       expect(
-        readFileSync(join(d.dest(home), "s1/sub/deep.jsonl"), "utf-8")
+        readFileSync(path.join(d.dest(home), "memory", "x.md"), "utf-8")
+      ).toBe(`${tag} x`);
+      expect(
+        readFileSync(path.join(d.dest(home), "s1/sub/deep.jsonl"), "utf-8")
       ).toBe(`${tag} deep`);
-      expect(readFileSync(join(d.dest(home, "-sub"), "b.jsonl"), "utf-8")).toBe(
-        `${tag} sub`
-      );
-      expect(existsSync(join(d.dest(home), "link.jsonl"))).toBe(false);
+      expect(
+        readFileSync(path.join(d.dest(home, "-sub"), "b.jsonl"), "utf-8")
+      ).toBe(`${tag} sub`);
+      expect(existsSync(path.join(d.dest(home), "link.jsonl"))).toBe(false);
       expect(
         Math.abs(
-          lstatSync(join(d.dest(home), "a.jsonl")).mtimeMs - OLD.getTime()
+          lstatSync(path.join(d.dest(home), "a.jsonl")).mtimeMs - OLD.getTime()
         )
       ).toBeLessThan(2);
       expect(existsSync(d.dest(home, "-codex-only"))).toBe(false);
@@ -134,12 +171,12 @@ describe("rename-root carries Claude files", () => {
 
     const afterA = snapshot(d.w.homes.a);
 
-    for (const [path, value] of Object.entries(before)) {
-      expect(afterA[path]).toBe(value);
+    for (const [filePath, value] of Object.entries(before)) {
+      expect(afterA[filePath]).toBe(value);
     }
 
-    for (const [path, value] of Object.entries(beforeB)) {
-      expect(snapshot(d.w.homes.b)[path]).toBe(value);
+    for (const [filePath, value] of Object.entries(beforeB)) {
+      expect(snapshot(d.w.homes.b)[filePath]).toBe(value);
     }
 
     expect(
@@ -150,14 +187,17 @@ describe("rename-root carries Claude files", () => {
   test("two homes stay separate: a file missing in one is not borrowed from the other", async () => {
     const d = dotfiles();
     putFiles(d.from(d.w.homes.a), { "only-in-a.jsonl": "A" });
-    expect((await d.rename("--apply", "--yes")).code).toBe(0);
-    expect(existsSync(join(d.dest(d.w.homes.a), "only-in-a.jsonl"))).toBe(true);
-    expect(existsSync(join(d.dest(d.w.homes.b), "only-in-a.jsonl"))).toBe(
+    const r = await d.rename("--apply", "--yes");
+    expect(r.code).toBe(0);
+    expect(existsSync(path.join(d.dest(d.w.homes.a), "only-in-a.jsonl"))).toBe(
+      true
+    );
+    expect(existsSync(path.join(d.dest(d.w.homes.b), "only-in-a.jsonl"))).toBe(
       false
     );
-    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")).toBe(
-      "B transcript"
-    );
+    expect(
+      readFileSync(path.join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")
+    ).toBe("B transcript");
   });
 
   test("dry run lists homes, counts, bytes and destination, and writes nothing", async () => {
@@ -165,12 +205,12 @@ describe("rename-root carries Claude files", () => {
     const before = snapshot(d.w.base);
     const r = await d.rename();
     expect(r.code).toBe(0);
-    expect(r.err).toContain(`${d.w.homes.a}`);
-    expect(r.err).toContain(`${d.w.homes.b}`);
+    expect(r.err).toContain(d.w.homes.a);
+    expect(r.err).toContain(d.w.homes.b);
     expect(r.err).toContain(d.dest(d.w.homes.a));
     expect(r.err).toContain(d.dest(d.w.homes.b));
     expect(r.err).toMatch(
-      /4 files to copy \(\d+ B\), 0 already there, 0 conflicts/
+      /4 files to copy \(\d+ B\), 0 already there, 0 conflicts/u
     );
     expect(r.err).toContain("NOTE: dry run");
     expect(snapshot(d.w.base)).toEqual(before);
@@ -178,7 +218,7 @@ describe("rename-root carries Claude files", () => {
 
   test("--db is a rehearsal on a copy: nothing is copied, and it says so", async () => {
     const d = dotfiles();
-    const copy = join(d.w.base, "rehearsal.sqlite");
+    const copy = path.join(d.w.base, "rehearsal.sqlite");
     copyFileSync(d.w.db, copy);
     const before = snapshot(d.w.homes.a);
 
@@ -205,7 +245,7 @@ describe("rename-root carries Claude files", () => {
       query<{ r: string }>(
         copy,
         "SELECT workspace_root AS r FROM projection_projects"
-      )[0]!.r
+      )[0]?.r
     ).toBe(d.to);
     expect(d.workspaceRoot()).toBe(d.root);
   });
@@ -228,18 +268,18 @@ describe("rename-root carries Claude files", () => {
 
     expect(r.code).toBe(0);
     expect(r.err).not.toContain("not copied");
-    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")).toBe(
-      "A transcript"
-    );
+    expect(
+      readFileSync(path.join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")
+    ).toBe("A transcript");
     expect(d.workspaceRoot()).toBe(d.to);
   });
 
   test("a change of spelling only has nothing to copy", async () => {
     const w = makeWorld();
-    const spelled = join(w.home, "Developments", "proj");
-    const real = join(w.real, "proj");
+    const spelled = path.join(w.home, "Developments", "proj");
+    const real = path.join(w.real, "proj");
     addProject(w, "p1", "proj", spelled, [{ cwd: spelled }]);
-    putFiles(join(w.homes.a, "projects", slug(real)), { "a.jsonl": "x" });
+    putFiles(path.join(w.homes.a, "projects", slug(real)), { "a.jsonl": "x" });
     const before = snapshot(w.homes.a);
 
     const r = await runIn(
@@ -264,7 +304,7 @@ describe("rename-root carries Claude files", () => {
       query<{ r: string }>(
         w.db,
         "SELECT workspace_root AS r FROM projection_projects"
-      )[0]!.r
+      )[0]?.r
     ).toBe(real);
   });
 
@@ -290,8 +330,8 @@ describe("rename-root carries Claude files", () => {
     Bun.spawnSync([
       "rm",
       "-rf",
-      join(none.w.homes.a, "projects"),
-      join(none.w.homes.b, "projects"),
+      path.join(none.w.homes.a, "projects"),
+      path.join(none.w.homes.b, "projects"),
     ]);
     const r = await none.rename("--apply", "--yes");
     expect(r.code).toBe(0);
@@ -307,19 +347,23 @@ describe("rename-root carries Claude files", () => {
       "a.jsonl": "A transcript",
       "memory/x.md": "A y",
     });
-    utimesSync(join(d.dest(d.w.homes.a), "a.jsonl"), new Date(), new Date());
+    utimesSync(
+      path.join(d.dest(d.w.homes.a), "a.jsonl"),
+      new Date(),
+      new Date()
+    );
     const r = await d.rename("--apply", "--yes");
     expect(r.code).toBe(0);
     expect(
-      readFileSync(join(d.dest(d.w.homes.a), "memory/x.md"), "utf-8")
+      readFileSync(path.join(d.dest(d.w.homes.a), "memory/x.md"), "utf-8")
     ).toBe("A y");
     expect(
-      readFileSync(join(d.dest(d.w.homes.a), "memory/MEMORY.md"), "utf-8")
+      readFileSync(path.join(d.dest(d.w.homes.a), "memory/MEMORY.md"), "utf-8")
     ).toBe("A index");
     expect(
-      readFileSync(join(d.from(d.w.homes.a), "memory/x.md"), "utf-8")
+      readFileSync(path.join(d.from(d.w.homes.a), "memory/x.md"), "utf-8")
     ).toBe("A x");
-    const conflict = join(d.dest(d.w.homes.a), "memory/x.md");
+    const conflict = path.join(d.dest(d.w.homes.a), "memory/x.md");
     expect(r.err).toContain("1 already there, 1 conflict");
     expect(r.err.indexOf("> Success!")).toBeLessThan(
       r.err.lastIndexOf(conflict)
@@ -331,13 +375,13 @@ describe("rename-root carries Claude files", () => {
 
   test("a symlink in the destination never redirects a write", async () => {
     const d = dotfiles();
-    const elsewhere = join(d.w.homes.b, "projects", "elsewhere");
+    const elsewhere = path.join(d.w.homes.b, "projects", "elsewhere");
     mkdirSync(elsewhere, { recursive: true });
     symlinkSync(elsewhere, d.dest(d.w.homes.a));
     mkdirSync(d.dest(d.w.homes.b), { recursive: true });
     symlinkSync(
-      join(d.from(d.w.homes.b), "memory"),
-      join(d.dest(d.w.homes.b), "s1")
+      path.join(d.from(d.w.homes.b), "memory"),
+      path.join(d.dest(d.w.homes.b), "s1")
     );
     const sourceB = snapshot(d.from(d.w.homes.b));
     const sourceA = snapshot(d.from(d.w.homes.a));
@@ -347,9 +391,9 @@ describe("rename-root carries Claude files", () => {
     expect(snapshot(d.from(d.w.homes.b))).toEqual(sourceB);
     expect(snapshot(d.from(d.w.homes.a))).toEqual(sourceA);
     expect(r.err).toContain("or sat behind a symlink");
-    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")).toBe(
-      "B transcript"
-    );
+    expect(
+      readFileSync(path.join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")
+    ).toBe("B transcript");
   });
 
   test("a symlinked source slug is never followed, so nothing crosses homes", async () => {
@@ -362,9 +406,9 @@ describe("rename-root carries Claude files", () => {
     expect(r.err).toContain("is a symlink, so it is not copied");
     expect(r.err).not.toContain("slug format");
     expect(existsSync(d.dest(d.w.homes.a))).toBe(false);
-    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")).toBe(
-      "B transcript"
-    );
+    expect(
+      readFileSync(path.join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")
+    ).toBe("B transcript");
     expect(snapshot(d.from(d.w.homes.b))).toEqual(sourceB);
   });
 
@@ -389,8 +433,11 @@ describe("rename-root carries Claude files", () => {
     const d = dotfiles();
     const name = `${"n".repeat(240)}.jsonl`;
     putFiles(d.from(d.w.homes.a), { [name]: "long" });
-    expect((await d.rename("--apply", "--yes")).code).toBe(0);
-    expect(readFileSync(join(d.dest(d.w.homes.a), name), "utf-8")).toBe("long");
+    const r = await d.rename("--apply", "--yes");
+    expect(r.code).toBe(0);
+    expect(readFileSync(path.join(d.dest(d.w.homes.a), name), "utf-8")).toBe(
+      "long"
+    );
   });
 
   test("nothing is copied when the prompt is refused", async () => {
@@ -405,20 +452,21 @@ describe("rename-root carries Claude files", () => {
 
   test("a session whose cwd differs only by case is another path: not rewritten, not copied", async () => {
     const d = dotfiles();
-    const other = join(d.w.home, ".DOTFILES", "x");
-    addProject(d.w, "p9", "upper", join(d.w.home, ".DOTFILES"), [
+    const other = path.join(d.w.home, ".DOTFILES", "x");
+    addProject(d.w, "p9", "upper", path.join(d.w.home, ".DOTFILES"), [
       { cwd: other },
     ]);
     putFiles(d.from(d.w.homes.a, "-x"), {
       "never.jsonl": "a path that differs by case",
     });
-    expect((await d.rename("--apply", "--yes")).code).toBe(0);
+    const r = await d.rename("--apply", "--yes");
+    expect(r.code).toBe(0);
     expect(existsSync(d.dest(d.w.homes.a, "-x"))).toBe(false);
     expect(
       query<{ cwd: string }>(
         d.w.db,
         "SELECT json_extract(payload_json, '$.cwd') AS cwd FROM orchestration_v2_projection_provider_sessions WHERE provider_session_id = 'p9-s0'"
-      )[0]!.cwd
+      )[0]?.cwd
     ).toBe(other);
   });
 
@@ -439,7 +487,7 @@ describe("rename-root carries Claude files", () => {
         chmodSync(d.dest(d.w.homes.a), 0o755);
       }
 
-      const projects = join(d.w.homes.a, "projects");
+      const projects = path.join(d.w.homes.a, "projects");
       chmodSync(projects, 0o000);
 
       try {
@@ -457,7 +505,7 @@ describe("rename-root carries Claude files", () => {
     "an unreadable source dir is a clear error in a dry run",
     async () => {
       const d = dotfiles();
-      const locked = join(d.from(d.w.homes.a), "s1");
+      const locked = path.join(d.from(d.w.homes.a), "s1");
       chmodSync(locked, 0o000);
 
       try {
@@ -472,7 +520,7 @@ describe("rename-root carries Claude files", () => {
 
   test("a malformed settings.json stops the run before the database", async () => {
     const d = dotfiles();
-    writeFileSync(join(d.w.t3, "userdata", "settings.json"), "{ not json");
+    writeFileSync(path.join(d.w.t3, "userdata", "settings.json"), "{ not json");
     const r = await d.rename("--apply", "--yes");
     expect(r.code).toBe(1);
     expect(r.err).toContain("settings.json");
@@ -483,9 +531,9 @@ describe("rename-root carries Claude files", () => {
     expect(doctor.err).toContain(
       "✖ Claude memory under the live slug  not checked"
     );
+    const doctorJson = await runIn(d.w, "doctor", "--db", d.w.db, "--json");
     expect(
-      JSON.parse((await runIn(d.w, "doctor", "--db", d.w.db, "--json")).out)
-        .strandedMemory
+      readJson(DoctorStrandedSchema, doctorJson.out).strandedMemory
     ).toBeNull();
   });
 
@@ -494,7 +542,7 @@ describe("rename-root carries Claude files", () => {
 
     for (const home of [d.w.homes.a, d.w.homes.b]) {
       Bun.spawnSync(["rm", "-rf", d.from(home), d.from(home, "-sub")]);
-      symlinkSync(join(d.w.base, "elsewhere"), d.from(home));
+      symlinkSync(path.join(d.w.base, "elsewhere"), d.from(home));
     }
 
     const r = await d.rename("--apply", "--yes");
@@ -514,16 +562,16 @@ describe("rename-root carries Claude files", () => {
     expect(r.code).toBe(0);
     expect(r.err).toContain("the slug format may have changed");
     expect(
-      readFileSync(join(d.dest(d.w.homes.a, "-sub"), "b.jsonl"), "utf-8")
+      readFileSync(path.join(d.dest(d.w.homes.a, "-sub"), "b.jsonl"), "utf-8")
     ).toBe("A sub");
   });
 
   test("a destination file that is a symlink is a conflict and its target is untouched", async () => {
     const d = dotfiles();
-    const target = join(d.w.base, "outside.txt");
+    const target = path.join(d.w.base, "outside.txt");
     writeFileSync(target, "outside");
     mkdirSync(d.dest(d.w.homes.a), { recursive: true });
-    symlinkSync(target, join(d.dest(d.w.homes.a), "a.jsonl"));
+    symlinkSync(target, path.join(d.dest(d.w.homes.a), "a.jsonl"));
     const r = await d.rename("--apply", "--yes");
     expect(r.code).toBe(0);
     expect(readFileSync(target, "utf-8")).toBe("outside");
@@ -532,7 +580,7 @@ describe("rename-root carries Claude files", () => {
 
   test("a file that appears after the plan, during the prompt, is still copied", async () => {
     const d = dotfiles();
-    const late = join(d.from(d.w.homes.a), "late.jsonl");
+    const late = path.join(d.from(d.w.homes.a), "late.jsonl");
 
     const layer = ClaudeFiles.layer.pipe(
       Layer.provideMerge(ClaudeHomes.layer(Option.none())),
@@ -571,22 +619,22 @@ describe("rename-root carries Claude files", () => {
         yield* files.apply(plan);
       }).pipe(Effect.provide(layer))
     );
-    expect(readFileSync(join(d.dest(d.w.homes.a), "late.jsonl"), "utf-8")).toBe(
-      "late"
-    );
+    expect(
+      readFileSync(path.join(d.dest(d.w.homes.a), "late.jsonl"), "utf-8")
+    ).toBe("late");
   });
 
   test("a symlink to a volume that is not mounted still gives the slug it will have", async () => {
     const w = makeWorld();
-    const gone = join(w.base, "unmounted", "Dev2");
-    symlinkSync(gone, join(w.home, "Dev2"));
-    const oldRoot = join(w.home, "Dev2", "proj");
-    const newRoot = join(w.home, "Dev2", "proj2");
+    const gone = path.join(w.base, "unmounted", "Dev2");
+    symlinkSync(gone, path.join(w.home, "Dev2"));
+    const oldRoot = path.join(w.home, "Dev2", "proj");
+    const newRoot = path.join(w.home, "Dev2", "proj2");
     addProject(w, "p1", "proj", oldRoot, [{ cwd: oldRoot }]);
-    putFiles(join(w.homes.a, "projects", slug(join(gone, "proj"))), {
+    putFiles(path.join(w.homes.a, "projects", slug(path.join(gone, "proj"))), {
       "a.jsonl": "live",
     });
-    putFiles(join(w.homes.a, "projects", slug(oldRoot)), {
+    putFiles(path.join(w.homes.a, "projects", slug(oldRoot)), {
       "b.jsonl": "spelled",
     });
 
@@ -602,14 +650,20 @@ describe("rename-root carries Claude files", () => {
     );
 
     expect(r.code).toBe(0);
-    const dest = join(w.homes.a, "projects", slug(join(gone, "proj2")));
-    expect(readFileSync(join(dest, "a.jsonl"), "utf-8")).toBe("live");
-    expect(existsSync(join(dest, "b.jsonl"))).toBe(false);
+
+    const dest = path.join(
+      w.homes.a,
+      "projects",
+      slug(path.join(gone, "proj2"))
+    );
+
+    expect(readFileSync(path.join(dest, "a.jsonl"), "utf-8")).toBe("live");
+    expect(existsSync(path.join(dest, "b.jsonl"))).toBe(false);
   });
 
   test("a hard link to the live database is the live database", async () => {
     const d = dotfiles();
-    const alias = join(d.w.base, "alias.sqlite");
+    const alias = path.join(d.w.base, "alias.sqlite");
     linkSync(d.w.db, alias);
 
     const r = await runIn(
@@ -627,15 +681,15 @@ describe("rename-root carries Claude files", () => {
 
     expect(r.code).toBe(0);
     expect(r.err).not.toContain("not copied");
-    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")).toBe(
-      "A transcript"
-    );
+    expect(
+      readFileSync(path.join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")
+    ).toBe("A transcript");
   });
 
   test("settings.json of the wrong shape stops the run", async () => {
     const d = dotfiles();
     writeFileSync(
-      join(d.w.t3, "userdata", "settings.json"),
+      path.join(d.w.t3, "userdata", "settings.json"),
       JSON.stringify({ providerInstances: "x" })
     );
     const r = await d.rename("--apply", "--yes");
@@ -647,18 +701,24 @@ describe("rename-root carries Claude files", () => {
   test("a Claude home that does not exist here is named, and the rename still goes on", async () => {
     const d = dotfiles();
 
-    const settings = JSON.parse(
-      readFileSync(join(d.w.t3, "userdata", "settings.json"), "utf-8")
+    const settings = readJson(
+      SettingsSchema,
+      readFileSync(path.join(d.w.t3, "userdata", "settings.json"), "utf-8")
     );
 
-    const gone = join(d.w.base, "unmounted", ".claude-c");
-    settings.providerInstances.claudeAgent_gone = {
-      driver: "claudeAgent",
-      config: { homePath: gone },
-    };
+    const gone = path.join(d.w.base, "unmounted", ".claude-c");
     writeFileSync(
-      join(d.w.t3, "userdata", "settings.json"),
-      JSON.stringify(settings)
+      path.join(d.w.t3, "userdata", "settings.json"),
+      JSON.stringify({
+        ...settings,
+        providerInstances: {
+          ...settings.providerInstances,
+          claudeAgent_gone: {
+            driver: "claudeAgent",
+            config: { homePath: gone },
+          },
+        },
+      })
     );
     const dry = await d.rename();
     expect(dry.code).toBe(0);
@@ -667,21 +727,21 @@ describe("rename-root carries Claude files", () => {
     );
     const r = await d.rename("--apply", "--yes");
     expect(r.code).toBe(0);
-    expect(r.err.match(/does not exist here/g)).toHaveLength(1);
+    expect(r.err.match(/does not exist here/gu)).toHaveLength(1);
     expect(existsSync(gone)).toBe(false);
-    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")).toBe(
-      "A transcript"
-    );
+    expect(
+      readFileSync(path.join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")
+    ).toBe("A transcript");
   });
 
   test("a relative dangling link behind a symlinked parent resolves from the real parent", async () => {
     const w = makeWorld();
-    symlinkSync("../gone", join(w.real, "dang"));
-    const oldRoot = join(w.home, "Developments", "dang", "proj");
-    const newRoot = join(w.home, "Developments", "dang", "proj2");
+    symlinkSync("../gone", path.join(w.real, "dang"));
+    const oldRoot = path.join(w.home, "Developments", "dang", "proj");
+    const newRoot = path.join(w.home, "Developments", "dang", "proj2");
     addProject(w, "p1", "proj", oldRoot, [{ cwd: oldRoot }]);
-    const gone = join(dirname(w.real), "gone");
-    putFiles(join(w.homes.a, "projects", slug(join(gone, "proj"))), {
+    const gone = path.join(path.dirname(w.real), "gone");
+    putFiles(path.join(w.homes.a, "projects", slug(path.join(gone, "proj"))), {
       "a.jsonl": "live",
     });
 
@@ -697,8 +757,14 @@ describe("rename-root carries Claude files", () => {
     );
 
     expect(r.code).toBe(0);
-    const dest = join(w.homes.a, "projects", slug(join(gone, "proj2")));
-    expect(readFileSync(join(dest, "a.jsonl"), "utf-8")).toBe("live");
+
+    const dest = path.join(
+      w.homes.a,
+      "projects",
+      slug(path.join(gone, "proj2"))
+    );
+
+    expect(readFileSync(path.join(dest, "a.jsonl"), "utf-8")).toBe("live");
   });
 
   test("temp files: a file named like one is left alone, and none is left behind", async () => {
@@ -707,7 +773,8 @@ describe("rename-root carries Claude files", () => {
     putFiles(d.from(d.w.homes.a), {
       "left-over.devbox-migrate.tmp": "from an interrupted copy",
     });
-    expect((await d.rename("--apply", "--yes")).code).toBe(0);
+    const r = await d.rename("--apply", "--yes");
+    expect(r.code).toBe(0);
 
     const temps = Object.keys(snapshot(d.dest(d.w.homes.a))).filter((p) =>
       p.endsWith(".devbox-migrate.tmp")
@@ -716,30 +783,30 @@ describe("rename-root carries Claude files", () => {
     expect(temps).toEqual([".a.jsonl.devbox-migrate.tmp"]);
     expect(
       readFileSync(
-        join(d.dest(d.w.homes.a), ".a.jsonl.devbox-migrate.tmp"),
+        path.join(d.dest(d.w.homes.a), ".a.jsonl.devbox-migrate.tmp"),
         "utf-8"
       )
     ).toBe("keep");
-    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")).toBe(
-      "A transcript"
-    );
+    expect(
+      readFileSync(path.join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")
+    ).toBe("A transcript");
   });
 
   test("a rerun after a partial copy converges", async () => {
     const d = dotfiles();
     putFiles(d.dest(d.w.homes.a), { "a.jsonl": "A transcript" });
     writeFileSync(
-      join(d.dest(d.w.homes.a), ".memory-half.devbox-migrate.tmp"),
+      path.join(d.dest(d.w.homes.a), ".memory-half.devbox-migrate.tmp"),
       "A inde"
     );
     const r = await d.rename("--apply", "--yes");
     expect(r.code).toBe(0);
     expect(r.err).toContain("0 conflicts");
     expect(
-      readFileSync(join(d.dest(d.w.homes.a), "memory/MEMORY.md"), "utf-8")
+      readFileSync(path.join(d.dest(d.w.homes.a), "memory/MEMORY.md"), "utf-8")
     ).toBe("A index");
     expect(
-      readFileSync(join(d.dest(d.w.homes.a), "s1/sub/deep.jsonl"), "utf-8")
+      readFileSync(path.join(d.dest(d.w.homes.a), "s1/sub/deep.jsonl"), "utf-8")
     ).toBe("A deep");
   });
 
@@ -747,7 +814,7 @@ describe("rename-root carries Claude files", () => {
     "a failed copy leaves the database untouched",
     async () => {
       const d = dotfiles();
-      const projects = join(d.w.homes.a, "projects");
+      const projects = path.join(d.w.homes.a, "projects");
       chmodSync(projects, 0o555);
 
       try {
@@ -756,12 +823,18 @@ describe("rename-root carries Claude files", () => {
         expect(r.err).toContain("Error: copying Claude files failed");
         expect(r.err).toContain("the database was not touched");
         expect(d.workspaceRoot()).toBe(d.root);
-        expect(existsSync(d.w.env.T3_BACKUP_DIR!)).toBe(false);
+        const backupDir = d.w.env.T3_BACKUP_DIR;
+        expect(backupDir).toBeDefined();
+
+        if (backupDir !== undefined) {
+          expect(existsSync(backupDir)).toBe(false);
+        }
       } finally {
         chmodSync(projects, 0o755);
       }
 
-      expect((await d.rename("--apply", "--yes")).code).toBe(0);
+      const retry = await d.rename("--apply", "--yes");
+      expect(retry.code).toBe(0);
       expect(d.workspaceRoot()).toBe(d.to);
     }
   );
@@ -769,52 +842,58 @@ describe("rename-root carries Claude files", () => {
 
 const stranded = () => {
   const w = makeWorld();
-  const spelled = join(w.home, "Developments", "proj");
-  const real = join(w.real, "proj");
+  const spelled = path.join(w.home, "Developments", "proj");
+  const real = path.join(w.real, "proj");
   addProject(w, "p1", "proj", spelled, [
     { cwd: spelled },
     { cwd: `${spelled}/sub` },
   ]);
-  addProject(w, "p2", "plain", join(w.home, "plain"), [
-    { cwd: join(w.home, "plain") },
+  addProject(w, "p2", "plain", path.join(w.home, "plain"), [
+    { cwd: path.join(w.home, "plain") },
   ]);
-  putFiles(join(w.homes.a, "projects", slug(join(w.home, "plain"))), {
+  putFiles(path.join(w.homes.a, "projects", slug(path.join(w.home, "plain"))), {
     "memory/m.md": "m",
   });
-  addProject(w, "p3", "gone", join(w.home, "Developments", "gone"));
+  addProject(w, "p3", "gone", path.join(w.home, "Developments", "gone"));
   const db = new Database(w.db, { strict: true });
-  db.exec(
+  db.run(
     "UPDATE projection_projects SET deleted_at = 'x' WHERE project_id = 'p3'"
   );
   db.close();
   putFiles(
-    join(w.homes.a, "projects", slug(join(w.home, "Developments", "gone"))),
+    path.join(
+      w.homes.a,
+      "projects",
+      slug(path.join(w.home, "Developments", "gone"))
+    ),
     {
       "memory/g.md": "g",
     }
   );
-  putFiles(join(w.homes.a, "projects", slug(spelled)), {
+  putFiles(path.join(w.homes.a, "projects", slug(spelled)), {
     "memory/MEMORY.md": "i",
     "memory/one.md": "1",
     "memory/two.md": "2",
     "memory/notes.txt": "not markdown",
   });
-  putFiles(join(w.homes.a, "projects", slug(real)), {
+  putFiles(path.join(w.homes.a, "projects", slug(real)), {
     "memory/MEMORY.md": "i",
   });
-  putFiles(join(w.homes.a, "projects", slug(`${spelled}/sub`)), {
+  putFiles(path.join(w.homes.a, "projects", slug(`${spelled}/sub`)), {
     "memory/sub.md": "s",
   });
-  addProject(w, "p4", "sibling", join(w.home, "elsewhere"), [
+  addProject(w, "p4", "sibling", path.join(w.home, "elsewhere"), [
     { cwd: `${spelled}c/x` },
   ]);
-  putFiles(join(w.homes.a, "projects", slug(`${spelled}c/x`)), {
+  putFiles(path.join(w.homes.a, "projects", slug(`${spelled}c/x`)), {
     "memory/z.md": "z",
   });
-  putFiles(join(w.homes.a, "projects", "-tmp-scratch-1234"), {
+  putFiles(path.join(w.homes.a, "projects", "-tmp-scratch-1234"), {
     "memory/s.md": "s",
   });
-  putFiles(join(w.homes.b, "projects", "-unrelated"), { "memory/u.md": "u" });
+  putFiles(path.join(w.homes.b, "projects", "-unrelated"), {
+    "memory/u.md": "u",
+  });
 
   return { w, spelled, real };
 };
@@ -824,7 +903,7 @@ describe("doctor reports memory stranded by a symlink spelling", () => {
     const { w, spelled, real } = stranded();
     const r = await runIn(w, "doctor", "--db", w.db, "--json");
     expect(r.code).toBe(0);
-    const report = JSON.parse(r.out);
+    const report = readJson(DoctorStrandedSchema, r.out);
     expect(report.strandedMemory).toEqual([
       {
         project: "proj",
@@ -861,7 +940,7 @@ describe("doctor reports memory stranded by a symlink spelling", () => {
     expect(r.err).toContain("Delete none of them");
     const clean = makeWorld();
     const ok = await runIn(clean, "doctor", "--db", clean.db, "--json");
-    expect(JSON.parse(ok.out).strandedMemory).toEqual([]);
+    expect(readJson(DoctorStrandedSchema, ok.out).strandedMemory).toEqual([]);
   });
 
   test("a cwd with a trailing slash is the same path", async () => {
@@ -871,17 +950,14 @@ describe("doctor reports memory stranded by a symlink spelling", () => {
       "INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, payload_json, driver) VALUES ('slash', 't', ?, 'claudeAgent')"
     ).run(JSON.stringify({ cwd: `${spelled}/deep/` }));
     db.close();
-    putFiles(join(w.homes.a, "projects", slug(`${spelled}/deep`)), {
+    putFiles(path.join(w.homes.a, "projects", slug(`${spelled}/deep`)), {
       "memory/d.md": "d",
     });
 
-    const found = JSON.parse(
-      (await runIn(w, "doctor", "--db", w.db, "--json")).out
-    ).strandedMemory;
+    const doctorJson = await runIn(w, "doctor", "--db", w.db, "--json");
+    const found = readJson(DoctorStrandedSchema, doctorJson.out).strandedMemory;
 
-    expect(found.map((m: { cwd: string }) => m.cwd)).toContain(
-      `${spelled}/deep`
-    );
+    expect(found?.map((m) => m.cwd)).toContain(`${spelled}/deep`);
   });
 
   test("a session with a non-text cwd does not crash the report", async () => {
@@ -891,35 +967,39 @@ describe("doctor reports memory stranded by a symlink spelling", () => {
       "INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, payload_json, driver) VALUES ('odd', 't', '{\"cwd\":123}', 'claudeAgent')"
     ).run();
     db.close();
-    expect((await runIn(w, "doctor", "--db", w.db, "--json")).code).toBe(0);
+    const r = await runIn(w, "doctor", "--db", w.db, "--json");
+    expect(r.code).toBe(0);
   });
 
   test("writes nothing", async () => {
     const { w } = stranded();
     const before = snapshot(w.base);
-    expect((await runIn(w, "doctor", "--db", w.db)).code).toBe(0);
-    expect((await runIn(w, "doctor", "--db", w.db, "--json")).code).toBe(0);
+    const textRun = await runIn(w, "doctor", "--db", w.db);
+    expect(textRun.code).toBe(0);
+    const jsonRun = await runIn(w, "doctor", "--db", w.db, "--json");
+    expect(jsonRun.code).toBe(0);
     expect(snapshot(w.base)).toEqual(before);
-    expect(existsSync(join(w.base, "backups"))).toBe(false);
+    expect(existsSync(path.join(w.base, "backups"))).toBe(false);
   });
 });
 
 describe("Claude homes", () => {
   test("--claude-home is where instances without a homePath live", async () => {
     const d = dotfiles();
-    const custom = join(d.w.base, "custom-claude");
-    putFiles(join(custom, "projects", slug(d.root)), { "c.jsonl": "custom" });
-    expect(
-      (await d.rename("--claude-home", custom, "--apply", "--yes")).code
-    ).toBe(0);
-    expect(readFileSync(join(d.dest(custom), "c.jsonl"), "utf-8")).toBe(
+    const custom = path.join(d.w.base, "custom-claude");
+    putFiles(path.join(custom, "projects", slug(d.root)), {
+      "c.jsonl": "custom",
+    });
+    const r = await d.rename("--claude-home", custom, "--apply", "--yes");
+    expect(r.code).toBe(0);
+    expect(readFileSync(path.join(d.dest(custom), "c.jsonl"), "utf-8")).toBe(
       "custom"
     );
   });
 
   test("doctor warns when CLAUDE_CONFIG_DIR differs from the home it reads", async () => {
     const w = makeWorld();
-    const elsewhere = join(w.base, "elsewhere");
+    const elsewhere = path.join(w.base, "elsewhere");
     const env = { ...w.env, CLAUDE_CONFIG_DIR: elsewhere };
     const warned = await migrate(env, "doctor", "--db", w.db);
     expect(warned.code).toBe(0);
@@ -937,8 +1017,7 @@ describe("Claude homes", () => {
     );
 
     expect(matched.err).not.toContain("CLAUDE_CONFIG_DIR");
-    expect((await migrate(w.env, "doctor", "--db", w.db)).err).not.toContain(
-      "CLAUDE_CONFIG_DIR"
-    );
+    const plain = await migrate(w.env, "doctor", "--db", w.db);
+    expect(plain.err).not.toContain("CLAUDE_CONFIG_DIR");
   });
 });
