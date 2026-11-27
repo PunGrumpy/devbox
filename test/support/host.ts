@@ -153,6 +153,13 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
       if (verb === "daemon-reload") return ok();
       if (verb === "enable") return (m.units.set(key, { ...state, enabled: true }), ok());
       if (verb === "restart") return (m.units.set(key, { ...state, active: true }), ok());
+      if (verb === "disable") {
+        m.units.set(`${user ? "user" : "system"}:${args.at(-1)}`, {
+          active: false,
+          enabled: false,
+        });
+        return ok();
+      }
     }
     if (bin === "loginctl" && args[0] === "show-user")
       return ok(`Linger=${m.linger ? "yes" : "no"}\n`);

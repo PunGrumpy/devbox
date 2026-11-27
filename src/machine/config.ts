@@ -102,6 +102,12 @@ export const upFlags = {
     Flag.withSchema(Channel),
     Flag.withDefault("nightly"),
   ),
+  hub: Flag.Boolean("hub").pipe(
+    Flag.withDescription(
+      "also keep `devbox hub` running, on --host when that is one address and on 127.0.0.1 otherwise",
+    ),
+    Flag.withDefault(false),
+  ),
   supervisor: Flag.Literals("supervisor", SUPERVISORS).pipe(
     Flag.withDescription(
       "what keeps T3 running: a systemd system or user unit, or a detached process (default auto)",
@@ -136,6 +142,7 @@ export type MachineConfig = ServeConfig & {
   readonly channel: string;
   readonly supervisor: Supervisor;
   readonly agents: AgentChoice;
+  readonly hub: boolean;
 };
 
 type ServeFlags = {
@@ -153,6 +160,7 @@ type UpFlags = ServeFlags & {
   readonly channel: string;
   readonly supervisor: Supervisor;
   readonly agents: Option.Option<AgentsFlag>;
+  readonly hub: boolean;
 };
 
 export const serveConfig = (flags: ServeFlags, home: AbsolutePath) =>
@@ -188,6 +196,7 @@ export const machineConfig = (
     channel: flags.channel,
     supervisor: flags.supervisor,
     agents,
+    hub: flags.hub,
   }));
 
 export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [

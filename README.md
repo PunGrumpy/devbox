@@ -32,6 +32,7 @@ devbox up --name edge-7 --data /persist --public-url https://edge-7.example.com
 | `--base-dir`   | `<data>/.t3` | T3 Code's data directory.                                                                                                                 |
 | `--workspace`  | `<data>`     | The working directory for agent sessions.                                                                                                 |
 | `--channel`    | `nightly`    | The npm dist-tag T3 Code installs and updates from.                                                                                       |
+| `--hub`        | off          | Also keeps [`devbox hub`](#see-your-machines) running, on `--host` when that is one address and on `127.0.0.1` otherwise.                 |
 | `--supervisor` | `auto`       | What keeps T3 running: a systemd system unit when systemd and passwordless sudo exist, else a systemd user unit, else a detached process. |
 | `--agents`     | ask once     | The agent CLIs to install: `pick`, `none`, or a list like `claude,codex`. Saved in `<data>`, so later runs ask nothing.                   |
 | `--no-setup`   | setup runs   | Skips the slow setup that runs after T3 starts.                                                                                           |
@@ -188,6 +189,14 @@ devbox hub --host "$(tailscale ip -4)"
 ```
 
 The page has no login. Keep it on `127.0.0.1` or a Tailscale address.
+
+To keep the hub running without a terminal, pass `--hub` to `devbox up`:
+
+```sh
+devbox up --host "$(tailscale ip -4)" --hub
+```
+
+It writes a `devbox-hub.service` unit beside the one for T3, builds the page in `hub/` when it has changed since the last build, and listens on port 3780. The page has no login, so the hub listens on `--host` only when that names one address, and on `127.0.0.1` otherwise. A later `devbox up` without `--hub` stops the hub and removes the unit. The unit reads `~/.config/devbox/hub/env` when it exists, which is where `DEVBOX_HUB_NOTIFY` goes. Without systemd, run `devbox hub` yourself.
 
 The hub saves its history to `~/.local/state/devbox/hub.json` after every check and takes it up again when it starts. The time it was down shows as unknown. Under each machine the page says how much of the last 24 hours it was online, and names a newer T3 Code when the nightly channel has one.
 

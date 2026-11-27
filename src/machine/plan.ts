@@ -8,12 +8,21 @@ import {
   remembered,
   removeHint,
 } from "./agents.ts";
-import { ALL_INTERFACES, type MachineConfig, machineFile, pathsOf, serveArgs } from "./config.ts";
+import {
+  ALL_INTERFACES,
+  type MachineConfig,
+  machineFile,
+  pathsOf,
+  probeHost,
+  serveArgs,
+} from "./config.ts";
 import { gitEntries, processEnv, profileScript, type Setting, settingsFor } from "./settings.ts";
 
 export const UNIT = "devbox.service";
 export const BACKUP_SERVICE = "devbox-backup.service";
 export const BACKUP_TIMER = "devbox-backup.timer";
+export const HUB_UNIT = "devbox-hub.service";
+export const HUB_PORT = 3780;
 
 export type Supervisor = Data.TaggedEnum<{
   Systemd: { readonly scope: "system" | "user" };
@@ -62,6 +71,14 @@ export type Facts = {
   readonly serve: ServeState;
   readonly linger: Option.Option<boolean>;
   readonly backup: BackupFact;
+  readonly hub: {
+    /** The unit is enabled and active. */
+    readonly running: boolean;
+    /** The page in this checkout was built from the `hub/` it holds now. */
+    readonly built: boolean;
+    /** Where `hub/` is. A compiled devbox has none. */
+    readonly checkout: Option.Option<string>;
+  };
   readonly agents: {
     readonly saved: Option.Option<AgentIds>;
     readonly present: ReadonlyMap<AgentId, boolean>;
@@ -84,6 +101,9 @@ export type Change = Data.TaggedEnum<{
   InstallTools: { readonly packages: ReadonlyArray<string> };
   EnableTimer: {};
   Start: { readonly why: string; readonly stop: ReadonlyArray<number> };
+  BuildHub: { readonly checkout: string };
+  EnableHub: { readonly address: string };
+  RemoveHub: { readonly path: string; readonly privileged: boolean };
 }>;
 export const Change = Data.taggedEnum<Change>();
 
@@ -178,6 +198,45 @@ export const backupServiceFile = (
     `ExecStart=${[...ctx.self, "backup", "run"].map(systemdQuote).join(" ")}`,
     "Nice=10",
     "IOSchedulingClass=idle",
+    "",
+  ].join("\n");
+
+export const hubEnvPath = (home: string) => join(home, ".config", "devbox", "hub", "env");
+
+// The page has no login, so the hub never listens on every interface.
+export const hubHost = (config: MachineConfig): string => probeHost(config.host);
+
+export const hubArgs = (config: MachineConfig): ReadonlyArray<string> => [
+  "hub",
+  "--host",
+  hubHost(config),
+  "--port",
+  String(HUB_PORT),
+  "--t3-port",
+  String(config.port),
+];
+
+export const hubUnitFile = (
+  scope: "system" | "user",
+  config: MachineConfig,
+  ctx: Context,
+): string =>
+  [
+    "[Unit]",
+    "Description=devbox hub, the page of every machine, kept running by devbox",
+    "After=network-online.target",
+    "Wants=network-online.target",
+    "",
+    "[Service]",
+    ...(scope === "system" ? [`User=${ctx.user}`] : []),
+    pathLine(config),
+    `EnvironmentFile=-${hubEnvPath(ctx.home)}`,
+    `ExecStart=${[...ctx.self, ...hubArgs(config)].map(systemdQuote).join(" ")}`,
+    "Restart=always",
+    "RestartSec=5",
+    "",
+    "[Install]",
+    `WantedBy=${scope === "system" ? "multi-user.target" : "default.target"}`,
     "",
   ].join("\n");
 
@@ -354,6 +413,33 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
     Stopped: () => [],
   });
   if (why !== undefined) changes.push(Change.Start({ why, stop }));
+
+  Supervisor.$match(facts.supervisor, {
+    Detached: () => {
+      if (config.hub)
+        skips.push({ what: "hub", why: "no systemd here, run `devbox hub` yourself" });
+    },
+    Systemd: ({ scope }) => {
+      const path = unitPath(scope, ctx, HUB_UNIT);
+      if (!config.hub) {
+        if (Option.isSome(current(path)))
+          changes.push(Change.RemoveHub({ path, privileged: scope === "system" }));
+        return;
+      }
+      const wrote = write(path, hubUnitFile(scope, config, ctx), scope === "system");
+      if (wrote || !facts.hub.running)
+        changes.push(Change.EnableHub({ address: `${hubHost(config)}:${HUB_PORT}` }));
+      if (!facts.hub.built)
+        Option.match(facts.hub.checkout, {
+          onNone: () =>
+            skips.push({
+              what: "hub page",
+              why: "this devbox is not a checkout, so build hub/ in one and pass --ui",
+            }),
+          onSome: (checkout) => changes.push(Change.BuildHub({ checkout })),
+        });
+    },
+  });
 
   return { changes, skips };
 };

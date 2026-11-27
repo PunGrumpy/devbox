@@ -1,6 +1,6 @@
 import { Effect, FileSystem, Option, Schema } from "effect";
 import { Command } from "effect/cli";
-import { dirname } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import packageJson from "../../package.json" with { type: "json" };
 import { backupPaths, resticRepositoryOf } from "../backup/config.ts";
 import { Locations } from "../migrate/locations.ts";
@@ -30,6 +30,7 @@ import { Host } from "./host.ts";
 import {
   BACKUP_SERVICE,
   BACKUP_TIMER,
+  HUB_UNIT,
   BackupFact,
   Change,
   type Context,
@@ -132,6 +133,7 @@ const gather = (
           unitPath(scope, ctx),
           unitPath(scope, ctx, BACKUP_SERVICE),
           unitPath(scope, ctx, BACKUP_TIMER),
+          unitPath(scope, ctx, HUB_UNIT),
         ],
         Detached: () => [],
       }),
@@ -232,6 +234,35 @@ const gather = (
               return BackupFact.On({ missing, apt: yield* host.which("apt-get"), timer });
             }),
     });
+    const checkout =
+      ctx.self.length === 2
+        ? Option.some(resolve(dirname(ctx.self[1]!), ".."))
+        : Option.none<string>();
+    const hubRunning = Supervisor.$match(supervisor, {
+      Systemd: ({ scope }) =>
+        Effect.map(
+          Effect.all([
+            host.run(systemctl(scope, ["is-active", HUB_UNIT])),
+            host.run(systemctl(scope, ["is-enabled", HUB_UNIT])),
+          ]),
+          ([active, enabled]) =>
+            active.stdout.trim() === "active" && enabled.stdout.trim() === "enabled",
+        ),
+      Detached: () => Effect.succeed(false),
+    });
+    const hubBuilt = Option.match(checkout, {
+      onNone: () => Effect.succeed(false),
+      onSome: (dir) =>
+        Effect.map(
+          Effect.all([read(hubStamp(dir)), hubTree(dir)]),
+          ([stamp, tree]) =>
+            Option.isSome(stamp) && (Option.isNone(tree) || stamp.value.trim() === tree.value),
+        ),
+    });
+    // Without --hub nothing asks systemd or git about it.
+    const hub = config.hub
+      ? { running: yield* hubRunning, built: yield* hubBuilt, checkout }
+      : { running: false, built: false, checkout };
     return {
       sudo,
       files,
@@ -244,8 +275,19 @@ const gather = (
       serve,
       linger: yield* linger,
       backup,
+      hub,
       agents: { saved, present: yield* presentAgents(config.data) },
     } satisfies Facts;
+  });
+
+const hubStamp = (checkout: string) => join(checkout, "hub", "out", ".built");
+
+/** The git tree of `hub/`, which names what a build of the page was made from. */
+const hubTree = (checkout: string) =>
+  Effect.gen(function* () {
+    const host = yield* Host;
+    const tree = yield* host.run(["git", "-C", checkout, "rev-parse", "HEAD:hub"]);
+    return tree.code === 0 ? Option.some(tree.stdout.trim()) : Option.none<string>();
   });
 
 const describe = (change: Change): string =>
@@ -260,6 +302,9 @@ const describe = (change: Change): string =>
     InstallTools: ({ packages }) => `installed ${packages.join(" and ")} with apt`,
     EnableTimer: () => `enabled ${BACKUP_TIMER}, daily at 03:30 Asia/Bangkok`,
     Start: ({ why }) => `started T3 Code, because ${why}`,
+    BuildHub: () => "built the hub page",
+    EnableHub: ({ address }) => `enabled ${HUB_UNIT} on ${address}`,
+    RemoveHub: () => `removed ${HUB_UNIT}, because --hub is off`,
   });
 
 const fsFailed = (error: { readonly message: string }) => new UpFailed({ message: error.message });
@@ -434,6 +479,51 @@ const apply = (
                 log: `${pathsOf(config.data).logs}/serve.log`,
               }),
             ),
+        }),
+      EnableHub: () =>
+        Supervisor.$match(supervisor, {
+          Systemd: ({ scope }) =>
+            Effect.all(
+              [
+                must(systemctl(scope, ["daemon-reload"])),
+                must(systemctl(scope, ["enable", HUB_UNIT])),
+                must(systemctl(scope, ["restart", HUB_UNIT])),
+              ],
+              { discard: true },
+            ),
+          Detached: () => Effect.void,
+        }),
+      RemoveHub: ({ path, privileged }) =>
+        Supervisor.$match(supervisor, {
+          Systemd: ({ scope }) =>
+            Effect.gen(function* () {
+              yield* host.run(systemctl(scope, ["disable", "--now", HUB_UNIT]));
+              yield* privileged
+                ? must(["sudo", "-n", "rm", "-f", path])
+                : fs.remove(path).pipe(Effect.ignore);
+              yield* must(systemctl(scope, ["daemon-reload"]));
+            }),
+          Detached: () => Effect.void,
+        }),
+      BuildHub: ({ checkout }) =>
+        Effect.gen(function* () {
+          const cwd = join(checkout, "hub");
+          const bun = ctx.self[0] ?? "bun";
+          for (const argv of [
+            [bun, "install", "--frozen-lockfile"],
+            [bun, "run", "build"],
+          ]) {
+            const ran = yield* host.run(argv, { cwd, inherit: true });
+            if (ran.code !== 0)
+              return yield* new UpFailed({
+                message: `the hub page did not build: ${argv.slice(1).join(" ")} exited with ${ran.code}`,
+                hint: `the hub still serves /api/machines. Run \`bun run build\` in ${cwd} to see why`,
+              });
+          }
+          const tree = yield* hubTree(checkout);
+          yield* fs
+            .writeFileString(hubStamp(checkout), `${Option.getOrElse(tree, () => "unknown")}\n`)
+            .pipe(Effect.ignore);
         }),
     });
     yield* out.check(true, describe(change));
