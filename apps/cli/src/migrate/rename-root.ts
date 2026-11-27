@@ -1,6 +1,7 @@
-import { Effect, FileSystem, Schema } from "effect";
+import { Effect, FileSystem, Predicate, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 import { SqlClient } from "effect/sql";
+
 import { UsageError } from "../errors.ts";
 import { Output, plural } from "../output.ts";
 import { ClaudeFiles, reportConflicts } from "./claude-files.ts";
@@ -14,7 +15,8 @@ import {
   resolveProject,
   Tables,
 } from "./database.ts";
-import { type AbsolutePath, absolutePath, isUnderRoot, rebase } from "./paths.ts";
+import { absolutePath, isUnderRoot, rebase } from "./paths.ts";
+import type { AbsolutePath } from "./paths.ts";
 import { applyPlan, Change } from "./plan.ts";
 import { assertT3Closed } from "./t3-process.ts";
 
@@ -28,28 +30,39 @@ const Session = Schema.Struct({
   cwd: Schema.Unknown,
   driver: Schema.NullOr(Schema.String),
 });
-type Session = { readonly id: string; readonly cwd: string; readonly driver: string | null };
+
+interface Session {
+  readonly id: string;
+  readonly cwd: string;
+  readonly driver: string | null;
+}
 
 const sessions = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+
   const rows =
     yield* sql`SELECT provider_session_id AS id, json_extract(payload_json, '$.cwd') AS cwd, driver
     FROM ${sql(Tables.sessions)}`.pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Session))),
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Session)))
     );
-  return rows.flatMap((row): Array<Session> =>
-    typeof row.cwd === "string" ? [{ ...row, cwd: row.cwd }] : [],
+
+  return rows.flatMap((row) =>
+    Predicate.isString(row.cwd)
+      ? [{ ...row, cwd: row.cwd } satisfies Session]
+      : []
   );
 });
 
 const under = (root: AbsolutePath) =>
-  Effect.map(sessions, (all) => all.filter((session) => isUnderRoot(session.cwd, root)));
+  Effect.map(sessions, (all) =>
+    all.filter((session) => isUnderRoot(session.cwd, root))
+  );
 
 export const renameRoot = Command.make(
   "rename-root",
   {
     project: Flag.String("project").pipe(
-      Flag.withDescription("project to point elsewhere, by id or title"),
+      Flag.withDescription("project to point elsewhere, by id or title")
     ),
     to: Flag.String("to").pipe(Flag.withDescription("the new workspace root")),
     ...writeFlags,
@@ -62,43 +75,58 @@ export const renameRoot = Command.make(
         const fs = yield* FileSystem.FileSystem;
         const claudeFiles = yield* ClaudeFiles;
         const to = absolutePath(toFlag);
-        if (apply && target._tag === "Live") yield* assertT3Closed;
+
+        if (apply && target._tag === "Live") {
+          yield* assertT3Closed;
+        }
+
         yield* assertSchema(SCHEMA);
         yield* assertEventsEmpty;
         const project = yield* resolveProject(ref);
         const from = absolutePath(project.workspaceRoot);
+
         if (from === to) {
           return yield* new UsageError({
             message: `"${project.title}" already has workspace root ${to}`,
           });
         }
+
         if (isUnderRoot(to, from) || isUnderRoot(from, to)) {
           return yield* new UsageError({
             message: `${to} is inside ${from}; the prefix rewrite would double paths`,
             hint: "move the folder out first, or rename in two steps through a sibling path",
           });
         }
+
         if (!(yield* fs.exists(to).pipe(Effect.orElseSucceed(() => false)))) {
           yield* out.warn(`${to} does not exist on this machine`);
         }
 
         const moving = yield* under(from);
         const alreadyThere = (yield* under(to)).length;
-        yield* out.log(`project ${project.title} ${out.paint("dim", `(${project.projectId})`)}`);
+        const projectId = out.paint("dim", `(${project.projectId})`);
+        yield* out.log(`project ${project.title} ${projectId}`);
         yield* out.line();
+
+        const alreadyNote =
+          alreadyThere > 0 ? `, ${alreadyThere} already under the new one` : "";
+
         yield* out.pairs([
           ["from", from],
           ["to", to],
           [
             "sessions",
-            `${plural(moving.length, "session")} with cwd under the old root${alreadyThere ? `, ${alreadyThere} already under the new one` : ""}`,
+            `${plural(moving.length, "session")} with cwd under the old root${alreadyNote}`,
           ],
         ]);
         yield* out.line();
 
         const cwds = [
-          ...new Set(moving.filter((s) => s.driver === CLAUDE_DRIVER).map((s) => s.cwd)),
+          ...new Set(
+            moving.filter((s) => s.driver === CLAUDE_DRIVER).map((s) => s.cwd)
+          ),
         ];
+
         const copy = yield* claudeFiles.plan({ from, to, cwds });
         yield* claudeFiles.show(copy);
         yield* out.line();
@@ -113,12 +141,15 @@ export const renameRoot = Command.make(
               .pipe(
                 Effect.flatMap((result) =>
                   Effect.addFinalizer(() =>
-                    reportConflicts(result).pipe(Effect.provideService(Output, out)),
-                  ),
-                ),
+                    reportConflicts(result).pipe(
+                      Effect.provideService(Output, out)
+                    )
+                  )
+                )
               ),
             write: Effect.gen(function* () {
               yield* sql`UPDATE ${sql(Tables.projects)} SET workspace_root = ${to} WHERE project_id = ${project.projectId}`;
+
               for (const session of moving) {
                 yield* sql`UPDATE ${sql(Tables.sessions)}
                 SET payload_json = json_set(payload_json, '$.cwd', ${rebase(session.cwd, from, to)})
@@ -132,7 +163,7 @@ export const renameRoot = Command.make(
                 actual: sql<{
                   root: string;
                 }>`SELECT workspace_root AS root FROM ${sql(Tables.projects)} WHERE project_id = ${project.projectId}`.pipe(
-                  Effect.map((rows) => rows[0]?.root ?? ""),
+                  Effect.map((rows) => rows[0]?.root ?? "")
                 ),
               },
               {
@@ -146,10 +177,14 @@ export const renameRoot = Command.make(
                 actual: Effect.map(under(to), (s) => s.length),
               },
             ],
-          },
+          }
         );
-      }).pipe(Effect.provide(databaseLayer(target.path, apply ? "write" : "read"))),
-    ),
+      }).pipe(
+        Effect.provide(databaseLayer(target.path, apply ? "write" : "read"))
+      )
+    )
 ).pipe(
-  Command.withDescription("Point a project at a new workspace root and fix session cwd paths"),
+  Command.withDescription(
+    "Point a project at a new workspace root and fix session cwd paths"
+  )
 );

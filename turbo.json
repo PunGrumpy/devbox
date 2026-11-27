@@ -3,36 +3,19 @@
   "ui": "tui",
   "tasks": {
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": [
-        "dist/**",
-        ".next/**",
-        "!.next/cache/**",
-        "out/**"
-      ]
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**", "out/**"]
     },
     "typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ]
+      "dependsOn": ["^typecheck"]
     },
     "test": {
-      "dependsOn": [
-        "^test"
-      ]
-    },
-    "check": {},
-    "fix": {
-      "cache": false
+      "dependsOn": ["^test"]
     },
     "dev": {
       "cache": false,
       "persistent": true,
-      "passThroughEnv": [
-        "DEVBOX_HUB_URL"
-      ]
+      "passThroughEnv": ["DEVBOX_HUB_URL"]
     }
   }
 }

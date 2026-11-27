@@ -1,24 +1,31 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import { DateTime, Effect, Option, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
-import { createHash, randomBytes } from "node:crypto";
+
 import { Output, plural } from "../output.ts";
 import { listen } from "./listen.ts";
 
-export type IsoTimestamp = string;
-
 /** What a Cloudflare OAuth login holds. None of it is ever printed or logged. */
-export type OAuthTokens = {
+export interface OAuthTokens {
   readonly accessToken: string;
   readonly refreshToken: string;
-  readonly expiresAt: IsoTimestamp;
-};
+  /** When the access token ends, as an ISO 8601 timestamp. */
+  readonly expiresAt: string;
+}
 
-export class OAuthFailed extends Schema.TaggedError<OAuthFailed>()("OAuthFailed", {
-  message: Schema.String,
-  hint: Schema.optional(Schema.String),
-}) {}
+export class OAuthFailed extends Schema.TaggedError<OAuthFailed>()(
+  "OAuthFailed",
+  {
+    message: Schema.String,
+    hint: Schema.optional(Schema.String),
+  }
+) {}
 
-export type Endpoints = { readonly authorize: string; readonly token: string };
+export interface Endpoints {
+  readonly authorize: string;
+  readonly token: string;
+}
 
 /** From https://developers.cloudflare.com/fundamentals/oauth/integrate-with-cloudflare/ */
 export const CLOUDFLARE: Endpoints = {
@@ -42,7 +49,8 @@ export const SCOPES = [
 /** The one port Cloudflare sends the browser back to, so the client registers one exact address. */
 export const CALLBACK_PORT = 3783;
 
-export const redirectUri = (port: number) => `http://127.0.0.1:${port}/callback`;
+export const redirectUri = (port: number) =>
+  `http://127.0.0.1:${port}/callback`;
 
 const randomText = () => randomBytes(32).toString("base64url");
 
@@ -50,12 +58,16 @@ const randomText = () => randomBytes(32).toString("base64url");
 export const challengeOf = (verifier: string) =>
   createHash("sha256").update(verifier).digest("base64url");
 
-export type Pkce = { readonly verifier: string; readonly challenge: string };
+export interface Pkce {
+  readonly verifier: string;
+  readonly challenge: string;
+}
 
 /** A new verifier, 43 characters of base64url, and its challenge. */
-export const makePkce = (): Pkce => {
+export const makePkce = () => {
   const verifier = randomText();
-  return { verifier, challenge: challengeOf(verifier) };
+
+  return { verifier, challenge: challengeOf(verifier) } satisfies Pkce;
 };
 
 /** The state that ties Cloudflare's answer to this login. */
@@ -68,7 +80,7 @@ export const authorizeUrl = (request: {
   readonly redirectUri: string;
   readonly challenge: string;
   readonly state: string;
-}): string => {
+}) => {
   const url = new URL(request.authorize);
   url.search = new URLSearchParams({
     response_type: "code",
@@ -79,31 +91,43 @@ export const authorizeUrl = (request: {
     code_challenge: request.challenge,
     code_challenge_method: "S256",
   }).toString();
+
   return url.href;
 };
 
-const ERROR_CODE = /^[a-z_]{1,64}$/;
+const ERROR_CODE = /^[a-z_]{1,64}$/u;
 
 const printableVendorCodeOrPlaceholder = (value: string | null | undefined) =>
-  value !== null && value !== undefined && ERROR_CODE.test(value) ? value : "an unnamed error";
+  value !== null && value !== undefined && ERROR_CODE.test(value)
+    ? value
+    : "an unnamed error";
 
 export type Callback =
   | { readonly _tag: "Code"; readonly code: string }
-  | { readonly _tag: "Refused"; readonly message: string; readonly hint: string };
+  | {
+      readonly _tag: "Refused";
+      readonly message: string;
+      readonly hint: string;
+    };
 
 const AGAIN = "run the login again";
 
 /** What the browser brought back, read from the callback's path and query. */
-export const readCallback = (url: string, state: string): Callback => {
+export const readCallback = (url: string, state: string) => {
   const query = new URL(url, "http://127.0.0.1").searchParams;
-  if (query.get("state") !== state)
+
+  if (query.get("state") !== state) {
     return {
       _tag: "Refused",
-      message: "the answer did not come from this login, its state does not match",
+      message:
+        "the answer did not come from this login, its state does not match",
       hint: AGAIN,
-    };
+    } satisfies Callback;
+  }
+
   const error = query.get("error");
-  if (error !== null)
+
+  if (error !== null) {
     return {
       _tag: "Refused",
       message: `Cloudflare did not sign the hub in: ${printableVendorCodeOrPlaceholder(error)}`,
@@ -111,15 +135,22 @@ export const readCallback = (url: string, state: string): Callback => {
         error === "access_denied"
           ? `${AGAIN} and select Authorize`
           : "check the client's redirect URL and scopes in the Cloudflare dashboard",
-    };
+    } satisfies Callback;
+  }
+
   const code = query.get("code");
-  if (code === null || code === "")
-    return { _tag: "Refused", message: "Cloudflare's answer has no code", hint: AGAIN };
-  return { _tag: "Code", code };
+
+  if (code === null || code === "") {
+    return {
+      _tag: "Refused",
+      message: "Cloudflare's answer has no code",
+      hint: AGAIN,
+    } satisfies Callback;
+  }
+
+  return { _tag: "Code", code } satisfies Callback;
 };
 
-// Cloudflare's documentation does not say how long an access token lasts. When it names no
-// lifetime, the login is renewed after five minutes rather than used past its end.
 const ASSUMED_SECONDS = 300;
 
 const TokenAnswer = Schema.fromJsonString(
@@ -128,35 +159,43 @@ const TokenAnswer = Schema.fromJsonString(
     token_type: Schema.String,
     expires_in: Schema.optional(Schema.Finite.check(Schema.isGreaterThan(0))),
     refresh_token: Schema.optional(Schema.NonEmptyString),
-  }),
+  })
 );
 
 /**
  * The tokens in a token endpoint's answer, given the time it came. A renewal that brings no new
  * refresh token keeps `refreshToken`. None when the answer is not a bearer token with one.
+ *
+ * Cloudflare's documentation does not say how long an access token lasts. When an answer names no
+ * lifetime, the token is taken to end after five minutes, so the login is renewed then rather than
+ * used past its end.
  */
-export const parseTokens = (
-  body: string,
-  now: number,
-  refreshToken?: string,
-): Option.Option<OAuthTokens> =>
+export const parseTokens = (body: string, now: number, refreshToken?: string) =>
   Option.flatMap(Schema.decodeUnknownOption(TokenAnswer)(body), (answer) => {
     const refresh = answer.refresh_token ?? refreshToken;
-    if (answer.token_type.toLowerCase() !== "bearer" || refresh === undefined) return Option.none();
+
+    if (answer.token_type.toLowerCase() !== "bearer" || refresh === undefined) {
+      return Option.none();
+    }
+
     const seconds = answer.expires_in ?? ASSUMED_SECONDS;
+
     return Option.some({
       accessToken: answer.access_token,
       refreshToken: refresh,
       expiresAt: new Date(now + seconds * 1000).toISOString(),
-    });
+    } satisfies OAuthTokens);
   });
 
-export type Answer = { readonly status: number; readonly body: string };
+export interface Answer {
+  readonly status: number;
+  readonly body: string;
+}
 
 /** Sends a form to a token endpoint. The one function that talks to Cloudflare, so tests replace it. */
 export type PostForm = (
   url: string,
-  form: Readonly<Record<string, string>>,
+  form: Readonly<Record<string, string>>
 ) => Effect.Effect<Answer, OAuthFailed>;
 
 const MAX_ANSWER = 65_536;
@@ -171,8 +210,13 @@ export const postForm: PostForm = (url, form) =>
         redirect: "manual",
         signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
       });
+
       const body = await response.text();
-      return { status: response.status, body: body.length > MAX_ANSWER ? "" : body };
+
+      return {
+        status: response.status,
+        body: body.length > MAX_ANSWER ? "" : body,
+      };
     },
     catch: () =>
       new OAuthFailed({
@@ -181,32 +225,38 @@ export const postForm: PostForm = (url, form) =>
       }),
   });
 
-const ErrorAnswer = Schema.fromJsonString(Schema.Struct({ error: Schema.String }));
+const ErrorAnswer = Schema.fromJsonString(
+  Schema.Struct({ error: Schema.String })
+);
 
 const refusal = (body: string) =>
   printableVendorCodeOrPlaceholder(
-    Option.getOrUndefined(Schema.decodeUnknownOption(ErrorAnswer)(body))?.error,
+    Option.getOrUndefined(Schema.decodeUnknownOption(ErrorAnswer)(body))?.error
   );
 
 const tokensFrom = (
   answer: Answer,
   failed: { readonly refused: string; readonly hint: string },
-  refreshToken?: string,
+  refreshToken?: string
 ) =>
   Effect.gen(function* () {
-    if (answer.status < 200 || answer.status > 299)
+    if (answer.status < 200 || answer.status > 299) {
       return yield* new OAuthFailed({
         message: `${failed.refused} (${answer.status}, ${refusal(answer.body)})`,
         hint: failed.hint,
       });
+    }
+
     const now = DateTime.toEpochMillis(yield* DateTime.now);
+
     return yield* Option.match(parseTokens(answer.body, now, refreshToken), {
       onNone: () =>
         Effect.fail(
           new OAuthFailed({
-            message: "Cloudflare's token answer is not a bearer token with a refresh token",
+            message:
+              "Cloudflare's token answer is not a bearer token with a refresh token",
             hint: "give the OAuth client the refresh_token grant, then sign in again",
-          }),
+          })
         ),
       onSome: Effect.succeed,
     });
@@ -221,7 +271,7 @@ export const exchange = (
     readonly code: string;
     readonly verifier: string;
     readonly redirectUri: string;
-  },
+  }
 ) =>
   Effect.flatMap(
     post(request.token, {
@@ -235,14 +285,14 @@ export const exchange = (
       tokensFrom(answer, {
         refused: "Cloudflare did not take the sign-in code",
         hint: AGAIN,
-      }),
+      })
   );
 
 /** New tokens for a login close to its end. A refusal means the owner signs in again. */
 export const renew = (
   post: PostForm,
   login: { readonly clientId: string; readonly refreshToken: string },
-  token = CLOUDFLARE.token,
+  token = CLOUDFLARE.token
 ) =>
   Effect.flatMap(
     post(token, {
@@ -257,30 +307,38 @@ export const renew = (
           refused: "Cloudflare refused to renew the hub's login",
           hint: `sign in again with \`devbox hub cloudflare login --client-id ${login.clientId}\``,
         },
-        login.refreshToken,
-      ),
+        login.refreshToken
+      )
   );
 
 const PAGE = {
   took: "devbox has what it needs. Go back to the terminal; you can close this tab.\n",
-  refused: "devbox did not get a sign-in. The terminal says why; you can close this tab.\n",
+  refused:
+    "devbox did not get a sign-in. The terminal says why; you can close this tab.\n",
 };
 
 const callbackListener = (port: number, state: string) =>
   Effect.gen(function* () {
-    const { promise: arrived, resolve: arrive } = Promise.withResolvers<Callback>();
+    const { promise: arrived, resolve: arrive } =
+      Promise.withResolvers<Callback>();
+
     let taken = false;
     yield* listen("127.0.0.1", port, (req, res) => {
       const url = req.url ?? "/";
       const { pathname } = new URL(url, "http://127.0.0.1");
+
       if (taken || req.method !== "GET" || pathname !== "/callback") {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
         res.end("not found\n");
+
         return;
       }
+
       taken = true;
       const callback = readCallback(url, state);
-      res.on("close", () => arrive(callback));
+      res.on("close", () => {
+        arrive(callback);
+      });
       res.writeHead(callback._tag === "Code" ? 200 : 400, {
         "cache-control": "no-store",
         connection: "close",
@@ -294,19 +352,20 @@ const callbackListener = (port: number, state: string) =>
           new OAuthFailed({
             message: `cannot listen on 127.0.0.1:${port} for Cloudflare's answer`,
             hint: `stop what uses port ${port}, then sign in again`,
-          }),
-      ),
+          })
+      )
     );
-    return Effect.promise(() => arrived);
+
+    return Effect.promise(async () => await arrived);
   });
 
 /** Where the login talks to and how long it waits. Tests point it at a fake Cloudflare. */
-export type Flow = {
+export interface Flow {
   readonly endpoints: Endpoints;
   readonly port: number;
   readonly waitMs: number;
   readonly post: PostForm;
-};
+}
 
 export const CLOUDFLARE_FLOW: Flow = {
   endpoints: CLOUDFLARE,
@@ -322,22 +381,27 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
     const pkce = makePkce();
     const state = makeState();
     const redirect = redirectUri(flow.port);
+
     const callback = yield* Effect.scoped(
       Effect.gen(function* () {
         const arrived = yield* callbackListener(flow.port, state);
-        yield* out.line("Open this address in a browser on this machine and select Authorize:");
+        yield* out.line(
+          "Open this address in a browser on this machine and select Authorize:"
+        );
         yield* out.line();
         yield* out.line(
-          `  ${authorizeUrl({ authorize: flow.endpoints.authorize, clientId, redirectUri: redirect, challenge: pkce.challenge, state })}`,
+          `  ${authorizeUrl({ clientId, state, authorize: flow.endpoints.authorize, redirectUri: redirect, challenge: pkce.challenge })}`
         );
         yield* out.line();
         yield* out.log(
-          `from another computer, forward the port first: ssh -L ${flow.port}:127.0.0.1:${flow.port} <this machine>`,
+          `from another computer, forward the port first: ssh -L ${flow.port}:127.0.0.1:${flow.port} <this machine>`
         );
+
         return yield* arrived.pipe(Effect.timeoutOption(flow.waitMs));
-      }),
+      })
     );
-    if (Option.isNone(callback))
+
+    if (Option.isNone(callback)) {
       return yield* new OAuthFailed({
         message: `no answer from Cloudflare within ${
           flow.waitMs >= 60_000
@@ -346,14 +410,18 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
         }`,
         hint: AGAIN,
       });
-    if (callback.value._tag === "Refused")
+    }
+
+    if (callback.value._tag === "Refused") {
       return yield* new OAuthFailed({
         message: callback.value.message,
         hint: callback.value.hint,
       });
+    }
+
     return yield* exchange(flow.post, {
-      token: flow.endpoints.token,
       clientId,
+      token: flow.endpoints.token,
       code: callback.value.code,
       verifier: pkce.verifier,
       redirectUri: redirect,
@@ -361,34 +429,40 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
   });
 
 /** What the login hands on to be saved. */
-export type SignedIn = {
+export interface SignedIn {
   readonly clientId: string;
   readonly tokens: OAuthTokens;
   readonly account: Option.Option<string>;
   readonly zone: Option.Option<string>;
-};
+}
 
-const ClientId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[\w.~-]{1,200}$/)));
+const ClientId = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[\w.~-]{1,200}$/u))
+);
 
 /** `devbox hub cloudflare login`: signs the hub in with OAuth and hands the result to `save`. */
 export const loginCommand = <E, R>(
   save: (signedIn: SignedIn) => Effect.Effect<void, E, R>,
-  flow: Flow = CLOUDFLARE_FLOW,
+  flow: Flow = CLOUDFLARE_FLOW
 ) =>
   Command.make(
     "login",
     {
       clientId: Flag.String("client-id").pipe(
-        Flag.withDescription("the OAuth client's ID from Manage Account > OAuth clients"),
-        Flag.withSchema(ClientId),
+        Flag.withDescription(
+          "the OAuth client's ID from Manage Account > OAuth clients"
+        ),
+        Flag.withSchema(ClientId)
       ),
       account: Flag.String("account").pipe(
-        Flag.withDescription("the account ID, when the login sees more than one"),
-        Flag.optional,
+        Flag.withDescription(
+          "the account ID, when the login sees more than one"
+        ),
+        Flag.optional
       ),
       zone: Flag.String("zone").pipe(
         Flag.withDescription("the domain, when the login sees more than one"),
-        Flag.optional,
+        Flag.optional
       ),
     },
     ({ clientId, account, zone }) =>
@@ -397,9 +471,9 @@ export const loginCommand = <E, R>(
         const tokens = yield* signIn(clientId, flow);
         yield* save({ clientId, tokens, account, zone });
         yield* out.success("the hub is signed in to Cloudflare");
-      }),
+      })
   ).pipe(
     Command.withDescription(
-      "Sign the hub in to Cloudflare in a browser, with an OAuth client that uses PKCE",
-    ),
+      "Sign the hub in to Cloudflare in a browser, with an OAuth client that uses PKCE"
+    )
   );

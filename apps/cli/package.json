@@ -12,9 +12,7 @@
     "dev": "bun --watch src/cli.ts hub",
     "build": "bun build src/cli.ts --compile --minify --outfile dist/devbox",
     "test": "bun test",
-    "typecheck": "tsrs --noEmit",
-    "check": "oxlint && oxfmt --check",
-    "fix": "oxlint --fix && oxfmt"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@effect/platform-bun": "4.1.4",
@@ -23,8 +21,6 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.4",
-    "oxfmt": "0.75.0",
-    "oxlint": "1.90.0",
     "tsrs": "0.20.1-ts7.1.0-beta"
   },
   "devEngines": {

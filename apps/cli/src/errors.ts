@@ -7,7 +7,10 @@ export class UsageError extends Schema.TaggedError<UsageError>()("UsageError", {
   override readonly [Runtime.errorExitCode] = 2;
 }
 
-export class NotATerminal extends Schema.TaggedError<NotATerminal>()("NotATerminal", {}) {
+export class NotATerminal extends Schema.TaggedError<NotATerminal>()(
+  "NotATerminal",
+  {}
+) {
   override get message() {
     return "not a terminal, cannot ask for confirmation";
   }
@@ -22,5 +25,8 @@ export class Aborted extends Schema.TaggedError<Aborted>()("Aborted", {}) {
   }
 }
 
-export const hintOf = (error: unknown): string | undefined =>
-  Predicate.hasProperty(error, "hint") && Predicate.isString(error.hint) ? error.hint : undefined;
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- a caught error can be any value
+export const hintOf = (error: unknown) =>
+  Predicate.hasProperty(error, "hint") && Predicate.isString(error.hint)
+    ? error.hint
+    : undefined;

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync, sign } from "node:crypto";
+
 import { Schema } from "effect";
+
 import {
-  type Challenges,
   fingerprint,
   handOut,
   KEY_HEADER,
@@ -14,6 +15,7 @@ import {
   verifyRequest,
   WINDOW_MS,
 } from "../src/spoke/signed.ts";
+import type { Challenges } from "../src/spoke/signed.ts";
 import { vitalsOf } from "../src/spoke/vitals.ts";
 
 const hub = generateKeyPairSync("ed25519").privateKey;
@@ -22,28 +24,49 @@ const KEY = publicKeyOf(hub);
 const NOW = Date.parse("2026-11-27T12:00:00.000Z");
 const NONCE = "nonce-0123456789abcdef";
 
-const request = (signed = signRequest(hub, new Date(NOW), NONCE, "update")) => ({
+const request = (
+  signed = signRequest(hub, new Date(NOW), NONCE, "update")
+) => ({
   body: signed.body,
   key: signed.headers["x-devbox-key"],
   signature: signed.headers["x-devbox-signature"],
 });
 
-type Request = { body: string; key: string | undefined; signature: string | undefined };
+interface Request {
+  body: string;
+  key?: string;
+  signature?: string;
+}
+
+interface BadBodyRest {
+  do?: string | number;
+}
+
+const isValidPublicKey = (text: string) => Schema.is(PublicKey)(text);
 
 const handedOut = handOut(new Map(), NONCE, NOW);
 
 const verdict = (r: Request, challenges: Challenges = handedOut, now = NOW) =>
-  verifyRequest(r, [KEY], now, challenges);
+  verifyRequest(
+    { body: r.body, key: r.key, signature: r.signature },
+    [KEY],
+    now,
+    challenges
+  );
 
 const nonceNumber = (n: number) => `nonce-${String(n).padStart(16, "0")}`;
 
 describe("a signed request", () => {
   test("names the key by the base64url SHA-256 of its raw bytes", () => {
     const r = request();
-    expect(r.body).toBe(`{"at":"2026-11-27T12:00:00.000Z","nonce":"${NONCE}","do":"update"}`);
+    expect(r.body).toBe(
+      `{"at":"2026-11-27T12:00:00.000Z","nonce":"${NONCE}","do":"update"}`
+    );
     expect(r.key).toBe(fingerprint(KEY));
     expect(r.key).toBe(
-      new Bun.CryptoHasher("sha256").update(Buffer.from(KEY, "base64url")).digest("base64url"),
+      new Bun.CryptoHasher("sha256")
+        .update(Buffer.from(KEY, "base64url"))
+        .digest("base64url")
     );
     expect(KEY).toHaveLength(43);
   });
@@ -51,7 +74,11 @@ describe("a signed request", () => {
   test("is taken once when its nonce is one the spoke handed out, and says what it asks for", () => {
     const first = verdict(request());
     expect(first.ok).toBe(true);
-    if (!first.ok) return;
+
+    if (!first.ok) {
+      return;
+    }
+
     expect(first.do).toBe("update");
     expect(verdict(request(), first.challenges)).toEqual({
       ok: false,
@@ -70,8 +97,13 @@ describe("a signed request", () => {
 
   test("is refused when the spoke handed out its nonce longer ago than the window", () => {
     const old = handOut(new Map(), NONCE, NOW - WINDOW_MS - 1);
-    expect(verdict(request(), old)).toEqual({ ok: false, why: "the challenge is too old" });
-    expect(verdict(request(), handOut(new Map(), NONCE, NOW - WINDOW_MS)).ok).toBe(true);
+    expect(verdict(request(), old)).toEqual({
+      ok: false,
+      why: "the challenge is too old",
+    });
+    expect(
+      verdict(request(), handOut(new Map(), NONCE, NOW - WINDOW_MS)).ok
+    ).toBe(true);
   });
 
   test("is taken at the edge of the window, on either side", () => {
@@ -80,7 +112,9 @@ describe("a signed request", () => {
   });
 
   test("is refused when signed by a key the spoke does not trust", () => {
-    expect(verdict(request(signRequest(other, new Date(NOW), NONCE, "update")))).toEqual({
+    expect(
+      verdict(request(signRequest(other, new Date(NOW), NONCE, "update")))
+    ).toEqual({
       ok: false,
       why: "this spoke does not trust that key",
     });
@@ -91,12 +125,18 @@ describe("a signed request", () => {
       ...request(signRequest(other, new Date(NOW), NONCE, "update")),
       key: fingerprint(KEY),
     };
-    expect(verdict(forged)).toEqual({ ok: false, why: "the signature does not match" });
+
+    expect(verdict(forged)).toEqual({
+      ok: false,
+      why: "the signature does not match",
+    });
   });
 
   test("is refused when its body was changed after signing", () => {
     const r = request();
-    expect(verdict({ ...r, body: r.body.replace("12:00:00", "12:00:01") })).toEqual({
+    expect(
+      verdict({ ...r, body: r.body.replace("12:00:00", "12:00:01") })
+    ).toEqual({
       ok: false,
       why: "the signature does not match",
     });
@@ -105,63 +145,101 @@ describe("a signed request", () => {
 
   test("signed for an update, cannot be sent as a pairing request, because the action is signed", () => {
     const r = request();
-    const asPair = { ...r, body: r.body.replace('"do":"update"', '"do":"pair"') };
+
+    const asPair = {
+      ...r,
+      body: r.body.replace('"do":"update"', '"do":"pair"'),
+    };
+
     expect(asPair.body).toContain('"do":"pair"');
-    expect(verdict(asPair)).toEqual({ ok: false, why: "the signature does not match" });
+    expect(verdict(asPair)).toEqual({
+      ok: false,
+      why: "the signature does not match",
+    });
   });
 
   test("says what it asks for, a name the spoke has yet to look up", () => {
-    const pair = verdict(request(signRequest(hub, new Date(NOW), NONCE, "pair")));
+    const pair = verdict(
+      request(signRequest(hub, new Date(NOW), NONCE, "pair"))
+    );
+
     expect(pair.ok && pair.do).toBe("pair");
   });
 
   test("is refused without a signature, or with one that is not base64url", () => {
-    expect(verdict({ ...request(), signature: undefined }).ok).toBe(false);
-    expect(verdict({ ...request(), signature: "!!!" }).ok).toBe(false);
-    expect(verdict({ ...request(), key: undefined }).ok).toBe(false);
+    const r = request();
+    expect(verdict({ body: r.body, key: r.key }).ok).toBe(false);
+    expect(verdict({ ...r, signature: "!!!" }).ok).toBe(false);
+    expect(verdict({ body: r.body, signature: r.signature }).ok).toBe(false);
   });
 
   test("is refused once it is older or newer than the window", () => {
-    const stale = { ok: false, why: "the request is too old or too new" } as const;
+    const stale = {
+      ok: false,
+      why: "the request is too old or too new",
+    } as const;
+
     expect(verdict(request(), handedOut, NOW + WINDOW_MS + 1)).toEqual(stale);
     expect(verdict(request(), handedOut, NOW - WINDOW_MS - 1)).toEqual(stale);
   });
 
   test("is refused when it names no time, a nonce that is too short, or nothing to do", () => {
-    const bad = (at: string, nonce: string, rest: object = { do: "update" }) => {
+    const bad = (at: string, nonce: string, rest?: BadBodyRest) => {
       const signed = signRequest(hub, new Date(NOW), NONCE, "update");
-      const body = JSON.stringify({ at, nonce, ...rest });
+      const body = JSON.stringify({ at, nonce, ...(rest ?? { do: "update" }) });
       const signature = sign(null, Buffer.from(body), hub);
+
       return verdict({
         body,
         key: signed.headers["x-devbox-key"],
         signature: signature.toString("base64url"),
       });
     };
+
     expect(bad("yesterday", NONCE)).toEqual({
       ok: false,
       why: "the request is too old or too new",
     });
-    const shapeless = { ok: false, why: "the body is not a signed request" } as const;
-    expect(bad(new Date(NOW).toISOString(), "short")).toEqual(shapeless);
-    expect(bad(new Date(NOW).toISOString(), NONCE, {})).toEqual(shapeless);
-    expect(bad(new Date(NOW).toISOString(), NONCE, { do: 7 })).toEqual(shapeless);
+
+    const malformed = {
+      ok: false,
+      why: "the body is not a signed request",
+    } as const;
+
+    expect(bad(new Date(NOW).toISOString(), "short")).toEqual(malformed);
+    expect(bad(new Date(NOW).toISOString(), NONCE, {})).toEqual(malformed);
+    expect(bad(new Date(NOW).toISOString(), NONCE, { do: 7 })).toEqual(
+      malformed
+    );
   });
 });
 
 describe("the challenges a spoke hands out", () => {
   test("forget a nonce once it has left the window", () => {
-    const later = handOut(handedOut, "nonce-fedcba9876543210", NOW + 2 * WINDOW_MS);
+    const later = handOut(
+      handedOut,
+      "nonce-fedcba9876543210",
+      NOW + 2 * WINDOW_MS
+    );
+
     expect([...later.keys()]).toEqual(["nonce-fedcba9876543210"]);
   });
 
   test(`keep at most ${MAX_CHALLENGES}, so the 65th drops the oldest`, () => {
     let challenges: Challenges = new Map();
-    for (let n = 1; n <= MAX_CHALLENGES + 1; n += 1)
+
+    for (let n = 1; n <= MAX_CHALLENGES + 1; n += 1) {
       challenges = handOut(challenges, nonceNumber(n), NOW);
+    }
+
     expect(challenges.size).toBe(MAX_CHALLENGES);
+
     const answering = (nonce: string) =>
-      verdict(request(signRequest(hub, new Date(NOW), nonce, "update")), challenges).ok;
+      verdict(
+        request(signRequest(hub, new Date(NOW), nonce, "update")),
+        challenges
+      ).ok;
+
     expect(answering(nonceNumber(1))).toBe(false);
     expect(answering(nonceNumber(2))).toBe(true);
     expect(answering(nonceNumber(MAX_CHALLENGES + 1))).toBe(true);
@@ -169,14 +247,12 @@ describe("the challenges a spoke hands out", () => {
 });
 
 describe("a hub key on the command line", () => {
-  const valid = (text: string) => Schema.is(PublicKey)(text);
-
   test("is the 32 raw bytes of an Ed25519 key in base64url", () => {
-    expect(valid(KEY)).toBe(true);
-    expect(valid(`${KEY}=`)).toBe(false);
-    expect(valid(KEY.slice(1))).toBe(false);
-    expect(valid(Buffer.alloc(32).toString("base64"))).toBe(false);
-    expect(valid("--hub")).toBe(false);
+    expect(isValidPublicKey(KEY)).toBe(true);
+    expect(isValidPublicKey(`${KEY}=`)).toBe(false);
+    expect(isValidPublicKey(KEY.slice(1))).toBe(false);
+    expect(isValidPublicKey(Buffer.alloc(32).toString("base64"))).toBe(false);
+    expect(isValidPublicKey("--hub")).toBe(false);
   });
 });
 
@@ -186,9 +262,9 @@ describe("vitals", () => {
       vitalsOf({
         load1: 3,
         cores: 8,
-        memory: { total: 16_000, available: 4_000 },
+        memory: { total: 16_000, available: 4000 },
         disk: { blocks: 1000, free: 250, blockSize: 4096 },
-      }),
+      })
     ).toEqual({
       load: 0.375,
       memory: { used: 12_000, total: 16_000 },
@@ -203,6 +279,7 @@ describe("vitals", () => {
       memory: { total: 1, available: 2 },
       disk: { blocks: 0, free: 0, blockSize: 4096 },
     });
+
     expect(v.load).toBe(0);
     expect(v.memory.used).toBe(0);
   });
@@ -212,6 +289,7 @@ describe("vitals", () => {
       token: "run-token",
       url: "https://t3-edge-7.example.com",
     });
+
     const taken = verifyRequest(
       {
         body: signed.body,
@@ -220,13 +298,15 @@ describe("vitals", () => {
       },
       [KEY],
       NOW,
-      handOut(new Map(), NONCE, NOW),
+      handOut(new Map(), NONCE, NOW)
     );
+
     expect(taken).toMatchObject({
       ok: true,
       do: "tunnel",
       fields: { token: "run-token", url: "https://t3-edge-7.example.com" },
     });
+
     const changed = verifyRequest(
       {
         body: signed.body.replace("t3-edge-7", "t3-edge-8"),
@@ -235,8 +315,9 @@ describe("vitals", () => {
       },
       [KEY],
       NOW,
-      handOut(new Map(), NONCE, NOW),
+      handOut(new Map(), NONCE, NOW)
     );
+
     expect(changed).toEqual({ ok: false, why: "the signature does not match" });
   });
 });

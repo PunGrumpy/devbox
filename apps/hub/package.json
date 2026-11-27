@@ -6,8 +6,6 @@
     "dev": "next dev --port 3790",
     "build": "next build",
     "typecheck": "next typegen && tsrs --noEmit",
-    "check": "ultracite check",
-    "fix": "ultracite fix",
     "test": "bun test"
   },
   "dependencies": {
@@ -17,24 +15,14 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@gdp-ts/core": "0.1.0",
-    "@interfere/landmines": "0.1.1",
     "@tailwindcss/postcss": "4.3.5",
     "@types/bun": "1.4.5",
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "eslint-plugin-github": "6.1.2",
-    "eslint-plugin-sonarjs": "4.2.2",
-    "oxfmt": "0.79.0",
-    "oxlint": "1.94.0",
-    "oxlint-plugin-react-doctor": "0.9.23",
-    "oxlint-tsgolint": "7.0.2007",
-    "react-doctor": "0.9.23",
     "tailwindcss": "4.3.5",
     "tsrs": "7.1.0-beta.tsrs4",
-    "typescript": "7.0.2",
-    "ultracite": "8.3.1"
+    "typescript": "7.0.2"
   },
   "browserslist": [
     "chrome >= 123",

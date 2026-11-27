@@ -1,5 +1,6 @@
-import { Result, Schema } from "effect";
 import { createHash } from "node:crypto";
+
+import { Result, Schema } from "effect";
 
 export const SKILLS_LIST_URL =
   "https://raw.githubusercontent.com/PunGrumpy/dotfiles/main/home/run_onchange_after_40-install-agent-skills.sh.tmpl";
@@ -7,62 +8,72 @@ export const SKILLS_LIST_URL =
 const Source = Schema.String.pipe(
   Schema.check(
     Schema.isPattern(
-      /^(?!.*\.\.)(?:[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*|https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_./-]+)$/,
-    ),
-  ),
+      /^(?!.*\.\.)(?:[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*|https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_./-]+)$/u
+    )
+  )
 );
+
 const SkillName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/)),
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u))
 );
 
 export const SkillSource = Schema.Struct({
   repo: Source,
   skills: Schema.Array(SkillName),
 });
+
 export type SkillSource = typeof SkillSource.Type;
 
-export type SkillsList = {
-  readonly sources: ReadonlyArray<SkillSource>;
-  readonly rejected: ReadonlyArray<string>;
+export interface SkillsList {
+  readonly sources: readonly SkillSource[];
+  readonly rejected: readonly string[];
   readonly hash: string;
-};
+}
 
 const tokens = (line: string) => {
-  const [, repo, ...rest] = line.trim().split(/\s+/);
+  const [, repo, ...rest] = line.trim().split(/\s+/u);
   const [flag, ...skills] = rest;
-  return rest.length === 0
-    ? { repo, skills: [] }
-    : flag === "--skill"
-      ? { repo, skills }
-      : undefined;
+
+  if (rest.length === 0) {
+    return { repo, skills: [] };
+  }
+
+  return flag === "--skill" ? { repo, skills } : undefined;
 };
 
-export const parseSkillsList = (text: string): SkillsList => {
+export const parseSkillsList = (text: string) => {
   const lines = text
     .split("\n")
     .filter((line) => line.startsWith("skill "))
     .map((line) => line.replace("git@github.com:", "https://github.com/"));
-  const sources: Array<SkillSource> = [];
-  const rejected: Array<string> = [];
+
+  const sources: SkillSource[] = [];
+  const rejected: string[] = [];
+
   for (const line of lines) {
     const decoded = Schema.decodeUnknownResult(SkillSource)(tokens(line));
-    if (Result.isSuccess(decoded)) sources.push(decoded.success);
-    else rejected.push(line);
+
+    if (Result.isSuccess(decoded)) {
+      sources.push(decoded.success);
+    } else {
+      rejected.push(line);
+    }
   }
+
   return {
     sources,
     rejected,
     hash: createHash("sha256").update(lines.join("\n")).digest("hex"),
-  };
+  } satisfies SkillsList;
 };
 
-export const skillsStamp = (list: SkillsList, agents: ReadonlyArray<string>): string =>
+export const skillsStamp = (list: SkillsList, agents: readonly string[]) =>
   `${list.hash} ${agents.join(",")}`;
 
 export const skillsAddArgs = (
   source: SkillSource,
-  agents: ReadonlyArray<string>,
-): ReadonlyArray<string> => [
+  agents: readonly string[]
+) => [
   "npx",
   "-y",
   "skills",

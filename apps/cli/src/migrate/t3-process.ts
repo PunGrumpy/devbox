@@ -1,8 +1,12 @@
 import { Context, Effect, FileSystem, Layer, Option, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+
 import { Locations } from "./locations.ts";
 
-export type RunningServer = { readonly pid: number; readonly version: string | null };
+export interface RunningServer {
+  readonly pid: number;
+  readonly version: string | null;
+}
 
 export class T3Running extends Schema.TaggedError<T3Running>()("T3Running", {
   pid: Schema.Number,
@@ -19,10 +23,10 @@ const RuntimeFile = Schema.fromJsonString(
   Schema.Struct({
     pid: Schema.optional(Schema.Number),
     serverVersion: Schema.optional(Schema.String),
-  }),
+  })
 );
 
-// A T3 server on Linux: `t3 serve`, or the WSL runtime the Windows app starts.
+/** Matches a T3 server on Linux: `t3 serve`, or the WSL runtime the Windows app starts. */
 export const LINUX_T3_SERVER = "(^|/)t3 (serve|--bootstrap-fd)";
 
 const PROCESS_PATTERNS: Partial<Record<NodeJS.Platform, string>> = {
@@ -30,9 +34,12 @@ const PROCESS_PATTERNS: Partial<Record<NodeJS.Platform, string>> = {
   linux: LINUX_T3_SERVER,
 };
 
-const pidAlive = (pid: number): boolean => {
+const LEADING_INTEGER = /^\s*(?<integer>[+-]?\d+)/u;
+
+const pidAlive = (pid: number) => {
   try {
     process.kill(pid, 0);
+
     return true;
   } catch {
     return false;
@@ -49,38 +56,50 @@ export class T3Process extends Context.Service<
       const { runtimeFile } = yield* Locations;
       const fs = yield* FileSystem.FileSystem;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
       const fromRuntimeFile = fs.readFileString(runtimeFile).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(RuntimeFile)),
         Effect.map(({ pid, serverVersion }) =>
           pid !== undefined && pidAlive(pid)
             ? Option.some({ pid, version: serverVersion ?? null })
-            : Option.none(),
+            : Option.none()
         ),
-        Effect.orElseSucceed(Option.none<RunningServer>),
+        Effect.orElseSucceed(Option.none<RunningServer>)
       );
+
       const pattern = PROCESS_PATTERNS[process.platform];
+
       const fromProcessScan =
         pattern === undefined
           ? Effect.succeed(Option.none<RunningServer>())
           : spawner.lines(ChildProcess.make("pgrep", ["-f", pattern])).pipe(
               Effect.map((lines) => {
-                const pid = Number.parseInt(lines[0] ?? "", 10);
-                return Number.isFinite(pid) ? Option.some({ pid, version: null }) : Option.none();
+                const pid = Number(
+                  LEADING_INTEGER.exec(lines[0] ?? "")?.groups?.integer
+                );
+
+                return Number.isFinite(pid)
+                  ? Option.some({ pid, version: null })
+                  : Option.none();
               }),
-              Effect.orElseSucceed(Option.none<RunningServer>),
+              Effect.orElseSucceed(Option.none<RunningServer>)
             );
+
       return {
         running: fromRuntimeFile.pipe(
           Effect.flatMap((found) =>
-            Option.isSome(found) ? Effect.succeed(found) : fromProcessScan,
-          ),
+            Option.isSome(found) ? Effect.succeed(found) : fromProcessScan
+          )
         ),
       };
-    }),
+    })
   );
 }
 
 export const assertT3Closed = Effect.gen(function* () {
   const running = yield* (yield* T3Process).running;
-  if (Option.isSome(running)) return yield* new T3Running({ pid: running.value.pid });
+
+  if (Option.isSome(running)) {
+    return yield* new T3Running({ pid: running.value.pid });
+  }
 });

@@ -1,20 +1,37 @@
-import { Effect, type FileSystem, Option, Schema, type Semaphore } from "effect";
+import { Effect, Option, Schema } from "effect";
+import type { FileSystem, Semaphore } from "effect";
+
 import { Host } from "../machine/host.ts";
-import { type Do, type Fields, Nonce, signRequest } from "../spoke/signed.ts";
+import { Nonce, signRequest } from "../spoke/signed.ts";
+import type { Do, Fields } from "../spoke/signed.ts";
 import { PAIR_MS } from "../spoke/spoke.ts";
 import { bearerOf, forgetCloudflare } from "./cloudflare-auth.ts";
-import { ApiToken, cloudflareApi, type PickOne, saveToken } from "./cloudflare.ts";
-import { type HubRequest, json, LOGGED_OUT, loggedIn, type Reply, refuse } from "./login.ts";
-import { type Machine, origin, type Snapshot, spokeAddresses } from "./machines.ts";
+import { ApiToken, cloudflareApi, saveToken } from "./cloudflare.ts";
+import type { PickOne } from "./cloudflare.ts";
+import { json, LOGGED_OUT, loggedIn, refuse } from "./login.ts";
+import type { HubRequest, Reply } from "./login.ts";
+import { origin, spokeAddresses } from "./machines.ts";
+import type { Machine, Snapshot } from "./machines.ts";
 import type { HubSecrets } from "./secrets.ts";
-import { NO_LOGIN, publish, StepFailed, TUNNEL_MS, type TunnelJob, unpublish } from "./tunnel.ts";
+import {
+  NO_LOGIN,
+  publish,
+  StepFailed,
+  TUNNEL_MS,
+  unpublish,
+} from "./tunnel.ts";
+import type { TunnelJob } from "./tunnel.ts";
 
 const Paired = Schema.fromJsonString(
-  Schema.Struct({ url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/))) }),
+  Schema.Struct({
+    url: Schema.String.pipe(
+      Schema.check(Schema.isPattern(/^https?:\/\/\S+$/u))
+    ),
+  })
 );
 
 /** What a request for a machine needs besides the machine. */
-export type AskContext = {
+export interface AskContext {
   readonly secrets: HubSecrets;
   readonly home: string;
   readonly spokePort: number;
@@ -22,59 +39,77 @@ export type AskContext = {
   /** Held by a publish or an unpublish, so two never interleave, whatever machine they are for. */
   readonly tunnels: Semaphore.Semaphore;
   /** Every machine the hub knows, by name. */
-  readonly names: ReadonlyArray<string>;
-};
+  readonly names: readonly string[];
+}
 
 type Run = (
   machine: Machine,
-  context: AskContext,
+  context: AskContext
 ) => Effect.Effect<Reply, never, Host | FileSystem.FileSystem>;
 
-const spokeAnswers =
-  (
-    action: "update" | "pair",
-    timeoutMs: number,
-    took: (body: string) => Option.Option<Reply>,
-    failed: (name: string) => string,
-  ): Run =>
-  (machine, { secrets, spokePort }) =>
-    Effect.map(tellSpoke(machine, action, {}, secrets, spokePort, timeoutMs), (answered) =>
-      Option.getOrElse(Option.flatMap(answered, took), () => refuse(502, failed(machine.name))),
-    );
+const spokeAnswers = (
+  action: "update" | "pair",
+  timeoutMs: number,
+  took: (body: string) => Option.Option<Reply>,
+  failed: (name: string) => string
+) =>
+  ((machine, { secrets, spokePort }) =>
+    Effect.map(
+      tellSpoke(machine, action, {}, secrets, spokePort, timeoutMs),
+      (answered) =>
+        Option.getOrElse(Option.flatMap(answered, took), () =>
+          refuse(502, failed(machine.name))
+        )
+    )) satisfies Run;
 
-const tunnelJob = (machine: Machine, context: AskContext): TunnelJob => ({
-  home: context.home,
-  machine,
-  others: context.names.filter((name) => name !== machine.name),
-  t3Port: context.t3Port,
-  cloudflare: (account) =>
-    Effect.map(
-      bearerOf(context.home, account).pipe(
-        Effect.mapError(
-          (error) => new StepFailed({ step: "sign in to Cloudflare", said: error.message }),
+const tunnelJob = (machine: Machine, context: AskContext) =>
+  ({
+    machine,
+    home: context.home,
+    others: context.names.filter((name) => name !== machine.name),
+    t3Port: context.t3Port,
+    cloudflare: (account) =>
+      Effect.map(
+        bearerOf(context.home, account).pipe(
+          Effect.mapError(
+            (error) =>
+              new StepFailed({
+                step: "sign in to Cloudflare",
+                said: error.message,
+              })
+          )
         ),
+        cloudflareApi
       ),
-      cloudflareApi,
-    ),
-  tell: (action, fields) =>
-    Effect.map(
-      tellSpoke(machine, action, fields, context.secrets, context.spokePort, TUNNEL_MS),
-      Option.isSome,
-    ),
-});
+    tell: (action, fields) =>
+      Effect.map(
+        tellSpoke(
+          machine,
+          action,
+          fields,
+          context.secrets,
+          context.spokePort,
+          TUNNEL_MS
+        ),
+        Option.isSome
+      ),
+  }) satisfies TunnelJob;
 
 const ACTIONS: Readonly<Record<Do, Run>> = {
   update: spokeAnswers(
     "update",
     5000,
     () => Option.some(json(202, { asked: true })),
-    (name) => `${name} did not take the update.`,
+    (name) => `${name} did not take the update.`
   ),
   pair: spokeAnswers(
     "pair",
     PAIR_MS + 5000,
-    (body) => Option.map(Schema.decodeUnknownOption(Paired)(body), ({ url }) => json(200, { url })),
-    (name) => `${name} gave no pairing link.`,
+    (body) =>
+      Option.map(Schema.decodeUnknownOption(Paired)(body), ({ url }) =>
+        json(200, { url })
+      ),
+    (name) => `${name} gave no pairing link.`
   ),
   tunnel: (machine, context) =>
     context.tunnels.withPermits(1)(publish(tunnelJob(machine, context))),
@@ -84,38 +119,45 @@ const ACTIONS: Readonly<Record<Do, Run>> = {
 
 export type Action = Do;
 
-const PATHS: Readonly<Record<string, Readonly<Record<string, Action>>>> = {
+interface Methods {
+  readonly [method: string]: Action;
+}
+
+interface MethodsByPath {
+  readonly [last: string]: Methods;
+}
+
+const PATHS: MethodsByPath = {
   update: { POST: "update" },
   pair: { POST: "pair" },
   tunnel: { POST: "tunnel", DELETE: "untunnel" },
 };
 
-const MACHINE_PATH = /^\/api\/machines\/(?<name>[^/]+)\/(?<last>update|pair|tunnel)$/;
+const MACHINE_PATH =
+  /^\/api\/machines\/(?<name>[^/]+)\/(?<last>update|pair|tunnel)$/u;
+
+const decoded = Option.liftThrowable(decodeURIComponent);
 
 /**
  * The machine a path names, the action its method asks for (undefined for a method the path does
  * not take), and the methods it takes. Undefined when the path names no machine.
  */
-export const machineAction = (
-  pathname: string,
-  method: string,
-):
-  | {
-      readonly name: string | undefined;
-      readonly action: Action | undefined;
-      readonly allow: string;
-    }
-  | undefined => {
+export const machineAction = (pathname: string, method: string) => {
   const groups = MACHINE_PATH.exec(pathname)?.groups;
   const methods = groups?.last === undefined ? undefined : PATHS[groups.last];
-  if (groups?.name === undefined || methods === undefined) return undefined;
+
+  if (groups?.name === undefined || methods === undefined) {
+    return;
+  }
+
   const action = Object.hasOwn(methods, method) ? methods[method] : undefined;
   const allow = Object.keys(methods).join(", ");
-  try {
-    return { name: decodeURIComponent(groups.name), action, allow };
-  } catch {
-    return { name: undefined, action, allow };
-  }
+
+  return {
+    name: Option.getOrUndefined(decoded(groups.name)),
+    action,
+    allow,
+  };
 };
 
 /**
@@ -142,7 +184,7 @@ const Connect = Schema.fromJsonString(
     token: ApiToken,
     account: Schema.optional(Schema.String),
     zone: Schema.optional(Schema.String),
-  }),
+  })
 );
 
 /**
@@ -150,30 +192,51 @@ const Connect = Schema.fromJsonString(
  * it. The caller is already logged in. The reply when the request is not one of those, or what
  * to ask.
  */
-export const cloudflareAsk = (request: HubRequest): Reply | Ask => {
-  if (request.method === "DELETE") return { ask: "disconnect" };
-  if (request.method !== "PUT") return refuse(405, "Use PUT or DELETE.", { allow: "PUT, DELETE" });
-  if (request.body === null)
-    return refuse(413, "A Cloudflare API token is not that long.", { connection: "close" });
-  const sent = Schema.decodeUnknownOption(Connect)(request.body, { onExcessProperty: "error" });
-  if (Option.isNone(sent))
+export const cloudflareAsk = (request: HubRequest) => {
+  if (request.method === "DELETE") {
+    return { ask: "disconnect" } satisfies Ask;
+  }
+
+  if (request.method !== "PUT") {
+    return refuse(405, "Use PUT or DELETE.", { allow: "PUT, DELETE" });
+  }
+
+  if (request.body === null) {
+    return refuse(413, "A Cloudflare API token is not that long.", {
+      connection: "close",
+    });
+  }
+
+  const sent = Schema.decodeUnknownOption(Connect)(request.body, {
+    onExcessProperty: "error",
+  });
+
+  if (Option.isNone(sent)) {
     return refuse(
       400,
-      'Send {"token": "<Cloudflare API token>"}, with "account" and "zone" when the token sees more than one.',
+      'Send {"token": "<Cloudflare API token>"}, with "account" and "zone" when the token sees more than one.'
     );
+  }
+
   const { token, account, zone } = sent.value;
+
   return {
-    ask: "connect",
     token,
+    ask: "connect",
     account: Option.fromUndefinedOr(account),
     zone: Option.fromUndefinedOr(zone),
-  };
+  } satisfies Ask;
 };
 
 const pickSentence = ({ what, choices, named }: PickOne) => {
-  if (named !== undefined) return `The token sees no ${what} ${named}.`;
-  if (choices.length === 0)
+  if (named !== undefined) {
+    return `The token sees no ${what} ${named}.`;
+  }
+
+  if (choices.length === 0) {
     return `The token sees no ${what}. Give it access to the ${what} that holds your domain.`;
+  }
+
   return `The token sees ${choices.length} ${what}s. Name one as "${what}".`;
 };
 
@@ -186,20 +249,26 @@ const connect = (asked: Extract<Ask, { ask: "connect" }>, home: string) =>
           json(409, {
             error: pickSentence(pick),
             [pick.what === "account" ? "accounts" : "zones"]: pick.choices,
-          }),
+          })
         ),
       CloudflareFailed: (error) => Effect.succeed(refuse(502, error.message)),
-    }),
+    })
   );
 
-const NO_CONTENT: Reply = { status: 204, headers: { "cache-control": "no-store" }, body: "" };
+const NO_CONTENT: Reply = {
+  status: 204,
+  headers: { "cache-control": "no-store" },
+  body: "",
+};
 
 const disconnect = (home: string) =>
   forgetCloudflare(home).pipe(
     Effect.as(NO_CONTENT),
     Effect.catchTag("CloudflareFailed", () =>
-      Effect.succeed(refuse(500, "The hub could not delete its Cloudflare login.")),
-    ),
+      Effect.succeed(
+        refuse(500, "The hub could not delete its Cloudflare login.")
+      )
+    )
   );
 
 const TUNNELS: ReadonlySet<Action> = new Set(["tunnel", "untunnel"]);
@@ -212,40 +281,62 @@ const TUNNELS: ReadonlySet<Action> = new Set(["tunnel", "untunnel"]);
 export const admit = (
   request: HubRequest,
   wanted: { readonly name: string | undefined; readonly action: Action },
-  snapshot: Snapshot & { readonly cloudflare: { readonly zone: string } | null },
+  snapshot: Snapshot & {
+    readonly cloudflare: { readonly zone: string } | null;
+  },
   token: string,
-  now: number,
-): Reply | Ask => {
-  if (!loggedIn(request, token, now)) return LOGGED_OUT;
+  now: number
+) => {
+  if (!loggedIn(request, token, now)) {
+    return LOGGED_OUT;
+  }
+
   const named = snapshot.machines.filter((m) => m.name === wanted.name);
-  if (named.length === 0) return refuse(404, "No machine has that name.");
+
+  if (named.length === 0) {
+    return refuse(404, "No machine has that name.");
+  }
+
   const trusted = named.filter((m) => m.spoke === "trusted");
-  if (trusted.length !== 1 || trusted[0] === undefined)
+
+  if (trusted.length !== 1 || trusted[0] === undefined) {
     return refuse(
       409,
       named.some((m) => m.spoke === "untrusted")
         ? `${wanted.name} does not trust this hub's key.`
-        : `${wanted.name} has no devbox spoke that answers.`,
+        : `${wanted.name} has no devbox spoke that answers.`
     );
-  const [machine] = trusted;
-  if (TUNNELS.has(wanted.action)) {
-    if (snapshot.cloudflare === null) return NO_LOGIN;
-    if (machine.tailscale === null || machine.tailscale.ip === "")
-      return refuse(409, `${machine.name} has no Tailscale address for a tunnel to reach.`);
   }
-  return { ask: wanted.action, machine };
+
+  const [machine] = trusted;
+
+  if (TUNNELS.has(wanted.action)) {
+    if (snapshot.cloudflare === null) {
+      return NO_LOGIN;
+    }
+
+    if (machine.tailscale === null || machine.tailscale.ip === "") {
+      return refuse(
+        409,
+        `${machine.name} has no Tailscale address for a tunnel to reach.`
+      );
+    }
+  }
+
+  return { ask: wanted.action, machine } satisfies Ask;
 };
 
 /** Runs what an admitted request asks for. */
 export const answer = (asked: Ask, context: AskContext) => {
-  switch (asked.ask) {
-    case "connect":
-      return connect(asked, context.home);
-    case "disconnect":
-      return disconnect(context.home);
-    default:
-      return ACTIONS[asked.ask](asked.machine, context);
+  if (asked.ask === "connect") {
+    return connect(asked, context.home);
   }
+
+  if (asked.ask === "disconnect") {
+    return disconnect(context.home);
+  }
+
+  return ACTIONS[asked.ask](asked.machine, context);
 };
 
 const Challenge = Schema.fromJsonString(Schema.Struct({ nonce: Nonce }));
@@ -256,30 +347,45 @@ const tellSpoke = (
   fields: Fields,
   secrets: HubSecrets,
   spokePort: number,
-  timeoutMs: number,
+  timeoutMs: number
 ) =>
   Effect.gen(function* () {
     const host = yield* Host;
+
     for (const address of spokeAddresses(machine)) {
       const spoke = origin(address, spokePort);
+
       const challenge = Option.flatMap(
         yield* host.fetchText(`${spoke}/api/challenge`, 2000),
-        ({ body }) => Schema.decodeUnknownOption(Challenge)(body),
+        ({ body }) => Schema.decodeUnknownOption(Challenge)(body)
       );
-      if (Option.isNone(challenge)) continue;
+
+      if (Option.isNone(challenge)) {
+        continue;
+      }
+
       const signed = signRequest(
         secrets.privateKey,
         new Date(),
         challenge.value.nonce,
         action,
-        fields,
+        fields
       );
+
       const answered = yield* host.post(
         `${spoke}/api/do`,
-        { body: signed.body, contentType: "application/json", headers: signed.headers },
-        timeoutMs,
+        {
+          body: signed.body,
+          contentType: "application/json",
+          headers: signed.headers,
+        },
+        timeoutMs
       );
-      if (Option.isSome(answered)) return answered;
+
+      if (Option.isSome(answered)) {
+        return answered;
+      }
     }
+
     return Option.none<string>();
   });

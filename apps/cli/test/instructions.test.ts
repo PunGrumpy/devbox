@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Option } from "effect";
 import {
   lstatSync,
   mkdirSync,
@@ -8,7 +7,10 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
+
+import { Option } from "effect";
+
 import { claudeHomes, INSTRUCTIONS_FILE } from "../src/machine/instructions.ts";
 import { linkInstructions } from "../src/machine/setup.ts";
 import { absolutePath } from "../src/migrate/paths.ts";
@@ -18,8 +20,14 @@ import { runWith } from "./support/run.ts";
 const SETTINGS = JSON.stringify({
   providerInstances: {
     claudeAgent: { driver: "claudeAgent" },
-    claudeAgent_pun: { driver: "claudeAgent", config: { homePath: "~/.claude-pun" } },
-    claudeAgent_work: { driver: "claudeAgent", config: { homePath: "/srv/claude-work" } },
+    claudeAgent_pun: {
+      driver: "claudeAgent",
+      config: { homePath: "~/.claude-pun" },
+    },
+    claudeAgent_work: {
+      driver: "claudeAgent",
+      config: { homePath: "/srv/claude-work" },
+    },
     codex: { driver: "codex", config: { homePath: "~/.codex" } },
   },
 });
@@ -34,42 +42,55 @@ describe("which Claude homes get instructions", () => {
   });
 
   test("only $CLAUDE_CONFIG_DIR when T3 has no settings yet or they do not parse", () => {
-    expect(claudeHomes(Option.none(), "/home/me", "/data")).toEqual(["/data/.claude"]);
-    expect(claudeHomes(Option.some("not json"), "/home/me", "/data")).toEqual(["/data/.claude"]);
-    expect(claudeHomes(Option.some("{}"), "/home/me", "/data")).toEqual(["/data/.claude"]);
+    expect(claudeHomes(Option.none(), "/home/me", "/data")).toEqual([
+      "/data/.claude",
+    ]);
+    expect(claudeHomes(Option.some("not json"), "/home/me", "/data")).toEqual([
+      "/data/.claude",
+    ]);
+    expect(claudeHomes(Option.some("{}"), "/home/me", "/data")).toEqual([
+      "/data/.claude",
+    ]);
   });
 });
 
 const machine = () => {
   const m = makeMachine();
-  const baseDir = join(m.home, ".t3");
-  mkdirSync(join(baseDir, "userdata"), { recursive: true });
+  const baseDir = path.join(m.home, ".t3");
+  mkdirSync(path.join(baseDir, "userdata"), { recursive: true });
   writeFileSync(
-    join(baseDir, "userdata", "settings.json"),
+    path.join(baseDir, "userdata", "settings.json"),
     JSON.stringify({
       providerInstances: {
         claudeAgent: { driver: "claudeAgent" },
-        claudeAgent_pun: { driver: "claudeAgent", config: { homePath: "~/.claude-pun" } },
+        claudeAgent_pun: {
+          driver: "claudeAgent",
+          config: { homePath: "~/.claude-pun" },
+        },
       },
-    }),
+    })
   );
-  const source = join(m.base, "devbox", "instructions", "AGENTS.md");
-  mkdirSync(join(source, ".."), { recursive: true });
+  const source = path.join(m.base, "devbox", "instructions", "AGENTS.md");
+  mkdirSync(path.join(source, ".."), { recursive: true });
   writeFileSync(source, "# Rules\n\n- Reply in Thai.\n");
-  const run = () =>
-    runWith(
+
+  const run = async () =>
+    await runWith(
       m.host,
       linkInstructions(
         { data: absolutePath(m.home), baseDir: absolutePath(baseDir) },
         m.home,
-        source,
-      ),
+        source
+      )
     );
-  const file = (home: string) => join(m.home, home, "CLAUDE.md");
+
+  const file = (home: string) => path.join(m.home, home, "CLAUDE.md");
+
   const put = (home: string, text: string) => {
-    mkdirSync(join(m.home, home), { recursive: true });
+    mkdirSync(path.join(m.home, home), { recursive: true });
     writeFileSync(file(home), text);
   };
+
   return { m, run, file, put, source };
 };
 
@@ -79,7 +100,9 @@ describe("linkInstructions", () => {
     const first = await run();
     expect(readlinkSync(file(".claude"))).toBe(source);
     expect(readlinkSync(file(".claude-pun"))).toBe(source);
-    expect(readFileSync(file(".claude-pun"), "utf8")).toBe("# Rules\n\n- Reply in Thai.\n");
+    expect(readFileSync(file(".claude-pun"), "utf-8")).toBe(
+      "# Rules\n\n- Reply in Thai.\n"
+    );
     expect(first.err).toContain("instructions: linked CLAUDE.md in");
 
     const second = await run();
@@ -91,7 +114,7 @@ describe("linkInstructions", () => {
     const { run, file, source } = machine();
     await run();
     writeFileSync(source, "new rule\n");
-    expect(readFileSync(file(".claude"), "utf8")).toBe("new rule\n");
+    expect(readFileSync(file(".claude"), "utf-8")).toBe("new rule\n");
   });
 
   test("replaces a regular file that is an exact copy of AGENTS.md", async () => {
@@ -106,18 +129,18 @@ describe("linkInstructions", () => {
     put(".claude", "# Mine\n");
     const r = await run();
     expect(lstatSync(file(".claude")).isSymbolicLink()).toBe(false);
-    expect(readFileSync(file(".claude"), "utf8")).toBe("# Mine\n");
+    expect(readFileSync(file(".claude"), "utf-8")).toBe("# Mine\n");
     expect(r.err).toContain(
-      `instructions: left ${file(".claude")} alone, it is not a copy of ${source}`,
+      `instructions: left ${file(".claude")} alone, it is not a copy of ${source}`
     );
     expect(readlinkSync(file(".claude-pun"))).toBe(source);
   });
 
   test("leaves a link that points somewhere else", async () => {
     const { m, run, file } = machine();
-    const mine = join(m.base, "mine.md");
+    const mine = path.join(m.base, "mine.md");
     writeFileSync(mine, "# Mine\n");
-    mkdirSync(join(m.home, ".claude"), { recursive: true });
+    mkdirSync(path.join(m.home, ".claude"), { recursive: true });
     symlinkSync(mine, file(".claude"));
     await run();
     expect(readlinkSync(file(".claude"))).toBe(mine);
@@ -125,8 +148,8 @@ describe("linkInstructions", () => {
 
   test("links again a link whose target is gone, as after AGENTS.md moved", async () => {
     const { m, run, file, source } = machine();
-    mkdirSync(join(m.home, ".claude"), { recursive: true });
-    symlinkSync(join(m.base, "moved-away", "AGENTS.md"), file(".claude"));
+    mkdirSync(path.join(m.home, ".claude"), { recursive: true });
+    symlinkSync(path.join(m.base, "moved-away", "AGENTS.md"), file(".claude"));
     await run();
     expect(readlinkSync(file(".claude"))).toBe(source);
   });
@@ -134,5 +157,7 @@ describe("linkInstructions", () => {
 
 test("the repo ships the AGENTS.md the links point at", () => {
   expect(INSTRUCTIONS_FILE.endsWith("/instructions/AGENTS.md")).toBe(true);
-  expect(readFileSync(INSTRUCTIONS_FILE, "utf8")).toContain("Never force push.");
+  expect(readFileSync(INSTRUCTIONS_FILE, "utf-8")).toContain(
+    "Never force push."
+  );
 });

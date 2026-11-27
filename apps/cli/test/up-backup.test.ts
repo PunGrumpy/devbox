@@ -1,22 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
+
 import { envFile } from "./support/backup.ts";
 import { makeMachine, SELF } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
 type Machine = ReturnType<typeof makeMachine>;
 
-const up = (m: Machine, ...args: Array<string>) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], { host: m.host });
+const up = async (m: Machine, ...args: string[]) =>
+  await devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
+    host: m.host,
+  });
 
 const MUTATING =
-  /^(<detached>|<stop>|tee|npm install|apt-get|git config --global (--add|--unset-all)|systemctl (enable|restart|daemon-reload)|loginctl enable-linger)/;
+  /^(?:<detached>|<stop>|tee|npm install|apt-get|git config --global (?:--add|--unset-all)|systemctl (?:enable|restart|daemon-reload)|loginctl enable-linger)/u;
+
 const mutations = (m: Machine, from: number) =>
   m.calls
     .slice(from)
     .map((argv) =>
-      argv.filter((a) => a !== "sudo" && a !== "-n" && a !== "--user" && a !== "env").join(" "),
+      argv
+        .filter(
+          (a) => a !== "sudo" && a !== "-n" && a !== "--user" && a !== "env"
+        )
+        .join(" ")
     )
     .filter((line) => MUTATING.test(line));
 
@@ -40,7 +48,9 @@ describe("devbox up and backups", () => {
     expect(lines[0]).toContain("devbox backup sources");
     expect(lines[0]).toContain(`${m.home}/.config/devbox/backup/env`);
     expect(lines[0]).toContain("RESTIC_REPOSITORY");
-    expect(existsSync(join(m.home, ".config/systemd/user/devbox-backup.timer"))).toBe(false);
+    expect(
+      existsSync(path.join(m.home, ".config/systemd/user/devbox-backup.timer"))
+    ).toBe(false);
     expect(m.calls.some((c) => c.includes("devbox-backup.timer"))).toBe(false);
   });
 
@@ -50,7 +60,11 @@ describe("devbox up and backups", () => {
     envFile(m.home, "RESTIC_REPOSITORY=\nAWS_DEFAULT_REGION=auto\n");
     const r = await up(m);
     expect(r.err).toContain("skipped backups: off");
-    expect(existsSync(join(m.home, ".config/systemd/user/devbox-backup.service"))).toBe(false);
+    expect(
+      existsSync(
+        path.join(m.home, ".config/systemd/user/devbox-backup.service")
+      )
+    ).toBe(false);
   });
 
   test("with a repository set it installs a nightly user timer and a oneshot service that executes `backup run`", async () => {
@@ -60,21 +74,31 @@ describe("devbox up and backups", () => {
     const r = await up(m);
     expect(r.code).toBe(0);
     expect(r.err).not.toContain("backups: off");
-    const dir = join(m.home, ".config/systemd/user");
-    const service = readFileSync(join(dir, "devbox-backup.service"), "utf8");
+    const dir = path.join(m.home, ".config/systemd/user");
+
+    const service = readFileSync(
+      path.join(dir, "devbox-backup.service"),
+      "utf-8"
+    );
+
     expect(service).toContain("Type=oneshot\n");
     expect(service).toContain(`ExecStart=${SELF.join(" ")} backup run\n`);
     expect(service).toContain("Nice=10\n");
     expect(service).not.toContain("User=");
     expect(service).not.toContain("EnvironmentFile");
-    const timer = readFileSync(join(dir, "devbox-backup.timer"), "utf8");
+    const timer = readFileSync(path.join(dir, "devbox-backup.timer"), "utf-8");
     expect(timer).toContain("OnCalendar=*-*-* 03:30 Asia/Bangkok\n");
     expect(timer).toContain("RandomizedDelaySec=20m\n");
     expect(timer).toContain("Persistent=true\n");
     expect(timer).toContain("WantedBy=timers.target\n");
-    expect(m.units.get("user:devbox-backup.timer")).toEqual({ active: true, enabled: true });
+    expect(m.units.get("user:devbox-backup.timer")).toEqual({
+      active: true,
+      enabled: true,
+    });
     expect(m.linger).toBe(true);
-    expect(r.err).toContain("enabled devbox-backup.timer, daily at 03:30 Asia/Bangkok");
+    expect(r.err).toContain(
+      "enabled devbox-backup.timer, daily at 03:30 Asia/Bangkok"
+    );
   });
 
   test("a second run changes nothing", async () => {
@@ -110,13 +134,30 @@ describe("devbox up and backups", () => {
     envFile(m.home, ENABLED);
     const r = await up(m);
     expect(r.code).toBe(0);
-    const service = readFileSync(join(m.etc, "systemd/system/devbox-backup.service"), "utf8");
+
+    const service = readFileSync(
+      path.join(m.etc, "systemd/system/devbox-backup.service"),
+      "utf-8"
+    );
+
     expect(service).toContain("User=agent\n");
-    expect(existsSync(join(m.etc, "systemd/system/devbox-backup.timer"))).toBe(true);
-    expect(m.calls).toContainEqual(["sudo", "-n", "systemctl", "enable", "devbox-backup.timer"]);
-    expect(m.units.get("system:devbox-backup.timer")).toEqual({ active: true, enabled: true });
+    expect(
+      existsSync(path.join(m.etc, "systemd/system/devbox-backup.timer"))
+    ).toBe(true);
+    expect(m.calls).toContainEqual([
+      "sudo",
+      "-n",
+      "systemctl",
+      "enable",
+      "devbox-backup.timer",
+    ]);
+    expect(m.units.get("system:devbox-backup.timer")).toEqual({
+      active: true,
+      enabled: true,
+    });
     const before = m.calls.length;
-    expect((await up(m)).err).toContain("No changes.");
+    const again = await up(m);
+    expect(again.err).toContain("No changes.");
     expect(mutations(m, before)).toEqual([]);
   });
 
@@ -128,11 +169,15 @@ describe("devbox up and backups", () => {
       if (argv.includes("apt-get") && argv.includes("install")) {
         m.binaries.add("restic");
         m.binaries.add("sqlite3");
+
         return { code: 0, stdout: "", stderr: "" };
       }
-      if (argv.includes("apt-get")) return { code: 0, stdout: "", stderr: "" };
-      return undefined;
+
+      if (argv.includes("apt-get")) {
+        return { code: 0, stdout: "", stderr: "" };
+      }
     };
+
     const r = await up(m);
     expect(r.code).toBe(0);
     expect(m.calls).toContainEqual([
@@ -160,11 +205,15 @@ describe("devbox up and backups", () => {
     m.binaries.add("restic");
     envFile(m.home, ENABLED);
     m.respond = (argv) =>
-      argv.includes("apt-get") ? { code: 0, stdout: "", stderr: "" } : undefined;
+      argv.includes("apt-get")
+        ? { code: 0, stdout: "", stderr: "" }
+        : undefined;
     await up(m);
-    expect(m.calls.find((c) => c.includes("apt-get") && c.includes("install"))?.slice(-1)).toEqual([
-      "sqlite3",
-    ]);
+    expect(
+      m.calls
+        .find((c) => c.includes("apt-get") && c.includes("install"))
+        ?.slice(-1)
+    ).toEqual(["sqlite3"]);
   });
 
   test("without passwordless sudo it leaves the timer out and says why", async () => {
@@ -174,9 +223,11 @@ describe("devbox up and backups", () => {
     const r = await up(m);
     expect(r.code).toBe(0);
     expect(r.err).toContain(
-      "skipped backup timer: restic and sqlite3 missing, and apt with passwordless sudo is needed to install them",
+      "skipped backup timer: restic and sqlite3 missing, and apt with passwordless sudo is needed to install them"
     );
-    expect(existsSync(join(m.home, ".config/systemd/user/devbox-backup.timer"))).toBe(false);
+    expect(
+      existsSync(path.join(m.home, ".config/systemd/user/devbox-backup.timer"))
+    ).toBe(false);
   });
 
   test("without systemd the detached supervisor gets a note instead of a timer", async () => {

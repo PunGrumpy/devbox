@@ -9,12 +9,22 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "typecheck": "turbo run typecheck",
-    "check": "turbo run check",
-    "fix": "turbo run fix",
+    "check": "ultracite check",
+    "fix": "ultracite fix",
     "test": "turbo run test"
   },
   "devDependencies": {
-    "turbo": "^2.11.13"
+    "@gdp-ts/core": "0.1.0",
+    "@interfere/landmines": "0.1.1",
+    "eslint-plugin-github": "6.1.2",
+    "eslint-plugin-sonarjs": "4.2.2",
+    "oxfmt": "0.79.0",
+    "oxlint": "1.94.0",
+    "oxlint-plugin-react-doctor": "0.9.23",
+    "oxlint-tsgolint": "7.0.2007",
+    "react-doctor": "0.9.23",
+    "turbo": "^2.11.13",
+    "ultracite": "8.3.1"
   },
   "devEngines": {
     "packageManager": {

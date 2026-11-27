@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { absolutePath, isUnderRoot, slugOf } from "../src/migrate/paths.ts";
 
 describe("isUnderRoot", () => {
@@ -33,6 +34,8 @@ describe("absolutePath", () => {
 
 describe("slugOf", () => {
   test("turns every character that is not a letter or digit into '-'", () => {
-    expect(slugOf(absolutePath("/Users/me/.dot files/a_b"))).toBe("-Users-me--dot-files-a-b");
+    expect(slugOf(absolutePath("/Users/me/.dot files/a_b"))).toBe(
+      "-Users-me--dot-files-a-b"
+    );
   });
 });

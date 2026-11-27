@@ -31,13 +31,14 @@ install.sh               What a machine runs to install or update devbox
 ```sh
 bun install          # every package
 bun run dev          # the hub on port 3780 and its page on port 3790
-bun run check        # lint and format
+bun run check        # lint and format, for the whole repo
+bun run fix          # format, and fix what a tool can
 bun run typecheck
 bun run test
 bun run build        # apps/cli/dist/devbox and apps/hub/out
 ```
 
-Each runs through `turbo`. Add `-- --filter devbox` or `-- --filter hub` for one package. All four of `check`, `typecheck`, `test` and `build` must pass before a change is done.
+`typecheck`, `test` and `build` run through `turbo`. Add `-- --filter devbox` or `-- --filter hub` for one package. `check` and `fix` run Ultracite once for the repo. All four of `check`, `typecheck`, `test` and `build` must pass before a change is done.
 
 ## Rules
 
@@ -45,7 +46,8 @@ Each runs through `turbo`. Add `-- --filter devbox` or `-- --filter hub` for one
 - **Never print or log a secret.** Tokens, keys and pairing links stay out of logs, snapshots, error messages and tests. Tests use made-up values.
 - **Do not run `devbox up` to try a change.** It installs software and writes systemd units on the machine it runs on. Tests drive it against the fake machine in `apps/cli/test/support`.
 - **Never call a real service from a test.** Cloudflare, Tailscale and T3 Code are each replaced by a fake.
-- **The two apps are linted differently.** `apps/hub` uses Ultracite, which is strict. `apps/cli` has its own lighter config and follows Effect's style: services, `Schema` at every boundary, the `Host` service for everything that touches the machine.
+- **One lint config covers both apps.** `oxlint.config.ts` at the root is Ultracite, which is strict. `bun run fix` formats and fixes what a tool can. The CLI is exempt from the rules that misread Effect code, and each exemption gives its reason in that file. Do not turn off another rule to let a finding through.
+- **The CLI follows Effect's style**: services, `Schema` at every boundary, the `Host` service for everything that touches the machine.
 - **Tests assert what a user or caller can observe**, not how the code gets there.
 
 ## Paths that machines depend on

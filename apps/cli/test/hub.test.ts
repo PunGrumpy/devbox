@@ -2,14 +2,23 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Effect, Option } from "effect";
-import { HISTORY_LIMIT, type HubSnapshot, nextHistory } from "../src/hub/hub.ts";
-import type { Machine, MachineState, Snapshot } from "../src/hub/machines.ts";
+import path from "node:path";
+
+import { Effect, Option, Schema } from "effect";
+
+import { HISTORY_LIMIT, nextHistory } from "../src/hub/hub.ts";
+import type { MachineState, Snapshot } from "../src/hub/machines.ts";
 import { restore, serialize } from "../src/hub/saved.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { makeMachine } from "./support/host.ts";
-import { asOwner, devbox, start } from "./support/run.ts";
+import { readJson } from "./support/json.ts";
+import {
+  asOwner,
+  devbox,
+  start,
+  statusOf,
+  untilListening,
+} from "./support/run.ts";
 
 const SNEAKY = `</script><script>alert(1)</script>$&$'`;
 
@@ -18,7 +27,7 @@ const sneakyComputer = () => {
   m.binaries.add("tailscale");
   m.binaries.add("t3");
   m.respond = (argv) => {
-    if (argv[0] === "tailscale")
+    if (argv[0] === "tailscale") {
       return {
         code: 0,
         stdout: JSON.stringify({
@@ -32,7 +41,9 @@ const sneakyComputer = () => {
         }),
         stderr: "",
       };
-    if (argv[1] === "environment")
+    }
+
+    if (argv[1] === "environment") {
       return {
         code: 0,
         stdout: JSON.stringify([
@@ -47,62 +58,102 @@ const sneakyComputer = () => {
         ]),
         stderr: "",
       };
-    return undefined;
+    }
   };
+
   m.pages.set(
     "http://100.64.0.21:3773/.well-known/t3/environment",
-    JSON.stringify({ environmentId: "env-7", label: "edge-7", serverVersion: "0.2.0" }),
+    JSON.stringify({
+      environmentId: "env-7",
+      label: "edge-7",
+      serverVersion: "0.2.0",
+    })
   );
+
   return m;
 };
 
-/** A built page with one hashed asset, and a file beside it that the hub must never serve. */
-const builtPage = () => {
-  const base = mkdtempSync(join(tmpdir(), "devbox-hub-"));
-  const ui = join(base, "out");
-  mkdirSync(join(ui, "_next/static/chunks"), { recursive: true });
-  writeFileSync(join(ui, "index.html"), "<!doctype html><title>devbox hub</title>");
-  writeFileSync(join(ui, "_next/static/chunks/app.js"), "console.log(1)");
-  writeFileSync(join(base, "secret.txt"), "outside the page");
+const builtPageBesideSecret = () => {
+  const base = mkdtempSync(path.join(tmpdir(), "devbox-hub-"));
+  const ui = path.join(base, "out");
+  mkdirSync(path.join(ui, "_next/static/chunks"), { recursive: true });
+  writeFileSync(
+    path.join(ui, "index.html"),
+    "<!doctype html><title>devbox hub</title>"
+  );
+  writeFileSync(path.join(ui, "_next/static/chunks/app.js"), "console.log(1)");
+  writeFileSync(path.join(base, "secret.txt"), "outside the page");
+
   return ui;
 };
 
-/** The hub keeps its history under HOME, so every test gets a home of its own. */
-const freshHome = () => mkdtempSync(join(tmpdir(), "devbox-hub-home-"));
+const historyHome = () => mkdtempSync(path.join(tmpdir(), "devbox-hub-home-"));
 
-/** A path sent as written, because fetch would resolve the dots before it left. */
-const rawStatus = (port: number, path: string) =>
-  new Promise<number>((done, fail) => {
-    http
-      .get({ host: "127.0.0.1", port, path }, (response) => {
-        response.resume();
-        done(response.statusCode ?? 0);
-      })
-      .on("error", fail);
-  });
+const statusOfUnresolvedPath = async (port: number, unresolved: string) => {
+  const answered = Promise.withResolvers<number>();
 
-describe("devbox hub", async () => {
+  http
+    .get({ port, host: "127.0.0.1", path: unresolved }, (response) => {
+      response.resume();
+      answered.resolve(response.statusCode ?? 0);
+    })
+    .on("error", answered.reject);
+
+  return await answered.promise;
+};
+
+const Served = Schema.Struct({
+  generatedAt: Schema.String,
+  tailscale: Schema.Boolean,
+  machines: Schema.Array(
+    Schema.Struct({ name: Schema.String, state: Schema.String })
+  ),
+  history: Schema.Unknown,
+  latest: Schema.Unknown,
+});
+
+const startHub = async () => {
   const m = sneakyComputer();
   const port = await Effect.runPromise(freePort);
-  const running = start({ HOME: m.home }, ["hub", "--port", String(port), "--ui", builtPage()], {
-    host: m.host,
-  });
+
+  const running = start(
+    { HOME: m.home },
+    ["hub", "--port", String(port), "--ui", builtPageBesideSecret()],
+    {
+      host: m.host,
+    }
+  );
+
+  await untilListening(running);
+
+  return { m, port, running };
+};
+
+const started = await startHub();
+
+describe("devbox hub", () => {
+  const { m, port, running } = started;
   const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
-  afterAll(() => running.stop());
+
+  afterAll(async () => {
+    await running.stop();
+  });
 
   test("logs the URL it listens on", () => {
     expect(running.err()).toContain(`hub: http://127.0.0.1:${port}/`);
   });
 
   test("/api/machines serves the snapshot with one sample of history", async () => {
-    const response = await fetch(`${base}/api/machines`, { headers: asOwner(m.home) });
+    const response = await fetch(`${base}/api/machines`, {
+      headers: asOwner(m.home),
+    });
+
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("content-type")).toContain("application/json");
-    const json = (await response.json()) as HubSnapshot;
+    const json = readJson(Served, await response.text());
     expect(json.tailscale).toBe(true);
-    expect(json.machines.map((x: Machine) => [x.name, x.state])).toEqual([
+    expect(json.machines.map((x) => [x.name, x.state])).toEqual([
       ["edge-7", "t3"],
       [SNEAKY, "t3"],
     ]);
@@ -118,7 +169,9 @@ describe("devbox hub", async () => {
   test("/ serves the built page", async () => {
     const response = await fetch(`${base}/`);
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(response.headers.get("content-type")).toBe(
+      "text/html; charset=utf-8"
+    );
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.text()).toContain("<title>devbox hub</title>");
   });
@@ -126,45 +179,70 @@ describe("devbox hub", async () => {
   test("a file Next named by its content may be kept for good", async () => {
     const response = await fetch(`${base}/_next/static/chunks/app.js`);
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
-    expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(response.headers.get("content-type")).toBe(
+      "text/javascript; charset=utf-8"
+    );
+    expect(response.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable"
+    );
     expect(await response.text()).toBe("console.log(1)");
   });
 
   test("a path cannot climb out of the built page", async () => {
-    expect(await rawStatus(port, "/../secret.txt")).toBe(404);
-    expect(await rawStatus(port, "/%2e%2e/secret.txt")).toBe(404);
-    expect(await rawStatus(port, "/_next/..%2f..%2fsecret.txt")).toBe(404);
+    expect(await statusOfUnresolvedPath(port, "/../secret.txt")).toBe(404);
+    expect(await statusOfUnresolvedPath(port, "/%2e%2e/secret.txt")).toBe(404);
+    expect(
+      await statusOfUnresolvedPath(port, "/_next/..%2f..%2fsecret.txt")
+    ).toBe(404);
   });
 
   test("any other path is 404 and any other method is 405", async () => {
-    expect((await fetch(`${base}/nope`)).status).toBe(404);
+    expect(await statusOf(fetch(`${base}/nope`))).toBe(404);
     const headers = asOwner(m.home);
-    expect((await fetch(`${base}/api/machines/x`, { headers })).status).toBe(404);
-    expect((await fetch(`${base}/`, { method: "POST" })).status).toBe(405);
-    expect((await fetch(`${base}/api/machines`, { method: "DELETE", headers })).status).toBe(405);
+    expect(await statusOf(fetch(`${base}/api/machines/x`, { headers }))).toBe(
+      404
+    );
+    expect(await statusOf(fetch(`${base}/`, { method: "POST" }))).toBe(405);
+    expect(
+      await statusOf(
+        fetch(`${base}/api/machines`, { method: "DELETE", headers })
+      )
+    ).toBe(405);
   });
 
   test("requests read the last snapshot and never probe", async () => {
     const before = m.fetches.length;
     await fetch(`${base}/api/machines`, { headers: asOwner(m.home) });
     await fetch(`${base}/`);
-    expect(m.fetches.length).toBe(before);
+    expect(m.fetches).toHaveLength(before);
   });
 });
 
 test("without a built page, / says how to build it and the JSON still answers", async () => {
   const port = await Effect.runPromise(freePort);
-  const empty = mkdtempSync(join(tmpdir(), "devbox-hub-empty-"));
-  const home = freshHome();
-  const running = start({ HOME: home }, ["hub", "--port", String(port), "--ui", empty]);
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
+  const empty = mkdtempSync(path.join(tmpdir(), "devbox-hub-empty-"));
+  const home = historyHome();
+
+  const running = start({ HOME: home }, [
+    "hub",
+    "--port",
+    String(port),
+    "--ui",
+    empty,
+  ]);
+
+  await untilListening(running);
+
   try {
     const page = await fetch(`http://127.0.0.1:${port}/`);
     expect(page.status).toBe(404);
     expect(await page.text()).toContain("bun run build");
     const headers = asOwner(home);
-    expect((await fetch(`http://127.0.0.1:${port}/api/machines`, { headers })).status).toBe(200);
+    expect(
+      await statusOf(
+        fetch(`http://127.0.0.1:${port}/api/machines`, { headers })
+      )
+    ).toBe(200);
   } finally {
     await running.stop();
   }
@@ -172,19 +250,35 @@ test("without a built page, / says how to build it and the JSON still answers", 
 
 test("the hub closes its port when stopped", async () => {
   const port = await Effect.runPromise(freePort);
-  const home = freshHome();
+  const home = historyHome();
   const running = start({ HOME: home }, ["hub", "--port", String(port)]);
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
+
+  await untilListening(running);
   const headers = asOwner(home);
-  expect((await fetch(`http://127.0.0.1:${port}/api/machines`, { headers })).status).toBe(200);
+  expect(
+    await statusOf(fetch(`http://127.0.0.1:${port}/api/machines`, { headers }))
+  ).toBe(200);
   await running.stop();
-  await expect(fetch(`http://127.0.0.1:${port}/api/machines`)).rejects.toThrow();
+  // oxlint-disable-next-line typescript/await-thenable, typescript/no-confusing-void-expression -- bun-types types rejects matchers as sync, but Bun returns a promise that must be awaited
+  await expect(
+    fetch(`http://127.0.0.1:${port}/api/machines`)
+  ).rejects.toThrow();
 });
 
 test("a port in use fails with a hint", async () => {
-  const taken = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
+  const taken = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => new Response(""),
+  });
+
   try {
-    const r = await devbox({ HOME: freshHome() }, ["hub", "--port", String(taken.port)]);
+    const r = await devbox({ HOME: historyHome() }, [
+      "hub",
+      "--port",
+      String(taken.port),
+    ]);
+
     expect(r.code).toBe(1);
     expect(r.err).toContain(`cannot listen on 127.0.0.1:${taken.port}`);
     expect(r.err).toContain("--port");
@@ -196,38 +290,42 @@ test("a port in use fails with a hint", async () => {
 const sample = (
   generatedAt: string,
   states: Record<string, MachineState>,
-  latency: Record<string, number | null> = {},
-): Snapshot => ({
-  generatedAt,
-  tailscale: true,
-  machines: Object.entries(states).map(([name, state]) => ({
-    name,
-    here: false,
-    kind: "computer",
-    state,
-    tailscale: null,
-    t3:
-      latency[name] === undefined
-        ? null
-        : {
-            environmentId: `env-${name}`,
-            label: name,
-            version: "0.2.0",
-            url: `http://${name}.tail1234.ts.net:3773`,
-            latencyMs: latency[name],
-            link: null,
-          },
-    vitals: null,
-    spoke: null,
-  })),
-});
+  latency: Record<string, number | null> = {}
+) =>
+  ({
+    generatedAt,
+    tailscale: true,
+    machines: Object.entries(states).map(([name, state]) => ({
+      name,
+      state,
+      here: false,
+      kind: "computer",
+      tailscale: null,
+      t3:
+        latency[name] === undefined
+          ? null
+          : {
+              environmentId: `env-${name}`,
+              label: name,
+              version: "0.2.0",
+              url: `http://${name}.tail1234.ts.net:3773`,
+              latencyMs: latency[name],
+              link: null,
+            },
+      vitals: null,
+      spoke: null,
+    })),
+  }) satisfies Snapshot;
 
 describe("history", () => {
   const T0 = "2026-11-27T00:00:00.000Z";
 
   test("starts with one character and rounded latency per machine", () => {
     expect(
-      nextHistory(undefined, sample(T0, { a: "t3", b: "online", c: "offline" }, { a: 14.6 })),
+      nextHistory(
+        undefined,
+        sample(T0, { a: "t3", b: "online", c: "offline" }, { a: 14.6 })
+      )
     ).toEqual({
       sampleSeconds: 60,
       startedAt: T0,
@@ -237,17 +335,32 @@ describe("history", () => {
   });
 
   test("pads a machine seen late with null, and sets null when one is missing from a sample", () => {
-    let history = nextHistory(undefined, sample(T0, { a: "t3", b: "online" }, { a: 10 }));
-    history = nextHistory(history, sample("2026-11-27T00:01:00.000Z", { a: "online" }));
+    let history = nextHistory(
+      undefined,
+      sample(T0, { a: "t3", b: "online" }, { a: 10 })
+    );
+
     history = nextHistory(
       history,
-      sample("2026-11-27T00:02:00.000Z", { a: "t3", c: "t3" }, { a: 22, c: 38.2 }),
+      sample("2026-11-27T00:01:00.000Z", { a: "online" })
+    );
+    history = nextHistory(
+      history,
+      sample(
+        "2026-11-27T00:02:00.000Z",
+        { a: "t3", c: "t3" },
+        { a: 22, c: 38.2 }
+      )
     );
     expect(history).toEqual({
       sampleSeconds: 60,
       startedAt: T0,
       states: { a: "212", b: "1  ", c: "  2" },
-      latency: { a: [10, null, 22], b: [null, null, null], c: [null, null, 38] },
+      latency: {
+        a: [10, null, 22],
+        b: [null, null, null],
+        c: [null, null, 38],
+      },
     });
   });
 
@@ -256,9 +369,14 @@ describe("history", () => {
       sampleSeconds: 60,
       startedAt: T0,
       states: { a: "0".repeat(HISTORY_LIMIT) },
-      latency: { a: Array<number | null>(HISTORY_LIMIT).fill(5) },
+      latency: { a: Array.from({ length: HISTORY_LIMIT }, () => 5) },
     };
-    const next = nextHistory(full, sample("2026-11-28T00:00:00.000Z", { a: "t3" }, { a: 42 }));
+
+    const next = nextHistory(
+      full,
+      sample("2026-11-28T00:00:00.000Z", { a: "t3" }, { a: 42 })
+    );
+
     expect(HISTORY_LIMIT).toBe(1440);
     expect(next.states.a).toBe(`${"0".repeat(1439)}2`);
     expect(next.latency.a).toHaveLength(HISTORY_LIMIT);
@@ -270,12 +388,16 @@ describe("history", () => {
     const old = {
       sampleSeconds: 60,
       startedAt: T0,
-      states: { a: "2".repeat(HISTORY_LIMIT), gone: `1${" ".repeat(HISTORY_LIMIT - 1)}` },
+      states: {
+        a: "2".repeat(HISTORY_LIMIT),
+        gone: `1${" ".repeat(HISTORY_LIMIT - 1)}`,
+      },
       latency: {
-        a: Array<number | null>(HISTORY_LIMIT).fill(12),
-        gone: [18, ...Array<null>(HISTORY_LIMIT - 1).fill(null)],
+        a: Array.from({ length: HISTORY_LIMIT }, () => 12),
+        gone: [18, ...Array.from({ length: HISTORY_LIMIT - 1 }, () => null)],
       },
     };
+
     const next = nextHistory(old, sample(T0, { a: "t3" }, { a: 14 }));
     expect(Object.keys(next.states)).toEqual(["a"]);
     expect(Object.keys(next.latency)).toEqual(["a"]);
@@ -292,16 +414,22 @@ describe("history", () => {
         },
         watch: { announced: { a: "t3" }, pending: {} },
       },
-      T0,
+      T0
     );
+
     const full = Option.getOrThrow(
-      restore(text, Date.parse("2026-11-27T00:03:10.000Z"), HISTORY_LIMIT),
+      restore(text, Date.parse("2026-11-27T00:03:10.000Z"), HISTORY_LIMIT)
     );
+
     expect(full.history.latency).toEqual({
       a: [10, 20, 30, 40, null, null, null],
       gone: [12, null, null, null, null, null, null],
     });
-    const trimmed = Option.getOrThrow(restore(text, Date.parse("2026-11-27T00:03:00.000Z"), 5));
+
+    const trimmed = Option.getOrThrow(
+      restore(text, Date.parse("2026-11-27T00:03:00.000Z"), 5)
+    );
+
     expect(trimmed.history.states).toEqual({ a: "22   " });
     expect(trimmed.history.latency).toEqual({ a: [30, 40, null, null, null] });
   });
@@ -312,15 +440,19 @@ describe("history", () => {
       history: { sampleSeconds: 60, startedAt: T0, states: { a: "22" } },
       watch: { announced: { a: "t3" }, pending: {} },
     });
+
     const resumed = Option.getOrThrow(
-      restore(legacy, Date.parse("2026-11-27T00:02:00.000Z"), HISTORY_LIMIT),
+      restore(legacy, Date.parse("2026-11-27T00:02:00.000Z"), HISTORY_LIMIT)
     );
+
     expect(resumed.history.states).toEqual({ a: "22  " });
     expect(resumed.history.latency).toEqual({});
+
     const next = nextHistory(
       resumed.history,
-      sample("2026-11-27T00:02:00.000Z", { a: "t3" }, { a: 27 }),
+      sample("2026-11-27T00:02:00.000Z", { a: "t3" }, { a: 27 })
     );
+
     expect(next.states).toEqual({ a: "22  2" });
     expect(next.latency).toEqual({ a: [null, null, null, null, 27] });
   });
