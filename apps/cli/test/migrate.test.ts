@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
+
+import { Schema } from "effect";
 
 import {
   ALPHA,
@@ -12,14 +14,42 @@ import {
   makeFixture,
   query,
 } from "./support/fixture.ts";
+import { readJson } from "./support/json.ts";
 import { devbox, migrate } from "./support/run.ts";
+
+const DoctorReportSchema = Schema.Struct({
+  schema: Schema.Struct({
+    ok: Schema.Boolean,
+    missing: Schema.Array(Schema.String),
+  }),
+  events: Schema.NullOr(Schema.Number),
+  quickCheck: Schema.optional(Schema.NullOr(Schema.String)),
+  projects: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        projectId: Schema.String,
+        title: Schema.String,
+        threads: Schema.Number,
+        deleted: Schema.Number,
+        rootExists: Schema.Boolean,
+      })
+    )
+  ),
+  issues: Schema.NullOr(
+    Schema.Struct({
+      threadsWithPayloadMismatch: Schema.Number,
+      threadsWithoutProject: Schema.Number,
+      sessionsWithMissingCwd: Schema.Number,
+    })
+  ),
+});
 
 const threadsOf = (db: string, projectId: string) =>
   query<{ n: number }>(
     db,
     "SELECT count(*) AS n FROM orchestration_v2_projection_threads WHERE project_id = ?",
     projectId
-  )[0]!.n;
+  )[0]?.n;
 
 const payloadProjects = (db: string) =>
   query<{ p: string }>(
@@ -32,7 +62,7 @@ const rootOf = (db: string, projectId: string) =>
     db,
     "SELECT workspace_root AS r FROM projection_projects WHERE project_id = ?",
     projectId
-  )[0]!.r;
+  )[0]?.r;
 
 describe("help and usage", () => {
   const f = makeFixture();
@@ -85,7 +115,7 @@ describe("doctor", () => {
     expect(r.out).toBe("");
     expect(r.err).toContain("✔ schema");
     expect(r.err).toContain("✔ event log empty");
-    expect(r.err).toMatch(/beta-service\s+0b2e\S+\s+3\s+1\s+/);
+    expect(r.err).toMatch(/beta-service\s+0b2e\S+\s+3\s+1\s+/u);
     expect(r.err).toContain("(missing)");
     expect(r.err).toContain("✔ thread project_id matches payload");
   });
@@ -93,13 +123,11 @@ describe("doctor", () => {
     const f = makeFixture();
     const r = await migrate(f.env, "doctor", "--db", f.db, "--json", "--check");
     expect(r.code).toBe(0);
-    const report = JSON.parse(r.out);
+    const report = readJson(DoctorReportSchema, r.out);
     expect(report.schema).toEqual({ ok: true, missing: [] });
     expect(report.events).toBe(0);
     expect(report.quickCheck).toBe("ok");
-    expect(
-      report.projects.find((p: { projectId: string }) => p.projectId === BETA)
-    ).toMatchObject({
+    expect(report.projects?.find((p) => p.projectId === BETA)).toMatchObject({
       title: "beta-service",
       threads: 3,
       deleted: 1,
@@ -121,7 +149,7 @@ describe("doctor", () => {
   test("a missing required table is reported, and what depends on it is not guessed", async () => {
     const f = makeFixture();
     const db = new Database(f.db, { strict: true });
-    db.exec("DROP TABLE orchestration_v2_events");
+    db.run("DROP TABLE orchestration_v2_events");
     db.close();
     const text = await migrate(f.env, "doctor", "--db", f.db);
     expect(text.code).toBe(0);
@@ -130,9 +158,8 @@ describe("doctor", () => {
     );
     expect(text.err).not.toContain("thread project_id matches payload");
 
-    const report = JSON.parse(
-      (await migrate(f.env, "doctor", "--db", f.db, "--json")).out
-    );
+    const jsonRun = await migrate(f.env, "doctor", "--db", f.db, "--json");
+    const report = readJson(DoctorReportSchema, jsonRun.out);
 
     expect(report.schema).toEqual({
       ok: false,
@@ -153,9 +180,8 @@ describe("doctor", () => {
   });
   test("takes no positionals", async () => {
     const f = makeFixture();
-    expect((await migrate(f.env, "doctor", "--db", f.db, "extra")).code).toBe(
-      2
-    );
+    const r = await migrate(f.env, "doctor", "--db", f.db, "extra");
+    expect(r.code).toBe(2);
   });
 });
 
@@ -212,7 +238,13 @@ describe("move-threads", () => {
     expect(payloadProjects(f.db)).toEqual([ALPHA]);
     const backups = readdirSync(f.backups);
     expect(backups).toHaveLength(1);
-    expect(threadsOf(join(f.backups, backups[0]!), BETA)).toBe(3);
+    const [backupFile] = backups;
+
+    if (backupFile === undefined) {
+      throw new Error("expected backup file");
+    }
+
+    expect(threadsOf(path.join(f.backups, backupFile), BETA)).toBe(3);
   });
   test("--thread moves one row only", async () => {
     const f = makeFixture();
@@ -284,9 +316,17 @@ describe("move-threads", () => {
   });
   test("missing --to and same project are usage errors", async () => {
     const f = makeFixture();
-    expect(
-      (await migrate(f.env, "move-threads", "--db", f.db, "--from", BETA)).code
-    ).toBe(2);
+
+    const missingTo = await migrate(
+      f.env,
+      "move-threads",
+      "--db",
+      f.db,
+      "--from",
+      BETA
+    );
+
+    expect(missingTo.code).toBe(2);
 
     const same = await migrate(
       f.env,
@@ -337,7 +377,7 @@ describe("move-threads", () => {
   test("a pre-existing mismatch on another thread does not fail verification", async () => {
     const f = makeFixture();
     const db = new Database(f.db, { strict: true });
-    db.exec(
+    db.run(
       `UPDATE orchestration_v2_projection_threads SET payload_json = json_set(payload_json, '$.projectId', 'stale') WHERE thread_id = 't-alpha-1'`
     );
     db.close();
@@ -379,8 +419,14 @@ describe("move-threads", () => {
 
 const live = () => {
   const f = makeFixture();
-  mkdirSync(join(f.env.T3_HOME!, "userdata"), { recursive: true });
-  const db = join(f.env.T3_HOME!, "userdata", "statev2.sqlite");
+  const t3Home = f.env.T3_HOME;
+
+  if (t3Home === undefined) {
+    throw new Error("expected T3_HOME in fixture env");
+  }
+
+  mkdirSync(path.join(t3Home, "userdata"), { recursive: true });
+  const db = path.join(t3Home, "userdata", "statev2.sqlite");
   copyFileSync(f.db, db);
 
   return { ...f, db };
@@ -433,7 +479,7 @@ describe("the live database", () => {
         "migrate",
         "move-threads",
         "--db",
-        f.dir + "/statev2.sqlite",
+        `${f.dir}/statev2.sqlite`,
         "--to",
         "alpha",
         "--from",
@@ -525,45 +571,58 @@ describe("rename-root", () => {
 
     expect(nested.code).toBe(2);
     expect(nested.err).toContain("is inside");
-    expect(
-      (
-        await migrate(
-          f.env,
-          "rename-root",
-          "--db",
-          f.db,
-          "--project",
-          BETA,
-          "--to",
-          ALPHA_ROOT
-        )
-      ).code
-    ).toBe(2);
+
+    const enclosing = await migrate(
+      f.env,
+      "rename-root",
+      "--db",
+      f.db,
+      "--project",
+      BETA,
+      "--to",
+      ALPHA_ROOT
+    );
+
+    expect(enclosing.code).toBe(2);
     expect(rootOf(f.db, ALPHA)).toBe(ALPHA_ROOT);
   });
   test("same root and missing flags are usage errors", async () => {
     const f = makeFixture();
-    expect(
-      (
-        await migrate(
-          f.env,
-          "rename-root",
-          "--db",
-          f.db,
-          "--project",
-          "alpha",
-          "--to",
-          ALPHA_ROOT
-        )
-      ).code
-    ).toBe(2);
-    expect(
-      (await migrate(f.env, "rename-root", "--db", f.db, "--to", "/x")).code
-    ).toBe(2);
-    expect(
-      (await migrate(f.env, "rename-root", "--db", f.db, "--project", "alpha"))
-        .code
-    ).toBe(2);
+
+    const sameRoot = await migrate(
+      f.env,
+      "rename-root",
+      "--db",
+      f.db,
+      "--project",
+      "alpha",
+      "--to",
+      ALPHA_ROOT
+    );
+
+    expect(sameRoot.code).toBe(2);
+
+    const missingProject = await migrate(
+      f.env,
+      "rename-root",
+      "--db",
+      f.db,
+      "--to",
+      "/x"
+    );
+
+    expect(missingProject.code).toBe(2);
+
+    const missingTo = await migrate(
+      f.env,
+      "rename-root",
+      "--db",
+      f.db,
+      "--project",
+      "alpha"
+    );
+
+    expect(missingTo.code).toBe(2);
   });
   test("refuses when the sessions table is gone", async () => {
     const f = makeFixture({ dropSessions: true });
