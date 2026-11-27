@@ -13,22 +13,27 @@ import type { Reply } from "./login.ts";
 import { origin } from "./machines.ts";
 import type { Machine } from "./machines.ts";
 
-/** The machine name in lower case, with anything outside a-z and 0-9 turned into a dash. */
-export const slugOf = (name: string): string =>
-  name.toLowerCase().replaceAll(/[^a-z0-9]/g, "-");
+/**
+ * The machine name in lower case, with anything outside a-z and 0-9 turned into a dash, one for
+ * each UTF-16 code unit.
+ */
+export const slugOf = (name: string) =>
+  name
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]/gu, (outside) => "-".repeat(outside.length));
 
-export const hostnameOf = (name: string, zone: string): string =>
+export const hostnameOf = (name: string, zone: string) =>
   `t3-${slugOf(name)}.${zone}`;
 
 const DNS_LABEL_UP_TO_63 = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
-const ONE_DNS_LABEL = new RegExp(`^${DNS_LABEL_UP_TO_63}$`);
-const ZONE = new RegExp(`^(?:${DNS_LABEL_UP_TO_63}\\.)+[a-z0-9-]{2,63}$`);
+const ONE_DNS_LABEL = new RegExp(`^${DNS_LABEL_UP_TO_63}$`, "u");
+const ZONE = new RegExp(`^(?:${DNS_LABEL_UP_TO_63}\\.)+[a-z0-9-]{2,63}$`, "u");
 
-const hostable = (name: string, zone: string): boolean =>
+const hostable = (name: string, zone: string) =>
   ONE_DNS_LABEL.test(`t3-${slugOf(name)}`) && ZONE.test(zone);
 
 /** The WAF expression the README gives, which blocks T3's MCP paths on the hostname. */
-export const expressionFor = (hostname: string): string =>
+export const expressionFor = (hostname: string) =>
   `(http.host eq "${hostname}" and (starts_with(lower(http.request.uri.path), "/mcp") or starts_with(lower(http.request.uri.path), "/oauth/mcp")))`;
 
 /**
@@ -46,10 +51,13 @@ const Made = Schema.Struct({
   hostname: Schema.String,
   accountId: Schema.String,
   zoneId: Schema.String,
-  /** Whether every step was done and the spoke took the token, so the hostname answers. */
   published: Schema.Boolean,
 });
 
+/**
+ * What the hub made for a machine. `published` is whether every step was done and the spoke took
+ * the token, so the hostname answers.
+ */
 export type Made = typeof Made.Type;
 
 const Tunnels = Schema.fromJsonString(Schema.Record(Schema.String, Made));
@@ -68,10 +76,12 @@ export const loadTunnels = (home: string) =>
       .readFileString(tunnelsFile(home))
       .pipe(Effect.option);
 
-    return Option.getOrElse(
+    const tunnels: Tunnels = Option.getOrElse(
       Option.flatMap(text, (t) => Schema.decodeUnknownOption(Tunnels)(t)),
-      (): Tunnels => ({})
+      () => ({})
     );
+
+    return tunnels;
   });
 
 const remember = (home: string, name: string, made: Made | undefined) =>
@@ -89,10 +99,7 @@ const remember = (home: string, name: string, made: Made | undefined) =>
   }).pipe(Effect.orDie);
 
 /** The tunnel's address for the snapshot, once it answers. */
-export const tunnelOf = (
-  tunnels: Tunnels,
-  name: string
-): { readonly url: string } | null => {
+export const tunnelOf = (tunnels: Tunnels, name: string) => {
   const made = Object.hasOwn(tunnels, name) ? tunnels[name] : undefined;
 
   return made?.published === true ? { url: `https://${made.hostname}` } : null;
@@ -159,7 +166,7 @@ const tunnelsNamed = <
 >(
   found: readonly T[],
   name: string
-): readonly T[] =>
+) =>
   found.filter(
     (t) => t.name === name && (t.config_src ?? "cloudflare") === "cloudflare"
   );
