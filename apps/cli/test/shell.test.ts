@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { SHELL_DIR, setupShell } from "../src/machine/shell.ts";
 import { type FakeMachine, makeMachine } from "./support/host.ts";
@@ -35,6 +42,15 @@ describe("setupShell", () => {
     const { err } = await setup(m);
     expect(readFileSync(join(m.home, ".zshrc"), "utf8")).toBe("mine\n");
     expect(err).toContain("it is not ours");
+  });
+
+  test("links again a .zshrc whose target is gone, as after its source moved", async () => {
+    const m = makeMachine({ binaries: new Set(["zsh"]) });
+    mkdirSync(m.home, { recursive: true });
+    symlinkSync(join(m.base, "moved-away", "zshrc"), join(m.home, ".zshrc"));
+    const { err } = await setup(m);
+    expect(readlinkSync(join(m.home, ".zshrc"))).toBe(join(SHELL_DIR, "zshrc"));
+    expect(err).not.toContain("it is not ours");
   });
 
   test("makes zsh the login shell when it is another one", async () => {

@@ -6,7 +6,7 @@ import { Host } from "./host.ts";
 import { instructionsLink } from "./instructions.ts";
 
 const ZSH = "/usr/bin/zsh";
-export const SHELL_DIR = fileURLToPath(new URL("../../../../shell", import.meta.url));
+export const SHELL_DIR = fileURLToPath(new URL("../../shell", import.meta.url));
 
 const FILES = [
   { source: "zprofile", target: ".zprofile" },

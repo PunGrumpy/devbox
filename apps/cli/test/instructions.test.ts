@@ -122,6 +122,14 @@ describe("linkInstructions", () => {
     await run();
     expect(readlinkSync(file(".claude"))).toBe(mine);
   });
+
+  test("links again a link whose target is gone, as after AGENTS.md moved", async () => {
+    const { m, run, file, source } = machine();
+    mkdirSync(join(m.home, ".claude"), { recursive: true });
+    symlinkSync(join(m.base, "moved-away", "AGENTS.md"), file(".claude"));
+    await run();
+    expect(readlinkSync(file(".claude"))).toBe(source);
+  });
 });
 
 test("the repo ships the AGENTS.md the links point at", () => {
