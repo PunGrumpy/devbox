@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { Effect, Option, Result, Schema } from "effect";
 import { Flag } from "effect/cli";
@@ -218,7 +218,7 @@ export const serveConfig = (flags: ServeFlags, home: AbsolutePath) =>
     });
 
     const under = (value: Option.Option<string>, fallback: string) =>
-      absolutePath(Option.getOrElse(value, () => join(data, fallback)));
+      absolutePath(Option.getOrElse(value, () => path.join(data, fallback)));
 
     return {
       data,
@@ -298,18 +298,25 @@ export const upArgs = (config: MachineConfig): readonly string[] => [
 ];
 
 export const pathsOf = (data: string) => ({
-  prefix: join(data, ".local"),
-  t3: join(data, ".local", "bin", "t3"),
-  t3Package: join(data, ".local", "lib", "node_modules", "t3", "package.json"),
-  mise: join(data, ".local", "bin", "mise"),
-  npmShim: join(data, ".local", "share", "mise", "shims", "npm"),
-  logs: join(data, ".devbox-logs"),
-  skillsStamp: join(data, ".devbox-skills"),
+  prefix: path.join(data, ".local"),
+  t3: path.join(data, ".local", "bin", "t3"),
+  t3Package: path.join(
+    data,
+    ".local",
+    "lib",
+    "node_modules",
+    "t3",
+    "package.json"
+  ),
+  mise: path.join(data, ".local", "bin", "mise"),
+  npmShim: path.join(data, ".local", "share", "mise", "shims", "npm"),
+  logs: path.join(data, ".devbox-logs"),
+  skillsStamp: path.join(data, ".devbox-skills"),
   agents: agentsFile(data),
 });
 
 export const machineFile = (home: string) =>
-  join(home, ".config", "devbox", "machine.json");
+  path.join(home, ".config", "devbox", "machine.json");
 
 export const MachineFile = Schema.Struct({
   name: Schema.String,

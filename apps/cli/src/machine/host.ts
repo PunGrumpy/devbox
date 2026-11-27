@@ -16,7 +16,7 @@ import {
   totalmem,
   userInfo,
 } from "node:os";
-import { dirname } from "node:path";
+import path from "node:path";
 
 import { Context, Effect, Layer, Option } from "effect";
 
@@ -219,7 +219,7 @@ export class Host extends Context.Service<
     ),
     spawnDetached: (argv, { env, log }) =>
       Effect.sync(() => {
-        mkdirSync(dirname(log), { recursive: true });
+        mkdirSync(path.dirname(log), { recursive: true });
         const fd = openSync(log, "a");
         const [command = "", ...args] = argv;
 

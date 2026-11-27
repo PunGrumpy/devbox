@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { Data } from "effect";
 
@@ -23,16 +23,16 @@ export const settingsFor = (data: string): readonly Setting[] => [
   }),
   Setting.Env({
     name: "MISE_DATA_DIR",
-    value: join(data, ".local", "share", "mise"),
+    value: path.join(data, ".local", "share", "mise"),
   }),
-  Setting.Env({ name: "RUSTUP_HOME", value: join(data, ".rustup") }),
-  Setting.Env({ name: "CARGO_HOME", value: join(data, ".cargo") }),
+  Setting.Env({ name: "RUSTUP_HOME", value: path.join(data, ".rustup") }),
+  Setting.Env({ name: "CARGO_HOME", value: path.join(data, ".cargo") }),
   // Claude Code moves .claude.json into $CLAUDE_CONFIG_DIR when it is set.
-  Setting.Env({ name: "CLAUDE_CONFIG_DIR", value: join(data, ".claude") }),
+  Setting.Env({ name: "CLAUDE_CONFIG_DIR", value: path.join(data, ".claude") }),
   Setting.Path({
     dirs: [
-      join(data, ".local", "bin"),
-      join(data, ".local", "share", "mise", "shims"),
+      path.join(data, ".local", "bin"),
+      path.join(data, ".local", "share", "mise", "shims"),
     ],
   }),
 ];

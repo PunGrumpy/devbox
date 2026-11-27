@@ -1,4 +1,4 @@
-import { dirname, join, resolve } from "node:path";
+import path from "node:path";
 
 import { Effect, FileSystem, Option, Schema } from "effect";
 import { Command } from "effect/cli";
@@ -169,7 +169,7 @@ const gather = (
   Effect.gen(function* () {
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
-    const read = (path: string) => fs.readFileString(path).pipe(Effect.option);
+    const read = (file: string) => fs.readFileString(file).pipe(Effect.option);
     const sudo = (yield* host.run(["sudo", "-n", "true"])).code === 0;
     const supervisor = yield* resolveSupervisor(config, sudo);
 
@@ -194,8 +194,8 @@ const gather = (
     ];
 
     const files = new Map(
-      yield* Effect.forEach(filePaths, (path) =>
-        Effect.map(read(path), (c) => [path, c] as const)
+      yield* Effect.forEach(filePaths, (file) =>
+        Effect.map(read(file), (c) => [file, c] as const)
       )
     );
 
@@ -215,18 +215,18 @@ const gather = (
       )
     );
 
-    const real = (path: string) =>
-      fs.realPath(path).pipe(Effect.orElseSucceed(() => path));
+    const real = (file: string) =>
+      fs.realPath(file).pipe(Effect.orElseSucceed(() => file));
 
     const dataIsHome = (yield* real(config.data)) === (yield* real(ctx.home));
 
     const links = new Map(
       yield* Effect.forEach(
         [`${ctx.home}/.agents`, `${ctx.home}/.config/gh`],
-        (path) =>
+        (file) =>
           Effect.map(
-            fs.readLink(path).pipe(Effect.option),
-            (target) => [path, target] as const
+            fs.readLink(file).pipe(Effect.option),
+            (target) => [file, target] as const
           )
       )
     );
@@ -357,7 +357,7 @@ const gather = (
 
     const checkout =
       ctx.self.length === 2
-        ? Option.some(resolve(dirname(ctx.self[1]!), "../../.."))
+        ? Option.some(path.resolve(path.dirname(ctx.self[1]!), "../../.."))
         : Option.none<string>();
 
     const running = (unit: string) =>
@@ -419,8 +419,9 @@ const gather = (
     } satisfies Facts;
   });
 
-const HUB_DIR = join("apps", "hub");
-const hubStamp = (checkout: string) => join(checkout, HUB_DIR, "out", ".built");
+const HUB_DIR = path.join("apps", "hub");
+const hubStamp = (checkout: string) =>
+  path.join(checkout, HUB_DIR, "out", ".built");
 
 /** The git tree of `apps/hub`, which names what a build of the page was made from. */
 const hubTree = (checkout: string) =>
@@ -510,29 +511,29 @@ const apply = (
         Detached: () => Effect.void,
       });
 
-    const remove = (unit: string, path: string, privileged: boolean) =>
+    const remove = (unit: string, file: string, privileged: boolean) =>
       Supervisor.$match(supervisor, {
         Systemd: ({ scope }) =>
           Effect.gen(function* () {
             yield* host.run(systemctl(scope, ["disable", "--now", unit]));
             yield* privileged
-              ? must(["sudo", "-n", "rm", "-f", path])
-              : fs.remove(path).pipe(Effect.ignore);
+              ? must(["sudo", "-n", "rm", "-f", file])
+              : fs.remove(file).pipe(Effect.ignore);
             yield* must(systemctl(scope, ["daemon-reload"]));
           }),
         Detached: () => Effect.void,
       });
 
     yield* Change.$match(change, {
-      Write: ({ path, content, privileged, mode }) =>
+      Write: ({ path: file, content, privileged, mode }) =>
         privileged
-          ? must(["sudo", "-n", "tee", path], { stdin: content })
+          ? must(["sudo", "-n", "tee", file], { stdin: content })
           : fs
-              .makeDirectory(dirname(path), { recursive: true })
+              .makeDirectory(path.dirname(file), { recursive: true })
               .pipe(
                 Effect.andThen(
                   fs.writeFileString(
-                    path,
+                    file,
                     content,
                     Option.isSome(mode) ? { mode: mode.value } : {}
                   )
@@ -550,7 +551,7 @@ const apply = (
             }
           )
         ),
-      Link: ({ path, target }) =>
+      Link: ({ path: file, target }) =>
         Effect.gen(function* () {
           const empty = (dir: string) =>
             fs.readDirectory(dir).pipe(
@@ -570,30 +571,32 @@ const apply = (
               );
 
           const isLink = Option.isSome(
-            yield* fs.readLink(path).pipe(Effect.option)
+            yield* fs.readLink(file).pipe(Effect.option)
           );
 
           if (isLink) {
-            yield* fs.remove(path);
-          } else if (yield* fs.exists(path)) {
+            yield* fs.remove(file);
+          } else if (yield* fs.exists(file)) {
             if (!(yield* fs.exists(target)) || (yield* empty(target))) {
               yield* fs.remove(target, { recursive: true, force: true });
-              yield* fs.makeDirectory(dirname(target), { recursive: true });
-              yield* move(path, target);
-            } else if (yield* empty(path)) {
-              yield* fs.remove(path, { recursive: true });
+              yield* fs.makeDirectory(path.dirname(target), {
+                recursive: true,
+              });
+              yield* move(file, target);
+            } else if (yield* empty(file)) {
+              yield* fs.remove(file, { recursive: true });
             } else {
-              const aside = `${path}.devbox-${Date.now()}`;
-              yield* fs.rename(path, aside);
+              const aside = `${file}.devbox-${Date.now()}`;
+              yield* fs.rename(file, aside);
               yield* out.warn(
-                `${path} and ${target} both held files; kept ${target} and moved the other to ${aside}`
+                `${file} and ${target} both held files; kept ${target} and moved the other to ${aside}`
               );
             }
           }
 
           yield* fs.makeDirectory(target, { recursive: true });
-          yield* fs.makeDirectory(dirname(path), { recursive: true });
-          yield* fs.symlink(target, path);
+          yield* fs.makeDirectory(path.dirname(file), { recursive: true });
+          yield* fs.symlink(target, file);
         }).pipe(
           Effect.catchTag("PlatformError", (error) =>
             Effect.fail(fsFailed(error))
@@ -696,11 +699,12 @@ const apply = (
             ),
         }),
       EnableHub: () => enable(HUB_UNIT),
-      RemoveHub: ({ path, privileged }) => remove(HUB_UNIT, path, privileged),
+      RemoveHub: ({ path: file, privileged }) =>
+        remove(HUB_UNIT, file, privileged),
       EnableSpoke: () => enable(SPOKE_UNIT),
-      RemoveSpoke: ({ path, privileged }) =>
-        remove(SPOKE_UNIT, path, privileged),
-      InstallCloudflared: ({ path }) =>
+      RemoveSpoke: ({ path: file, privileged }) =>
+        remove(SPOKE_UNIT, file, privileged),
+      InstallCloudflared: ({ path: file }) =>
         Effect.gen(function* () {
           const env = processEnv(
             settingsFor(config.data),
@@ -718,20 +722,20 @@ const apply = (
             env,
           });
           const which = yield* must([mise, "which", "cloudflared"], { env });
-          yield* fs.makeDirectory(dirname(path), { recursive: true });
-          yield* fs.remove(path, { force: true });
-          yield* fs.symlink(which.stdout.trim(), path);
+          yield* fs.makeDirectory(path.dirname(file), { recursive: true });
+          yield* fs.remove(file, { force: true });
+          yield* fs.symlink(which.stdout.trim(), file);
         }).pipe(
           Effect.catchTag("PlatformError", (error) =>
             Effect.fail(fsFailed(error))
           )
         ),
       EnableTunnel: () => enable(TUNNEL_UNIT),
-      RemoveTunnel: ({ path, privileged }) =>
-        remove(TUNNEL_UNIT, path, privileged),
+      RemoveTunnel: ({ path: file, privileged }) =>
+        remove(TUNNEL_UNIT, file, privileged),
       BuildHub: ({ checkout }) =>
         Effect.gen(function* () {
-          const cwd = join(checkout, HUB_DIR);
+          const cwd = path.join(checkout, HUB_DIR);
           const bun = ctx.self[0] ?? "bun";
 
           for (const { argv, at } of [

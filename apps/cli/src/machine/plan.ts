@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { Data, Option, Schema } from "effect";
 
@@ -140,7 +140,7 @@ export interface Plan {
 }
 
 export const t3SettingsPath = (baseDir: string) =>
-  join(baseDir, "userdata", "settings.json");
+  path.join(baseDir, "userdata", "settings.json");
 
 type LinkedEnvironments = Data.TaggedEnum<{
   On: {};
@@ -177,13 +177,14 @@ export const enableLinkedEnvironments = (
   });
 };
 
-export const machineInfoPath = (etc: string) => join(etc, "machine-info");
-export const profilePath = (etc: string) => join(etc, "profile.d", "devbox.sh");
+export const machineInfoPath = (etc: string) => path.join(etc, "machine-info");
+export const profilePath = (etc: string) =>
+  path.join(etc, "profile.d", "devbox.sh");
 
 export const unitPath = (scope: "system" | "user", ctx: Context, unit = UNIT) =>
   scope === "system"
-    ? join(ctx.etc, "systemd", "system", unit)
-    : join(ctx.home, ".config", "systemd", "user", unit);
+    ? path.join(ctx.etc, "systemd", "system", unit)
+    : path.join(ctx.home, ".config", "systemd", "user", unit);
 
 // T3 Code names the environment after PRETTY_HOSTNAME in /etc/machine-info before the hostname.
 export const withPrettyHostname = (current: string, name: string): string =>
@@ -252,7 +253,7 @@ export const backupServiceFile = (
   ].join("\n");
 
 export const hubEnvPath = (home: string) =>
-  join(home, ".config", "devbox", "hub", "env");
+  path.join(home, ".config", "devbox", "hub", "env");
 
 const neverAllInterfaces = (bind: string): string =>
   bind === ALL_INTERFACES || bind === "::" ? "127.0.0.1" : bind;
@@ -336,8 +337,10 @@ export const tunnelUnitFile = (
   scope: "system" | "user",
   ctx: Context
 ): string => {
-  const at = (path: string) =>
-    scope === "user" ? `%h/${path}` : systemdQuote(join(ctx.home, path));
+  const at = (relative: string) =>
+    scope === "user"
+      ? `%h/${relative}`
+      : systemdQuote(path.join(ctx.home, relative));
 
   return [
     "[Unit]",
@@ -379,7 +382,7 @@ export const machineJson = (config: MachineConfig): string =>
       port: config.port,
       data: config.data,
       baseDir: config.baseDir,
-      t3: join(config.data, ".local", "bin", "t3"),
+      t3: path.join(config.data, ".local", "bin", "t3"),
       up: upArgs(config),
     },
     null,
@@ -395,14 +398,14 @@ export const persistLinks = (
     ? []
     : [
         {
-          path: join(ctx.home, ".agents"),
-          target: join(config.data, ".agents"),
+          path: path.join(ctx.home, ".agents"),
+          target: path.join(config.data, ".agents"),
         },
         ...(facts.ghLoginSaved
           ? [
               {
-                path: join(ctx.home, ".config", "gh"),
-                target: join(config.data, ".config", "gh"),
+                path: path.join(ctx.home, ".config", "gh"),
+                target: path.join(config.data, ".config", "gh"),
               },
             ]
           : []),

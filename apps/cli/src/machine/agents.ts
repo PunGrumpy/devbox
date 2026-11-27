@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { Data, Effect, FileSystem, Option, Result, Schema } from "effect";
 
@@ -162,10 +162,10 @@ export const remembered = (choice: AgentChoice): boolean =>
   choice.from === "flag" || choice.from === "picked";
 
 export const agentsFile = (data: string) =>
-  join(data, ".config", "devbox", "agents.json");
+  path.join(data, ".config", "devbox", "agents.json");
 
 export const agentBin = (data: string, id: AgentId) =>
-  join(data, ".local", "bin", agentOf(id).bin);
+  path.join(data, ".local", "bin", agentOf(id).bin);
 
 const SavedFile = Schema.fromJsonString(
   Schema.Struct({ agents: Schema.Array(Schema.String) })
@@ -179,8 +179,8 @@ export const readSavedAgents = (data: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
-    const path = agentsFile(data);
-    const text = yield* fs.readFileString(path).pipe(Effect.option);
+    const file = agentsFile(data);
+    const text = yield* fs.readFileString(file).pipe(Effect.option);
 
     if (Option.isNone(text)) {
       return Option.none<AgentIds>();
@@ -189,7 +189,7 @@ export const readSavedAgents = (data: string) =>
     const decoded = Schema.decodeUnknownOption(SavedFile)(text.value);
 
     if (Option.isNone(decoded)) {
-      yield* out.warn(`${path} is not {"agents": [...]}, ignoring it`);
+      yield* out.warn(`${file} is not {"agents": [...]}, ignoring it`);
 
       return Option.none<AgentIds>();
     }
@@ -198,7 +198,7 @@ export const readSavedAgents = (data: string) =>
 
     if (unknown.length > 0) {
       yield* out.warn(
-        `${path} names agents this devbox does not know, ignoring ${unknown.join(", ")}`
+        `${file} names agents this devbox does not know, ignoring ${unknown.join(", ")}`
       );
     }
 
@@ -303,7 +303,7 @@ export const installAgent = (
             "install",
             "-g",
             "--prefix",
-            join(data, ".local"),
+            path.join(data, ".local"),
             `${pkg}@latest`,
           ],
           {
@@ -357,7 +357,7 @@ export const updateAgents = (data: string, ids: AgentIds, npm: string) =>
           "install",
           "-g",
           "--prefix",
-          join(data, ".local"),
+          path.join(data, ".local"),
           `${install.pkg}@latest`,
         ],
         { env, timeoutMs: FIVE_MINUTES }
@@ -377,7 +377,7 @@ export const loginHint = (id: AgentId): string => agentOf(id).login;
 export const removeHint = (id: AgentId, data: string): string =>
   Install.$match(agentOf(id).install, {
     Npm: ({ pkg }) =>
-      `\`npm rm -g --prefix ${join(data, ".local")} ${pkg}\` removes it`,
+      `\`npm rm -g --prefix ${path.join(data, ".local")} ${pkg}\` removes it`,
     Script: () => `delete ${agentBin(data, id)} to remove it`,
   });
 

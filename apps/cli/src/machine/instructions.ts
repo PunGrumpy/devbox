@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Data, Option, Schema } from "effect";
@@ -24,12 +24,12 @@ const ClaudeInstance = Schema.Struct({
   ),
 });
 
-const expandHome = (path: string, home: string) =>
-  path === "~"
+const expandHome = (dir: string, home: string) =>
+  dir === "~"
     ? home
-    : path.startsWith("~/")
-      ? join(home, path.slice(2))
-      : path;
+    : dir.startsWith("~/")
+      ? path.join(home, dir.slice(2))
+      : dir;
 
 // Every Claude provider instance in T3's settings has its own config home, and each home
 // reads its own CLAUDE.md. An instance without a homePath uses $CLAUDE_CONFIG_DIR.
@@ -38,7 +38,7 @@ export const claudeHomes = (
   home: string,
   data: string
 ): readonly string[] => {
-  const fallback = join(data, ".claude");
+  const fallback = path.join(data, ".claude");
 
   const instances = Option.flatMap(
     settings,

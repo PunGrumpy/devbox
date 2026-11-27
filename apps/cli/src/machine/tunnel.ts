@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { Option } from "effect";
 
@@ -6,10 +6,10 @@ export const TUNNEL_UNIT = "cloudflared-t3.service";
 
 /** Where the tunnel's run token lives. `devbox up` only asks whether it is there. */
 export const tunnelTokenFile = (home: string) =>
-  join(home, ".config", "cloudflared", "token");
+  path.join(home, ".config", "cloudflared", "token");
 
 export const cloudflaredPath = (home: string) =>
-  join(home, ".local", "bin", "cloudflared");
+  path.join(home, ".local", "bin", "cloudflared");
 
 /** A tunnel run token, as Cloudflare hands it out: base64 and nothing a shell or a file would split. */
 export const isTunnelToken = (token: string): boolean =>

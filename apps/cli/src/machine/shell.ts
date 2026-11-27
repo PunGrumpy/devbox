@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Effect, FileSystem, Option } from "effect";
@@ -13,7 +13,7 @@ export const SHELL_DIR = fileURLToPath(new URL("../../shell", import.meta.url));
 const FILES = [
   { source: "zprofile", target: ".zprofile" },
   { source: "zshrc", target: ".zshrc" },
-  { source: "starship.toml", target: join(".config", "starship.toml") },
+  { source: "starship.toml", target: path.join(".config", "starship.toml") },
 ] as const;
 
 const linkFiles = (home: string, dir: string) =>
@@ -22,8 +22,8 @@ const linkFiles = (home: string, dir: string) =>
     const out = yield* Output;
 
     for (const file of FILES) {
-      const path = join(home, file.target);
-      const sourcePath = join(dir, file.source);
+      const linkPath = path.join(home, file.target);
+      const sourcePath = path.join(dir, file.source);
       const text = yield* fs.readFileString(sourcePath).pipe(Effect.option);
 
       if (Option.isNone(text)) {
@@ -32,8 +32,8 @@ const linkFiles = (home: string, dir: string) =>
       }
 
       const now = {
-        target: yield* fs.readLink(path).pipe(Effect.option),
-        text: yield* fs.readFileString(path).pipe(Effect.option),
+        target: yield* fs.readLink(linkPath).pipe(Effect.option),
+        text: yield* fs.readFileString(linkPath).pipe(Effect.option),
       };
 
       const link = instructionsLink(now, {
@@ -42,7 +42,7 @@ const linkFiles = (home: string, dir: string) =>
       });
 
       if (link._tag === "NotOurs") {
-        yield* out.warn(`shell: left ${path} alone, it is not ours`);
+        yield* out.warn(`shell: left ${linkPath} alone, it is not ours`);
       }
 
       if (link._tag !== "Link") {
@@ -50,17 +50,17 @@ const linkFiles = (home: string, dir: string) =>
       }
 
       const linked = yield* fs
-        .makeDirectory(dirname(path), { recursive: true })
+        .makeDirectory(path.dirname(linkPath), { recursive: true })
         .pipe(
-          Effect.andThen(fs.remove(path, { force: true })),
-          Effect.andThen(fs.symlink(sourcePath, path)),
+          Effect.andThen(fs.remove(linkPath, { force: true })),
+          Effect.andThen(fs.symlink(sourcePath, linkPath)),
           Effect.as(true),
           Effect.orElseSucceed(() => false)
         );
 
       yield* linked
-        ? out.log(`shell: linked ${path}`)
-        : out.warn(`shell: cannot link ${path}`);
+        ? out.log(`shell: linked ${linkPath}`)
+        : out.warn(`shell: cannot link ${linkPath}`);
     }
   });
 
