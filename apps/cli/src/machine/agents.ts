@@ -1,5 +1,7 @@
-import { Data, Effect, FileSystem, Option, Result, Schema } from "effect";
 import { join } from "node:path";
+
+import { Data, Effect, FileSystem, Option, Result, Schema } from "effect";
+
 import { type Aborted, UsageError } from "../errors.ts";
 import { Output } from "../output.ts";
 import { Host, type Ran } from "./host.ts";
@@ -67,7 +69,9 @@ export const AGENTS = [
     id: "agy",
     name: "Antigravity CLI",
     bin: "agy",
-    install: Install.Script({ url: "https://antigravity.google/cli/install.sh" }),
+    install: Install.Script({
+      url: "https://antigravity.google/cli/install.sh",
+    }),
     skills: "antigravity-cli",
     login: "agy",
     byDefault: false,
@@ -85,37 +89,51 @@ export const AGENTS = [
 
 export type AgentId = (typeof AGENTS)[number]["id"];
 
-const agentOf = (id: AgentId): Agent => AGENTS.find((agent) => agent.id === id)!;
-const isAgentId = (word: string): word is AgentId => AGENTS.some((agent) => agent.id === word);
+const agentOf = (id: AgentId): Agent =>
+  AGENTS.find((agent) => agent.id === id)!;
+const isAgentId = (word: string): word is AgentId =>
+  AGENTS.some((agent) => agent.id === word);
 const KNOWN = AGENTS.map((agent) => agent.id).join(", ");
 
 /** Unique and in AGENTS order, so two lists that mean the same set serialize the same. Only `normalize` builds one. */
-export type AgentIds = ReadonlyArray<AgentId> & { readonly AgentIds: unique symbol };
+export type AgentIds = ReadonlyArray<AgentId> & {
+  readonly AgentIds: unique symbol;
+};
 export const normalize = (ids: Iterable<AgentId>): AgentIds => {
   const wanted = new Set(ids);
-  return AGENTS.map((agent) => agent.id).filter((id) => wanted.has(id)) as unknown as AgentIds;
+  return AGENTS.map((agent) => agent.id).filter((id) =>
+    wanted.has(id)
+  ) as unknown as AgentIds;
 };
 
 export const DEFAULT_AGENTS = normalize(
-  AGENTS.filter((agent) => agent.byDefault).map((agent) => agent.id),
+  AGENTS.filter((agent) => agent.byDefault).map((agent) => agent.id)
 );
 
-export type AgentsFlag = Data.TaggedEnum<{ Pick: {}; Set: { readonly ids: AgentIds } }>;
+export type AgentsFlag = Data.TaggedEnum<{
+  Pick: {};
+  Set: { readonly ids: AgentIds };
+}>;
 export const AgentsFlag = Data.taggedEnum<AgentsFlag>();
 
 /** `--agents`: `pick`, `none`, or a comma list of ids. The failure names the bad word. */
-export const parseAgentsFlag = (text: string): Result.Result<AgentsFlag, string> => {
+export const parseAgentsFlag = (
+  text: string
+): Result.Result<AgentsFlag, string> => {
   if (text.trim() === "pick") return Result.succeed(AgentsFlag.Pick());
-  if (text.trim() === "none") return Result.succeed(AgentsFlag.Set({ ids: normalize([]) }));
+  if (text.trim() === "none")
+    return Result.succeed(AgentsFlag.Set({ ids: normalize([]) }));
   const words = text.split(",").map((word) => word.trim());
   const bad = words.find((word) => !isAgentId(word));
   if (bad !== undefined)
     return Result.fail(
       bad === ""
         ? `empty agent name in "${text}"; known: ${KNOWN}`
-        : `unknown agent "${bad}"; known: ${KNOWN}`,
+        : `unknown agent "${bad}"; known: ${KNOWN}`
     );
-  return Result.succeed(AgentsFlag.Set({ ids: normalize(words.filter(isAgentId)) }));
+  return Result.succeed(
+    AgentsFlag.Set({ ids: normalize(words.filter(isAgentId)) })
+  );
 };
 
 export type AgentChoice = {
@@ -127,10 +145,14 @@ export type AgentChoice = {
 export const remembered = (choice: AgentChoice): boolean =>
   choice.from === "flag" || choice.from === "picked";
 
-export const agentsFile = (data: string) => join(data, ".config", "devbox", "agents.json");
-export const agentBin = (data: string, id: AgentId) => join(data, ".local", "bin", agentOf(id).bin);
+export const agentsFile = (data: string) =>
+  join(data, ".config", "devbox", "agents.json");
+export const agentBin = (data: string, id: AgentId) =>
+  join(data, ".local", "bin", agentOf(id).bin);
 
-const SavedFile = Schema.fromJsonString(Schema.Struct({ agents: Schema.Array(Schema.String) }));
+const SavedFile = Schema.fromJsonString(
+  Schema.Struct({ agents: Schema.Array(Schema.String) })
+);
 
 export const agentsJson = (ids: AgentIds): string =>
   `${JSON.stringify({ agents: ids }, null, 2)}\n`;
@@ -151,7 +173,7 @@ export const readSavedAgents = (data: string) =>
     const unknown = decoded.value.agents.filter((word) => !isAgentId(word));
     if (unknown.length > 0)
       yield* out.warn(
-        `${path} names agents this devbox does not know, ignoring ${unknown.join(", ")}`,
+        `${path} names agents this devbox does not know, ignoring ${unknown.join(", ")}`
       );
     return Option.some(normalize(decoded.value.agents.filter(isAgentId)));
   });
@@ -160,7 +182,7 @@ export const readSavedAgents = (data: string) =>
 export const currentAgents = (data: string) =>
   Effect.map(
     readSavedAgents(data),
-    Option.getOrElse(() => DEFAULT_AGENTS),
+    Option.getOrElse(() => DEFAULT_AGENTS)
   );
 
 const pickAgents = (ticked: AgentIds) =>
@@ -172,7 +194,7 @@ const pickAgents = (ticked: AgentIds) =>
         title: agent.name,
         value: agent.id as AgentId,
         selected: ticked.includes(agent.id),
-      })),
+      }))
     );
     return normalize(chosen);
   }).pipe(
@@ -181,28 +203,30 @@ const pickAgents = (ticked: AgentIds) =>
         new UsageError({
           message: "--agents pick needs a terminal",
           hint: "name them instead, for example --agents claude,codex",
-        }),
-      ),
-    ),
+        })
+      )
+    )
   );
 
 /** The flag wins, then the saved list. With neither, a terminal gets the picker and no terminal gets the defaults. */
 export const chooseAgents = (
   flag: Option.Option<AgentsFlag>,
-  saved: Option.Option<AgentIds>,
+  saved: Option.Option<AgentIds>
 ): Effect.Effect<AgentChoice, UsageError | Aborted, Output> =>
   Effect.gen(function* () {
     const ticked = Option.getOrElse(saved, () => DEFAULT_AGENTS);
     if (Option.isSome(flag)) {
-      if (flag.value._tag === "Set") return { ids: flag.value.ids, from: "flag" as const };
+      if (flag.value._tag === "Set")
+        return { ids: flag.value.ids, from: "flag" as const };
       return { ids: yield* pickAgents(ticked), from: "picked" as const };
     }
-    if (Option.isSome(saved)) return { ids: saved.value, from: "saved" as const };
+    if (Option.isSome(saved))
+      return { ids: saved.value, from: "saved" as const };
     return yield* pickAgents(ticked).pipe(
       Effect.map((ids) => ({ ids, from: "picked" as const })),
       Effect.catchTag("UsageError", () =>
-        Effect.succeed({ ids: ticked, from: "default" as const }),
-      ),
+        Effect.succeed({ ids: ticked, from: "default" as const })
+      )
     );
   });
 
@@ -217,8 +241,8 @@ export const presentAgents = (data: string) =>
             .exists(agentBin(data, id))
             .pipe(Effect.orElseSucceed(() => false));
           return [id, installed || (yield* host.which(bin))] as const;
-        }),
-      ),
+        })
+      )
     );
   });
 
@@ -228,16 +252,26 @@ const FIVE_MINUTES = 300_000;
 export const installAgent = (
   id: AgentId,
   data: string,
-  npm: string,
+  npm: string
 ): Effect.Effect<Ran, never, Host> =>
   Effect.gen(function* () {
     const host = yield* Host;
     const env = processEnv(settingsFor(data), process.env.PATH ?? "");
     return yield* Install.$match(agentOf(id).install, {
       Npm: ({ pkg }) =>
-        host.run([npm, "install", "-g", "--prefix", join(data, ".local"), `${pkg}@latest`], {
-          env,
-        }),
+        host.run(
+          [
+            npm,
+            "install",
+            "-g",
+            "--prefix",
+            join(data, ".local"),
+            `${pkg}@latest`,
+          ],
+          {
+            env,
+          }
+        ),
       Script: ({ url }) =>
         Effect.gen(function* () {
           const script = yield* host.run(["curl", "-fsSL", url]);
@@ -262,13 +296,22 @@ export const updateAgents = (data: string, ids: AgentIds, npm: string) =>
     for (const id of ids) {
       const { name, install } = agentOf(id);
       if (!present.get(id)) {
-        yield* out.warn(`agents: ${name} is chosen but not installed, run \`devbox up\``);
+        yield* out.warn(
+          `agents: ${name} is chosen but not installed, run \`devbox up\``
+        );
         continue;
       }
       if (install._tag === "Script") continue;
       const ran = yield* host.run(
-        [npm, "install", "-g", "--prefix", join(data, ".local"), `${install.pkg}@latest`],
-        { env, timeoutMs: FIVE_MINUTES },
+        [
+          npm,
+          "install",
+          "-g",
+          "--prefix",
+          join(data, ".local"),
+          `${install.pkg}@latest`,
+        ],
+        { env, timeoutMs: FIVE_MINUTES }
       );
       yield* ran.code === 0
         ? out.log(`agents: ${name} is current`)
@@ -283,7 +326,8 @@ export const loginHint = (id: AgentId): string => agentOf(id).login;
 
 export const removeHint = (id: AgentId, data: string): string =>
   Install.$match(agentOf(id).install, {
-    Npm: ({ pkg }) => `\`npm rm -g --prefix ${join(data, ".local")} ${pkg}\` removes it`,
+    Npm: ({ pkg }) =>
+      `\`npm rm -g --prefix ${join(data, ".local")} ${pkg}\` removes it`,
     Script: () => `delete ${agentBin(data, id)} to remove it`,
   });
 
@@ -291,7 +335,7 @@ export const agentName = (id: AgentId): string => agentOf(id).name;
 
 export class AgentInstallFailed extends Schema.TaggedError<AgentInstallFailed>()(
   "AgentInstallFailed",
-  { id: Schema.String, code: Schema.Number, detail: Schema.String },
+  { id: Schema.String, code: Schema.Number, detail: Schema.String }
 ) {
   override get message() {
     return `${this.id} did not install, exit ${this.code}`;

@@ -1,15 +1,19 @@
-import { Option } from "effect";
 import { join } from "node:path";
+
+import { Option } from "effect";
 
 export const TUNNEL_UNIT = "cloudflared-t3.service";
 
 /** Where the tunnel's run token lives. `devbox up` only asks whether it is there. */
-export const tunnelTokenFile = (home: string) => join(home, ".config", "cloudflared", "token");
+export const tunnelTokenFile = (home: string) =>
+  join(home, ".config", "cloudflared", "token");
 
-export const cloudflaredPath = (home: string) => join(home, ".local", "bin", "cloudflared");
+export const cloudflaredPath = (home: string) =>
+  join(home, ".local", "bin", "cloudflared");
 
 /** A tunnel run token, as Cloudflare hands it out: base64 and nothing a shell or a file would split. */
-export const isTunnelToken = (token: string): boolean => /^[A-Za-z0-9+/_=-]{1,2048}$/.test(token);
+export const isTunnelToken = (token: string): boolean =>
+  /^[A-Za-z0-9+/_=-]{1,2048}$/.test(token);
 
 const LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
 
@@ -23,14 +27,14 @@ export const isTunnelUrl = (url: string): boolean =>
  */
 export const withTunnel = (
   up: ReadonlyArray<string>,
-  url: Option.Option<string>,
+  url: Option.Option<string>
 ): ReadonlyArray<string> => {
   const kept = up.filter(
     (arg, i) =>
       arg !== "--tunnel" &&
       arg !== "--public-url" &&
       up[i - 1] !== "--public-url" &&
-      !arg.startsWith("--public-url="),
+      !arg.startsWith("--public-url=")
   );
   return Option.match(url, {
     onNone: () => kept,

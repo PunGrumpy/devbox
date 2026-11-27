@@ -1,6 +1,7 @@
 import { Effect, FileSystem, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 import { SqlClient } from "effect/sql";
+
 import { UsageError } from "../errors.ts";
 import { Output, plural } from "../output.ts";
 import { ClaudeFiles, reportConflicts } from "./claude-files.ts";
@@ -14,7 +15,12 @@ import {
   resolveProject,
   Tables,
 } from "./database.ts";
-import { type AbsolutePath, absolutePath, isUnderRoot, rebase } from "./paths.ts";
+import {
+  type AbsolutePath,
+  absolutePath,
+  isUnderRoot,
+  rebase,
+} from "./paths.ts";
 import { applyPlan, Change } from "./plan.ts";
 import { assertT3Closed } from "./t3-process.ts";
 
@@ -28,28 +34,34 @@ const Session = Schema.Struct({
   cwd: Schema.Unknown,
   driver: Schema.NullOr(Schema.String),
 });
-type Session = { readonly id: string; readonly cwd: string; readonly driver: string | null };
+type Session = {
+  readonly id: string;
+  readonly cwd: string;
+  readonly driver: string | null;
+};
 
 const sessions = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const rows =
     yield* sql`SELECT provider_session_id AS id, json_extract(payload_json, '$.cwd') AS cwd, driver
     FROM ${sql(Tables.sessions)}`.pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Session))),
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Session)))
     );
   return rows.flatMap((row): Array<Session> =>
-    typeof row.cwd === "string" ? [{ ...row, cwd: row.cwd }] : [],
+    typeof row.cwd === "string" ? [{ ...row, cwd: row.cwd }] : []
   );
 });
 
 const under = (root: AbsolutePath) =>
-  Effect.map(sessions, (all) => all.filter((session) => isUnderRoot(session.cwd, root)));
+  Effect.map(sessions, (all) =>
+    all.filter((session) => isUnderRoot(session.cwd, root))
+  );
 
 export const renameRoot = Command.make(
   "rename-root",
   {
     project: Flag.String("project").pipe(
-      Flag.withDescription("project to point elsewhere, by id or title"),
+      Flag.withDescription("project to point elsewhere, by id or title")
     ),
     to: Flag.String("to").pipe(Flag.withDescription("the new workspace root")),
     ...writeFlags,
@@ -84,7 +96,9 @@ export const renameRoot = Command.make(
 
         const moving = yield* under(from);
         const alreadyThere = (yield* under(to)).length;
-        yield* out.log(`project ${project.title} ${out.paint("dim", `(${project.projectId})`)}`);
+        yield* out.log(
+          `project ${project.title} ${out.paint("dim", `(${project.projectId})`)}`
+        );
         yield* out.line();
         yield* out.pairs([
           ["from", from],
@@ -97,7 +111,9 @@ export const renameRoot = Command.make(
         yield* out.line();
 
         const cwds = [
-          ...new Set(moving.filter((s) => s.driver === CLAUDE_DRIVER).map((s) => s.cwd)),
+          ...new Set(
+            moving.filter((s) => s.driver === CLAUDE_DRIVER).map((s) => s.cwd)
+          ),
         ];
         const copy = yield* claudeFiles.plan({ from, to, cwds });
         yield* claudeFiles.show(copy);
@@ -113,9 +129,11 @@ export const renameRoot = Command.make(
               .pipe(
                 Effect.flatMap((result) =>
                   Effect.addFinalizer(() =>
-                    reportConflicts(result).pipe(Effect.provideService(Output, out)),
-                  ),
-                ),
+                    reportConflicts(result).pipe(
+                      Effect.provideService(Output, out)
+                    )
+                  )
+                )
               ),
             write: Effect.gen(function* () {
               yield* sql`UPDATE ${sql(Tables.projects)} SET workspace_root = ${to} WHERE project_id = ${project.projectId}`;
@@ -132,7 +150,7 @@ export const renameRoot = Command.make(
                 actual: sql<{
                   root: string;
                 }>`SELECT workspace_root AS root FROM ${sql(Tables.projects)} WHERE project_id = ${project.projectId}`.pipe(
-                  Effect.map((rows) => rows[0]?.root ?? ""),
+                  Effect.map((rows) => rows[0]?.root ?? "")
                 ),
               },
               {
@@ -146,10 +164,14 @@ export const renameRoot = Command.make(
                 actual: Effect.map(under(to), (s) => s.length),
               },
             ],
-          },
+          }
         );
-      }).pipe(Effect.provide(databaseLayer(target.path, apply ? "write" : "read"))),
-    ),
+      }).pipe(
+        Effect.provide(databaseLayer(target.path, apply ? "write" : "read"))
+      )
+    )
 ).pipe(
-  Command.withDescription("Point a project at a new workspace root and fix session cwd paths"),
+  Command.withDescription(
+    "Point a project at a new workspace root and fix session cwd paths"
+  )
 );

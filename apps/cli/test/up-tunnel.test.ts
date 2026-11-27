@@ -11,19 +11,29 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+
 import type { Ran } from "../src/machine/host.ts";
 import { type FakeMachine, makeMachine } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
-const TOKEN = Buffer.from(JSON.stringify({ a: "made-up", t: "made-up", s: "made-up" })).toString(
-  "base64",
-);
+const TOKEN = Buffer.from(
+  JSON.stringify({ a: "made-up", t: "made-up", s: "made-up" })
+).toString("base64");
 
 const ok = (stdout = ""): Ran => ({ code: 0, stdout, stderr: "" });
 
-const machine = (options: { token?: boolean; overrides?: Partial<FakeMachine> } = {}) => {
+const machine = (
+  options: { token?: boolean; overrides?: Partial<FakeMachine> } = {}
+) => {
   const m = makeMachine(options.overrides ?? { userBus: true });
-  const installed = join(m.base, "mise", "installs", "cloudflared", "bin", "cloudflared");
+  const installed = join(
+    m.base,
+    "mise",
+    "installs",
+    "cloudflared",
+    "bin",
+    "cloudflared"
+  );
   mkdirSync(join(m.home, ".local", "bin"), { recursive: true });
   writeFileSync(join(m.home, ".local", "bin", "mise"), "");
   m.respond = (argv) => {
@@ -32,7 +42,8 @@ const machine = (options: { token?: boolean; overrides?: Partial<FakeMachine> } 
       writeFileSync(installed, "");
       return ok();
     }
-    if (argv[0]?.endsWith("/mise") && argv[1] === "which") return ok(`${installed}\n`);
+    if (argv[0]?.endsWith("/mise") && argv[1] === "which")
+      return ok(`${installed}\n`);
     return undefined;
   };
   if (options.token !== false) {
@@ -50,12 +61,20 @@ const machineJson = (m: ReturnType<typeof makeMachine>) =>
   readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8");
 
 const up = (m: ReturnType<typeof makeMachine>, ...args: Array<string>) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], { host: m.host });
+  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
+    host: m.host,
+  });
 
 const readmeUnit = () => {
-  const readme = readFileSync(join(import.meta.dir, "..", "..", "..", "README.md"), "utf8");
-  const section = readme.slice(readme.indexOf("### Reach T3 without Tailscale"));
-  const block = /```ini\n(?<body>[\s\S]*?)```/.exec(section)?.groups?.body ?? "";
+  const readme = readFileSync(
+    join(import.meta.dir, "..", "..", "..", "README.md"),
+    "utf8"
+  );
+  const section = readme.slice(
+    readme.indexOf("### Reach T3 without Tailscale")
+  );
+  const block =
+    /```ini\n(?<body>[\s\S]*?)```/.exec(section)?.groups?.body ?? "";
   return block
     .split("\n")
     .map((line) => line.replace(/^ {3}/, ""))
@@ -67,7 +86,9 @@ describe("devbox up --tunnel", () => {
     const { m, installed } = machine();
     const first = await up(m, "--tunnel");
     expect(first.code).toBe(0);
-    expect(readlinkSync(join(m.home, ".local/bin/cloudflared"))).toBe(installed);
+    expect(readlinkSync(join(m.home, ".local/bin/cloudflared"))).toBe(
+      installed
+    );
     expect(m.calls).toContainEqual([
       join(m.home, ".local/bin/mise"),
       "use",
@@ -76,7 +97,10 @@ describe("devbox up --tunnel", () => {
       "cloudflared",
     ]);
     expect(readFileSync(unitPath(m), "utf8")).toBe(readmeUnit());
-    expect(m.units.get("user:cloudflared-t3.service")).toEqual({ active: true, enabled: true });
+    expect(m.units.get("user:cloudflared-t3.service")).toEqual({
+      active: true,
+      enabled: true,
+    });
     expect(first.err).toContain("installed cloudflared at");
     expect(first.err).toContain("enabled cloudflared-t3.service");
     expect(JSON.parse(machineJson(m)).up).toContain("--tunnel");
@@ -84,7 +108,9 @@ describe("devbox up --tunnel", () => {
     const before = m.calls.length;
     const second = await up(m, "--tunnel");
     expect(second.err).toContain("No changes.");
-    expect(m.calls.slice(before).some((argv) => argv[0]?.endsWith("/mise"))).toBe(false);
+    expect(
+      m.calls.slice(before).some((argv) => argv[0]?.endsWith("/mise"))
+    ).toBe(false);
   });
 
   test("the recorded flags keep the tunnel on a plain run of them", async () => {
@@ -100,9 +126,14 @@ describe("devbox up --tunnel", () => {
     await up(m, "--tunnel");
     const second = await up(m);
     expect(second.code).toBe(0);
-    expect(second.err).toContain("removed cloudflared-t3.service, because --tunnel is off");
+    expect(second.err).toContain(
+      "removed cloudflared-t3.service, because --tunnel is off"
+    );
     expect(existsSync(unitPath(m))).toBe(false);
-    expect(m.units.get("user:cloudflared-t3.service")).toEqual({ active: false, enabled: false });
+    expect(m.units.get("user:cloudflared-t3.service")).toEqual({
+      active: false,
+      enabled: false,
+    });
     expect(readFileSync(tokenPath(m), "utf8")).toBe(TOKEN);
     expect((await up(m)).err).toContain("No changes.");
   });
@@ -122,7 +153,9 @@ describe("devbox up --tunnel", () => {
     const { m } = machine({ token: false });
     const r = await up(m, "--tunnel");
     expect(r.code).not.toBe(0);
-    expect(r.err).toContain(`--tunnel needs the tunnel's token in ${tokenPath(m)}`);
+    expect(r.err).toContain(
+      `--tunnel needs the tunnel's token in ${tokenPath(m)}`
+    );
     expect(r.err).toContain("the hub saves it when it publishes this machine");
     expect(existsSync(unitPath(m))).toBe(false);
     expect(existsSync(join(m.home, ".config/devbox/machine.json"))).toBe(false);
@@ -145,13 +178,19 @@ describe("devbox up --tunnel", () => {
     const { m } = machine({ overrides: { sudo: true, systemd: true } });
     const r = await up(m, "--tunnel");
     expect(r.code).toBe(0);
-    const unit = readFileSync(join(m.etc, "systemd/system/cloudflared-t3.service"), "utf8");
+    const unit = readFileSync(
+      join(m.etc, "systemd/system/cloudflared-t3.service"),
+      "utf8"
+    );
     expect(unit).toContain("User=agent\n");
     expect(unit).toContain(
-      `ExecStart=${m.home}/.local/bin/cloudflared tunnel --no-autoupdate run --token-file ${m.home}/.config/cloudflared/token\n`,
+      `ExecStart=${m.home}/.local/bin/cloudflared tunnel --no-autoupdate run --token-file ${m.home}/.config/cloudflared/token\n`
     );
     expect(unit).toContain("WantedBy=multi-user.target\n");
-    expect(m.units.get("system:cloudflared-t3.service")).toEqual({ active: true, enabled: true });
+    expect(m.units.get("system:cloudflared-t3.service")).toEqual({
+      active: true,
+      enabled: true,
+    });
   });
 
   test("without systemd it says to run cloudflared yourself", async () => {

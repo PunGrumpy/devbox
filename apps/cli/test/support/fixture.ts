@@ -53,33 +53,45 @@ CREATE TABLE scheduled_tasks (
 const sessionPayload = (cwd: string) =>
   JSON.stringify({ id: "s", status: "ready", cwd, model: "m" });
 
-export type Fixture = { dir: string; db: string; backups: string; env: Record<string, string> };
+export type Fixture = {
+  dir: string;
+  db: string;
+  backups: string;
+  env: Record<string, string>;
+};
 
-export const makeFixture = (options: { events?: number; dropSessions?: boolean } = {}): Fixture => {
+export const makeFixture = (
+  options: { events?: number; dropSessions?: boolean } = {}
+): Fixture => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "devbox-migrate-")));
   const path = join(dir, "statev2.sqlite");
   const db = new Database(path, { create: true, strict: true });
   db.exec(SCHEMA_0_1_6_NIGHTLY_20261031);
   const project = db.query(
-    "INSERT INTO projection_projects (project_id, title, workspace_root, deleted_at) VALUES (?, ?, ?, ?)",
+    "INSERT INTO projection_projects (project_id, title, workspace_root, deleted_at) VALUES (?, ?, ?, ?)"
   );
   project.run(ALPHA, "alpha", ALPHA_ROOT, null);
   project.run(BETA, "beta-service", BETA_ROOT, null);
-  project.run(GAMMA, "gamma-lab", "/Users/me/Developments/alpha/gamma-lab", null);
+  project.run(
+    GAMMA,
+    "gamma-lab",
+    "/Users/me/Developments/alpha/gamma-lab",
+    null
+  );
   project.run("dup-1", "delta", "/Users/me/old/delta", "2026-10-01T00:00:00Z");
   project.run("dup-2", "delta", "/Users/me/Projects/delta", null);
   project.run("dup-3", "No project", "/Users/me/.t3/scratch", null);
   project.run("dup-4", "No project", "/Users/me/.t3/scratch", null);
 
   const thread = db.query(
-    "INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, updated_at, deleted_at, payload_json) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, updated_at, deleted_at, payload_json) VALUES (?, ?, ?, ?, ?, ?)"
   );
   const add = (
     id: string,
     projectId: string,
     title: string,
     updatedAt: string,
-    deletedAt: string | null,
+    deletedAt: string | null
   ) =>
     thread.run(
       id,
@@ -87,7 +99,13 @@ export const makeFixture = (options: { events?: number; dropSessions?: boolean }
       title,
       updatedAt,
       deletedAt,
-      JSON.stringify({ id, projectId, title, createdBy: "user", worktreePath: null }),
+      JSON.stringify({
+        id,
+        projectId,
+        title,
+        createdBy: "user",
+        worktreePath: null,
+      })
     );
   add("t-alpha-1", ALPHA, "Onboarding", "2026-10-20T00:00:00Z", null);
   add("t-beta-1", BETA, "Pipeline", "2026-10-22T00:00:00Z", null);
@@ -98,7 +116,7 @@ export const makeFixture = (options: { events?: number; dropSessions?: boolean }
     db.exec("DROP TABLE orchestration_v2_projection_provider_sessions");
   } else {
     const session = db.query(
-      "INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, payload_json) VALUES (?, ?, ?)",
+      "INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, payload_json) VALUES (?, ?, ?)"
     );
     session.run("s-1", "t-alpha-1", sessionPayload(ALPHA_ROOT));
     session.run("s-2", "t-beta-1", sessionPayload(BETA_ROOT));
@@ -106,10 +124,12 @@ export const makeFixture = (options: { events?: number; dropSessions?: boolean }
     session.run("s-4", "x", sessionPayload("/Users/me/Developments/alpha-cli"));
     session.run("s-5", "y", JSON.stringify({ id: "s", status: "ready" }));
   }
-  db.query("INSERT INTO scheduled_tasks (task_id, project_id) VALUES (?, ?)").run("task-1", BETA);
+  db.query(
+    "INSERT INTO scheduled_tasks (task_id, project_id) VALUES (?, ?)"
+  ).run("task-1", BETA);
   for (let i = 0; i < (options.events ?? 0); i += 1) {
     db.query(
-      "INSERT INTO orchestration_v2_events (event_id, thread_id, event_type, occurred_at, payload_json) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO orchestration_v2_events (event_id, thread_id, event_type, occurred_at, payload_json) VALUES (?, ?, ?, ?, ?)"
     ).run(`e-${i}`, "t-alpha-1", "x", "", "{}");
   }
   db.close();
@@ -118,7 +138,11 @@ export const makeFixture = (options: { events?: number; dropSessions?: boolean }
     dir,
     db: path,
     backups,
-    env: { HOME: join(dir, "home"), T3_HOME: join(dir, "no-t3"), T3_BACKUP_DIR: backups },
+    env: {
+      HOME: join(dir, "home"),
+      T3_HOME: join(dir, "no-t3"),
+      T3_BACKUP_DIR: backups,
+    },
   };
 };
 
@@ -145,10 +169,13 @@ export type World = {
   env: Record<string, string>;
 };
 
-export const slug = (path: string): string => path.replace(/[^A-Za-z0-9]/g, "-");
+export const slug = (path: string): string =>
+  path.replace(/[^A-Za-z0-9]/g, "-");
 
 export const makeWorld = (): World => {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "devbox-migrate-world-")));
+  const base = realpathSync(
+    mkdtempSync(join(tmpdir(), "devbox-migrate-world-"))
+  );
   const home = join(base, "home");
   const real = join(base, "real", "Developments");
   const t3 = join(home, ".t3");
@@ -161,14 +188,30 @@ export const makeWorld = (): World => {
     join(t3, "userdata", "settings.json"),
     JSON.stringify({
       providerInstances: {
-        claudeAgent_a: { driver: "claudeAgent", config: { homePath: "~/.claude-a" } },
+        claudeAgent_a: {
+          driver: "claudeAgent",
+          config: { homePath: "~/.claude-a" },
+        },
         claudeAgent_b: { driver: "claudeAgent", config: { homePath: homes.b } },
-        claudeAgent_a_again: { driver: "claudeAgent", config: { homePath: `${homes.a}/` } },
-        claudeAgent_b_alias: { driver: "claudeAgent", config: { homePath: "~/.claude-b-alias" } },
-        claudeAgent: { driver: "claudeAgent", enabled: false, config: { homePath: "" } },
-        codex_x: { driver: "codex", config: { homePath: join(home, ".codex-x") } },
+        claudeAgent_a_again: {
+          driver: "claudeAgent",
+          config: { homePath: `${homes.a}/` },
+        },
+        claudeAgent_b_alias: {
+          driver: "claudeAgent",
+          config: { homePath: "~/.claude-b-alias" },
+        },
+        claudeAgent: {
+          driver: "claudeAgent",
+          enabled: false,
+          config: { homePath: "" },
+        },
+        codex_x: {
+          driver: "codex",
+          config: { homePath: join(home, ".codex-x") },
+        },
       },
-    }),
+    })
   );
   const db = join(t3, "userdata", "statev2.sqlite");
   const conn = new Database(db, { create: true, strict: true });
@@ -190,18 +233,25 @@ export const addProject = (
   id: string,
   title: string,
   root: string,
-  cwds: Array<{ cwd: string; driver?: string }> = [],
+  cwds: Array<{ cwd: string; driver?: string }> = []
 ): void => {
   const conn = new Database(world.db, { strict: true });
   conn
-    .query("INSERT INTO projection_projects (project_id, title, workspace_root) VALUES (?, ?, ?)")
+    .query(
+      "INSERT INTO projection_projects (project_id, title, workspace_root) VALUES (?, ?, ?)"
+    )
     .run(id, title, root);
   cwds.forEach(({ cwd, driver }, i) => {
     conn
       .query(
-        "INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, payload_json, driver) VALUES (?, ?, ?, ?)",
+        "INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, payload_json, driver) VALUES (?, ?, ?, ?)"
       )
-      .run(`${id}-s${i}`, `${id}-t${i}`, JSON.stringify({ cwd }), driver ?? "claudeAgent");
+      .run(
+        `${id}-s${i}`,
+        `${id}-t${i}`,
+        JSON.stringify({ cwd }),
+        driver ?? "claudeAgent"
+      );
   });
   conn.close();
 };
@@ -222,8 +272,11 @@ export const snapshot = (dir: string): Record<string, string> => {
       if (entry.isDirectory()) {
         out[rel] = "dir";
         walk(full);
-      } else if (entry.isSymbolicLink()) out[rel] = `link ${readlinkSync(full)}`;
-      else out[rel] = `${Bun.hash(readFileSync(full))} @${lstatSync(full).mtimeMs}`;
+      } else if (entry.isSymbolicLink())
+        out[rel] = `link ${readlinkSync(full)}`;
+      else
+        out[rel] =
+          `${Bun.hash(readFileSync(full))} @${lstatSync(full).mtimeMs}`;
     }
   };
   walk(dir);

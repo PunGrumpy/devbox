@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+
 import { Effect, Option } from "effect";
+
 import { Host } from "../src/machine/host.ts";
 
 const answers = (port: number, address: string) =>
@@ -7,7 +9,7 @@ const answers = (port: number, address: string) =>
     Effect.gen(function* () {
       const host = yield* Host;
       return yield* host.answers(port, address);
-    }).pipe(Effect.provide(Host.layer)),
+    }).pipe(Effect.provide(Host.layer))
   );
 
 const listen = (hostname: string) => {
@@ -45,7 +47,7 @@ const fetchText = (url: string) =>
     Effect.gen(function* () {
       const host = yield* Host;
       return yield* host.fetchText(url, 2000);
-    }).pipe(Effect.provide(Host.layer)),
+    }).pipe(Effect.provide(Host.layer))
   );
 
 describe("Host.fetchText", () => {
@@ -61,7 +63,9 @@ describe("Host.fetchText", () => {
     const origin = `http://127.0.0.1:${server.port}`;
     try {
       const found = await fetchText(`${origin}/ok`);
-      expect(Option.map(found, ({ body }) => body)).toEqual(Option.some("hello"));
+      expect(Option.map(found, ({ body }) => body)).toEqual(
+        Option.some("hello")
+      );
       expect(Option.getOrThrow(found).ms).toBeGreaterThanOrEqual(0);
       expect(Option.isNone(await fetchText(`${origin}/missing`))).toBe(true);
     } finally {
@@ -75,7 +79,7 @@ const host = <A>(use: (h: Host["Service"]) => Effect.Effect<A>) =>
   Effect.runPromise(
     Effect.gen(function* () {
       return yield* use(yield* Host);
-    }).pipe(Effect.provide(Host.layer)),
+    }).pipe(Effect.provide(Host.layer))
   );
 
 describe("Host.fetchText", () => {
@@ -95,14 +99,18 @@ describe("Host.fetchText", () => {
                 c.enqueue(new TextEncoder().encode(big.slice(0, 65_536)));
               c.close();
             },
-          }),
+          })
         );
       },
     });
     try {
       const at = (path: string) =>
-        host((h) => h.fetchText(`http://127.0.0.1:${server.port}${path}`, 2000));
-      expect(Option.map(await at("/small"), ({ body }) => body)).toEqual(Option.some("ok"));
+        host((h) =>
+          h.fetchText(`http://127.0.0.1:${server.port}${path}`, 2000)
+        );
+      expect(Option.map(await at("/small"), ({ body }) => body)).toEqual(
+        Option.some("ok")
+      );
       expect(Option.isNone(await at("/sized"))).toBe(true);
       expect(Option.isNone(await at("/streamed"))).toBe(true);
     } finally {

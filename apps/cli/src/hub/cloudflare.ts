@@ -1,6 +1,11 @@
 import { Effect, Option, Schema } from "effect";
+
 import { Host } from "../machine/host.ts";
-import { type CloudflareAccount, CloudflareFailed, saveCloudflare } from "./cloudflare-auth.ts";
+import {
+  type CloudflareAccount,
+  CloudflareFailed,
+  saveCloudflare,
+} from "./cloudflare-auth.ts";
 
 const API = "https://api.cloudflare.com/client/v4";
 const TIMEOUT_MS = 20_000;
@@ -17,17 +22,19 @@ export type CloudflareRequest = {
 /** Cloudflare answered with an error, or did not answer at all (status null). */
 export class CloudflareRefused extends Schema.TaggedError<CloudflareRefused>()(
   "CloudflareRefused",
-  { status: Schema.NullOr(Schema.Number), said: Schema.String },
+  { status: Schema.NullOr(Schema.Number), said: Schema.String }
 ) {}
 
 const Envelope = Schema.fromJsonString(
   Schema.Struct({
     success: Schema.Boolean,
     errors: Schema.optional(
-      Schema.NullOr(Schema.Array(Schema.Struct({ message: Schema.optional(Schema.String) }))),
+      Schema.NullOr(
+        Schema.Array(Schema.Struct({ message: Schema.optional(Schema.String) }))
+      )
     ),
     result: Schema.optional(Schema.Unknown),
-  }),
+  })
 );
 
 const quote = (text: string, bearer: string): string => {
@@ -38,7 +45,8 @@ const quote = (text: string, bearer: string): string => {
 
 const urlOf = ({ path, query = {} }: CloudflareRequest): string => {
   const url = new URL(`${API}${path}`);
-  for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
+  for (const [name, value] of Object.entries(query))
+    url.searchParams.set(name, value);
   return url.href;
 };
 
@@ -55,11 +63,15 @@ export const call = (bearer: string, request: CloudflareRequest) =>
         method: request.method,
         headers: {
           authorization: `Bearer ${bearer}`,
-          ...(request.body === undefined ? {} : { "content-type": "application/json" }),
+          ...(request.body === undefined
+            ? {}
+            : { "content-type": "application/json" }),
         },
-        ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
+        ...(request.body === undefined
+          ? {}
+          : { body: JSON.stringify(request.body) }),
       },
-      TIMEOUT_MS,
+      TIMEOUT_MS
     );
     if (Option.isNone(answered))
       return yield* new CloudflareRefused({
@@ -75,11 +87,14 @@ export const call = (bearer: string, request: CloudflareRequest) =>
       });
     if (!envelope.value.success || status < 200 || status > 299) {
       const messages = (envelope.value.errors ?? []).flatMap((e) =>
-        e.message === undefined ? [] : [e.message],
+        e.message === undefined ? [] : [e.message]
       );
       return yield* new CloudflareRefused({
         status,
-        said: quote(messages.length === 0 ? `status ${status}` : messages.join("; "), bearer),
+        said: quote(
+          messages.length === 0 ? `status ${status}` : messages.join("; "),
+          bearer
+        ),
       });
     }
     return envelope.value.result;
@@ -94,7 +109,7 @@ const read =
           new CloudflareRefused({
             status: 200,
             said: "Cloudflare answered in a shape devbox does not know",
-          }),
+          })
         ),
       onSome: (value: T) => Effect.succeed(value),
     });
@@ -152,12 +167,16 @@ export const cloudflareApi = (bearer: string) => {
     /** Whether the token is active, asked as a user token and then as one owned by the account. */
     verify: (accountId: string) =>
       ask({ method: "GET", path: "/user/tokens/verify" }).pipe(
-        Effect.catch(() => ask({ method: "GET", path: `/accounts/${accountId}/tokens/verify` })),
-        Effect.flatMap(read(Verified)),
+        Effect.catch(() =>
+          ask({ method: "GET", path: `/accounts/${accountId}/tokens/verify` })
+        ),
+        Effect.flatMap(read(Verified))
       ),
-    accounts: ask({ method: "GET", path: "/accounts", query: { per_page: PER_PAGE } }).pipe(
-      Effect.flatMap(read(Schema.Array(Named))),
-    ),
+    accounts: ask({
+      method: "GET",
+      path: "/accounts",
+      query: { per_page: PER_PAGE },
+    }).pipe(Effect.flatMap(read(Schema.Array(Named)))),
     zones: (accountId: string) =>
       ask({
         method: "GET",
@@ -167,13 +186,16 @@ export const cloudflareApi = (bearer: string) => {
 
     /** The zone's custom rules, or none when the zone has none yet. */
     firewall: (zoneId: string) =>
-      ask({ method: "GET", path: `/zones/${zoneId}/rulesets/phases/${PHASE}/entrypoint` }).pipe(
+      ask({
+        method: "GET",
+        path: `/zones/${zoneId}/rulesets/phases/${PHASE}/entrypoint`,
+      }).pipe(
         Effect.flatMap(read(Ruleset)),
         Effect.map(Option.some),
         Effect.catchIf(
           (error) => error._tag === "CloudflareRefused" && error.status === 404,
-          () => Effect.succeed(Option.none<Ruleset>()),
-        ),
+          () => Effect.succeed(Option.none<Ruleset>())
+        )
       ),
     /** The zone's first custom rule, which makes the ruleset that holds them. */
     createFirewall: (zoneId: string, rule: NewRule) =>
@@ -195,7 +217,10 @@ export const cloudflareApi = (bearer: string) => {
       }).pipe(Effect.flatMap(read(Ruleset))),
     deleteRule: (zoneId: string, rulesetId: string, ruleId: string) =>
       Effect.asVoid(
-        ask({ method: "DELETE", path: `/zones/${zoneId}/rulesets/${rulesetId}/rules/${ruleId}` }),
+        ask({
+          method: "DELETE",
+          path: `/zones/${zoneId}/rulesets/${rulesetId}/rules/${ruleId}`,
+        })
       ),
 
     findTunnels: (accountId: string, name: string) =>
@@ -213,23 +238,38 @@ export const cloudflareApi = (bearer: string) => {
     /** Drops the tunnel's connections first, since Cloudflare deletes no tunnel that has one. */
     deleteTunnel: (accountId: string, tunnelId: string) =>
       Effect.asVoid(
-        ask({ method: "DELETE", path: `${tunnels(accountId)}/${tunnelId}/connections` }).pipe(
-          Effect.andThen(ask({ method: "DELETE", path: `${tunnels(accountId)}/${tunnelId}` })),
-        ),
+        ask({
+          method: "DELETE",
+          path: `${tunnels(accountId)}/${tunnelId}/connections`,
+        }).pipe(
+          Effect.andThen(
+            ask({ method: "DELETE", path: `${tunnels(accountId)}/${tunnelId}` })
+          )
+        )
       ),
     /** Sends what reaches `hostname` to `service`, and answers 404 to anything else. */
-    putIngress: (accountId: string, tunnelId: string, hostname: string, service: string) =>
+    putIngress: (
+      accountId: string,
+      tunnelId: string,
+      hostname: string,
+      service: string
+    ) =>
       Effect.asVoid(
         ask({
           method: "PUT",
           path: `${tunnels(accountId)}/${tunnelId}/configurations`,
-          body: { config: { ingress: [{ hostname, service }, { service: "http_status:404" }] } },
-        }),
+          body: {
+            config: {
+              ingress: [{ hostname, service }, { service: "http_status:404" }],
+            },
+          },
+        })
       ),
     tunnelToken: (accountId: string, tunnelId: string) =>
-      ask({ method: "GET", path: `${tunnels(accountId)}/${tunnelId}/token` }).pipe(
-        Effect.flatMap(read(Schema.String)),
-      ),
+      ask({
+        method: "GET",
+        path: `${tunnels(accountId)}/${tunnelId}/token`,
+      }).pipe(Effect.flatMap(read(Schema.String))),
 
     findRecords: (zoneId: string, hostname: string) =>
       ask({
@@ -237,7 +277,10 @@ export const cloudflareApi = (bearer: string) => {
         path: `/zones/${zoneId}/dns_records`,
         query: { "name.exact": hostname, per_page: PER_PAGE },
       }).pipe(Effect.flatMap(read(Schema.Array(DnsRecord)))),
-    createRecord: (zoneId: string, record: { name: string; content: string; comment: string }) =>
+    createRecord: (
+      zoneId: string,
+      record: { name: string; content: string; comment: string }
+    ) =>
       ask({
         method: "POST",
         path: `/zones/${zoneId}/dns_records`,
@@ -250,7 +293,12 @@ export const cloudflareApi = (bearer: string) => {
         body: { type: "CNAME", content, proxied: true },
       }).pipe(Effect.flatMap(read(DnsRecord))),
     deleteRecord: (zoneId: string, recordId: string) =>
-      Effect.asVoid(ask({ method: "DELETE", path: `/zones/${zoneId}/dns_records/${recordId}` })),
+      Effect.asVoid(
+        ask({
+          method: "DELETE",
+          path: `/zones/${zoneId}/dns_records/${recordId}`,
+        })
+      ),
   };
 };
 
@@ -258,10 +306,14 @@ export type CloudflareApi = ReturnType<typeof cloudflareApi>;
 
 /** A refusal as an error a command prints, which says what Cloudflare said. */
 export const failed = (doing: string) => (error: CloudflareRefused) =>
-  new CloudflareFailed({ message: `Cloudflare refused to ${doing}: ${error.said}` });
+  new CloudflareFailed({
+    message: `Cloudflare refused to ${doing}: ${error.said}`,
+  });
 
 /** One Cloudflare API token: printable ASCII, no spaces, at most 1024 characters. */
-export const ApiToken = Schema.String.pipe(Schema.check(Schema.isPattern(/^[\x21-\x7e]{1,1024}$/)));
+export const ApiToken = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[\x21-\x7e]{1,1024}$/))
+);
 
 /**
  * The token does not settle which account or zone to use: it sees none, it sees several and none
@@ -277,14 +329,19 @@ const choose = <A extends Named>(
   what: PickOne["what"],
   choices: ReadonlyArray<A>,
   wanted: Option.Option<string>,
-  matches: (choice: A, wanted: string) => boolean,
+  matches: (choice: A, wanted: string) => boolean
 ) => {
   const named = Option.getOrUndefined(wanted);
   const only = choices.length === 1 ? choices[0] : undefined;
-  const found = named === undefined ? only : choices.find((c) => matches(c, named));
+  const found =
+    named === undefined ? only : choices.find((c) => matches(c, named));
   return found === undefined
     ? Effect.fail(
-        new PickOne({ what, choices: choices.map(({ id, name }) => ({ id, name })), named }),
+        new PickOne({
+          what,
+          choices: choices.map(({ id, name }) => ({ id, name })),
+          named,
+        })
       )
     : Effect.succeed(found);
 };
@@ -292,13 +349,21 @@ const choose = <A extends Named>(
 /** The account and zone a login works in: the ones `wanted` names, or the only ones it sees. */
 export const placeOf = (
   api: CloudflareApi,
-  wanted: { readonly account: Option.Option<string>; readonly zone: Option.Option<string> },
+  wanted: {
+    readonly account: Option.Option<string>;
+    readonly zone: Option.Option<string>;
+  }
 ) =>
   Effect.gen(function* () {
     const accounts = yield* api.accounts.pipe(
-      Effect.mapError(failed("list the accounts this token sees")),
+      Effect.mapError(failed("list the accounts this token sees"))
     );
-    const account = yield* choose("account", accounts, wanted.account, (a, id) => a.id === id);
+    const account = yield* choose(
+      "account",
+      accounts,
+      wanted.account,
+      (a, id) => a.id === id
+    );
     const zones = yield* api
       .zones(account.id)
       .pipe(Effect.mapError(failed("list the zones this token sees")));
@@ -306,9 +371,13 @@ export const placeOf = (
       "zone",
       zones,
       wanted.zone,
-      (z, name) => z.name.toLowerCase() === name.toLowerCase(),
+      (z, name) => z.name.toLowerCase() === name.toLowerCase()
     );
-    return { accountId: account.id, zoneId: zone.id, zone: zone.name.toLowerCase() };
+    return {
+      accountId: account.id,
+      zoneId: zone.id,
+      zone: zone.name.toLowerCase(),
+    };
   });
 
 /**
@@ -319,7 +388,10 @@ export const placeOf = (
 export const saveToken = (
   home: string,
   token: string,
-  wanted: { readonly account: Option.Option<string>; readonly zone: Option.Option<string> },
+  wanted: {
+    readonly account: Option.Option<string>;
+    readonly zone: Option.Option<string>;
+  }
 ) =>
   Effect.gen(function* () {
     const api = cloudflareApi(token);
@@ -332,7 +404,10 @@ export const saveToken = (
         message: `Cloudflare says the token is ${verified.status}`,
         hint: "make a new one in the Cloudflare dashboard",
       });
-    const account: CloudflareAccount = { login: { kind: "token", token }, ...place };
+    const account: CloudflareAccount = {
+      login: { kind: "token", token },
+      ...place,
+    };
     yield* saveCloudflare(home, account);
     return account;
   });

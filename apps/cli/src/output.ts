@@ -1,12 +1,24 @@
+import { styleText } from "node:util";
+
 import { BunServices } from "@effect/platform-bun";
 import { Context, Duration, Effect, Layer } from "effect";
 import { Prompt } from "effect/cli";
-import { styleText } from "node:util";
+
 import { Aborted, NotATerminal } from "./errors.ts";
 
-export type Tone = "dim" | "bold" | "cyan" | "green" | "yellow" | "red" | "gray";
+export type Tone =
+  | "dim"
+  | "bold"
+  | "cyan"
+  | "green"
+  | "yellow"
+  | "red"
+  | "gray";
 
-export type Cell = string | { readonly text: string; readonly tone: Tone } | ReadonlyArray<Cell>;
+export type Cell =
+  | string
+  | { readonly text: string; readonly tone: Tone }
+  | ReadonlyArray<Cell>;
 
 export type Column<Row> = {
   readonly header: string;
@@ -26,7 +38,10 @@ export type Streams = {
   /** Shows a multi-select and returns the indices ticked. Only called when `interactive`. */
   readonly pickMany: (
     question: string,
-    choices: ReadonlyArray<{ readonly title: string; readonly selected: boolean }>,
+    choices: ReadonlyArray<{
+      readonly title: string;
+      readonly selected: boolean;
+    }>
   ) => Effect.Effect<ReadonlyArray<number>, Aborted>;
 };
 
@@ -38,29 +53,40 @@ export class Output extends Context.Service<
     readonly stdout: (text: string) => Effect.Effect<void>;
     readonly line: (text?: string) => Effect.Effect<void>;
     readonly log: (message: string) => Effect.Effect<void>;
-    readonly success: (message: string, elapsed?: Duration.Duration) => Effect.Effect<void>;
+    readonly success: (
+      message: string,
+      elapsed?: Duration.Duration
+    ) => Effect.Effect<void>;
     readonly note: (message: string) => Effect.Effect<void>;
     readonly warn: (message: string) => Effect.Effect<void>;
     readonly error: (message: string, hint?: string) => Effect.Effect<void>;
-    readonly check: (ok: boolean, label: Cell, detail?: string) => Effect.Effect<void>;
+    readonly check: (
+      ok: boolean,
+      label: Cell,
+      detail?: string
+    ) => Effect.Effect<void>;
     readonly table: <Row>(
       columns: ReadonlyArray<Column<Row>>,
-      rows: ReadonlyArray<Row>,
+      rows: ReadonlyArray<Row>
     ) => Effect.Effect<void>;
-    readonly pairs: (pairs: ReadonlyArray<readonly [string, string]>) => Effect.Effect<void>;
+    readonly pairs: (
+      pairs: ReadonlyArray<readonly [string, string]>
+    ) => Effect.Effect<void>;
     readonly json: (value: unknown) => Effect.Effect<void>;
     readonly step: <A, E, R>(
       message: string,
-      task: Effect.Effect<A, E, R>,
+      task: Effect.Effect<A, E, R>
     ) => Effect.Effect<A, E, R>;
-    readonly confirm: (question: string) => Effect.Effect<boolean, NotATerminal>;
+    readonly confirm: (
+      question: string
+    ) => Effect.Effect<boolean, NotATerminal>;
     readonly pick: <A>(
       question: string,
       choices: ReadonlyArray<{
         readonly title: string;
         readonly value: A;
         readonly selected: boolean;
-      }>,
+      }>
     ) => Effect.Effect<ReadonlyArray<A>, NotATerminal | Aborted>;
   }
 >()("devbox/Output") {
@@ -76,11 +102,14 @@ export class Output extends Context.Service<
       if ("tone" in cell) return paint(cell.tone, cell.text);
       return cell.map(render).join("");
     };
-    const line = (value = "") => Effect.sync(() => streams.stderr(`${value}\n`));
+    const line = (value = "") =>
+      Effect.sync(() => streams.stderr(`${value}\n`));
     const log = (message: string) => line(`${paint("dim", ">")} ${message}`);
     const pad = (cell: Cell, width: number, align: "left" | "right") => {
       const fill = " ".repeat(Math.max(0, width - text(cell).length));
-      return align === "right" ? `${fill}${render(cell)}` : `${render(cell)}${fill}`;
+      return align === "right"
+        ? `${fill}${render(cell)}`
+        : `${render(cell)}${fill}`;
     };
     return {
       paint,
@@ -90,29 +119,38 @@ export class Output extends Context.Service<
       log,
       success: (message, elapsed) =>
         line(
-          `${paint("cyan", "> Success!")} ${message}${elapsed === undefined ? "" : ` ${paint("dim", `[${formatElapsed(elapsed)}]`)}`}`,
+          `${paint("cyan", "> Success!")} ${message}${elapsed === undefined ? "" : ` ${paint("dim", `[${formatElapsed(elapsed)}]`)}`}`
         ),
-      note: (message) => line(`${paint("bold", paint("yellow", "> NOTE:"))} ${message}`),
-      warn: (message) => line(`${paint("bold", paint("yellow", "> WARN!"))} ${message}`),
+      note: (message) =>
+        line(`${paint("bold", paint("yellow", "> NOTE:"))} ${message}`),
+      warn: (message) =>
+        line(`${paint("bold", paint("yellow", "> WARN!"))} ${message}`),
       error: (message, hint) =>
         Effect.andThen(
           line(`${paint("bold", paint("red", "Error:"))} ${message}`),
-          hint === undefined ? Effect.void : log(hint),
+          hint === undefined ? Effect.void : log(hint)
         ),
       check: (ok, label, detail) =>
         line(
-          `${ok ? paint("green", "✔") : paint("red", "✖")} ${render(label)}${detail ? `  ${paint("dim", detail)}` : ""}`,
+          `${ok ? paint("green", "✔") : paint("red", "✖")} ${render(label)}${detail ? `  ${paint("dim", detail)}` : ""}`
         ),
       table: (columns, rows) =>
         Effect.gen(function* () {
-          const header = columns.map((column): Cell => ({ text: column.header, tone: "dim" }));
-          const body = rows.map((row) => columns.map((column) => column.cell(row)));
+          const header = columns.map((column): Cell => ({
+            text: column.header,
+            tone: "dim",
+          }));
+          const body = rows.map((row) =>
+            columns.map((column) => column.cell(row))
+          );
           const widths = columns.map((_, i) =>
-            Math.max(...[header, ...body].map((cells) => text(cells[i] ?? "").length)),
+            Math.max(
+              ...[header, ...body].map((cells) => text(cells[i] ?? "").length)
+            )
           );
           for (const cells of [header, ...body]) {
             yield* line(
-              `  ${cells.map((cell, i) => pad(cell, widths[i] ?? 0, columns[i]?.align ?? "left")).join("  ")}`,
+              `  ${cells.map((cell, i) => pad(cell, widths[i] ?? 0, columns[i]?.align ?? "left")).join("  ")}`
             );
           }
         }),
@@ -121,25 +159,35 @@ export class Output extends Context.Service<
           pairs,
           ([key, value]) =>
             line(
-              `  ${paint("dim", key.padEnd(Math.max(...pairs.map(([k]) => k.length))))}  ${value}`,
+              `  ${paint("dim", key.padEnd(Math.max(...pairs.map(([k]) => k.length))))}  ${value}`
             ),
-          { discard: true },
+          { discard: true }
         ),
-      json: (value) => Effect.sync(() => streams.stdout(`${JSON.stringify(value, null, 2)}\n`)),
+      json: (value) =>
+        Effect.sync(() =>
+          streams.stdout(`${JSON.stringify(value, null, 2)}\n`)
+        ),
       step: (message, task) =>
         Effect.gen(function* () {
           if (streams.interactive)
-            yield* Effect.sync(() => streams.stderr(`${paint("dim", ">")} ${message} …`));
+            yield* Effect.sync(() =>
+              streams.stderr(`${paint("dim", ">")} ${message} …`)
+            );
           const [elapsed, result] = yield* Effect.timed(task);
-          if (streams.interactive) yield* Effect.sync(() => streams.stderr("\r\u001B[2K"));
-          yield* log(`${message} ${paint("dim", `[${formatElapsed(elapsed)}]`)}`);
+          if (streams.interactive)
+            yield* Effect.sync(() => streams.stderr("\r\u001B[2K"));
+          yield* log(
+            `${message} ${paint("dim", `[${formatElapsed(elapsed)}]`)}`
+          );
           return result;
         }),
       confirm: (question) =>
         Effect.gen(function* () {
           if (!streams.interactive) return yield* new NotATerminal();
           yield* Effect.sync(() =>
-            streams.stderr(`${paint("cyan", "?")} ${question} ${paint("dim", "(y/N)")} `),
+            streams.stderr(
+              `${paint("cyan", "?")} ${question} ${paint("dim", "(y/N)")} `
+            )
           );
           const yes = /^\s*y(es)?\s*$/i.test(yield* streams.readAnswer);
           yield* line(paint("dim", yes ? "yes" : "no"));
@@ -149,7 +197,9 @@ export class Output extends Context.Service<
         Effect.gen(function* () {
           if (!streams.interactive) return yield* new NotATerminal();
           const indices = yield* streams.pickMany(question, choices);
-          return indices.flatMap((i) => (choices[i] === undefined ? [] : [choices[i].value]));
+          return indices.flatMap((i) =>
+            choices[i] === undefined ? [] : [choices[i].value]
+          );
         }),
     };
   };
@@ -161,7 +211,8 @@ export class Output extends Context.Service<
       stderr: (value) => process.stderr.write(value),
       paint: colorFor(process.stderr),
       stdoutColor: colorFor(process.stdout)("bold", "x") !== "x",
-      interactive: process.stdin.isTTY === true && process.stderr.isTTY === true,
+      interactive:
+        process.stdin.isTTY === true && process.stderr.isTTY === true,
       readAnswer: Effect.callback<string>((resume) => {
         process.stdin.resume();
         process.stdin.once("data", (chunk: Buffer | string) => {
@@ -174,12 +225,12 @@ export class Output extends Context.Service<
           Prompt.MultiSelect({
             message: question,
             choices: choices.map((choice, i) => ({ ...choice, value: i })),
-          }),
+          })
         ).pipe(
           Effect.provide(BunServices.layer),
-          Effect.mapError(() => new Aborted()),
+          Effect.mapError(() => new Aborted())
         ),
-    }),
+    })
   );
 }
 

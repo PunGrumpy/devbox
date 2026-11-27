@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+
 import { SHELL_DIR, setupShell } from "../src/machine/shell.ts";
 import { type FakeMachine, makeMachine } from "./support/host.ts";
 import { runWith } from "./support/run.ts";
@@ -25,10 +26,12 @@ describe("setupShell", () => {
     const m = makeMachine({ binaries: new Set(["zsh"]) });
     m.respond = passwd("/usr/bin/zsh");
     await setup(m);
-    expect(readlinkSync(join(m.home, ".zprofile"))).toBe(join(SHELL_DIR, "zprofile"));
+    expect(readlinkSync(join(m.home, ".zprofile"))).toBe(
+      join(SHELL_DIR, "zprofile")
+    );
     expect(readlinkSync(join(m.home, ".zshrc"))).toBe(join(SHELL_DIR, "zshrc"));
     expect(readlinkSync(join(m.home, ".config/starship.toml"))).toBe(
-      join(SHELL_DIR, "starship.toml"),
+      join(SHELL_DIR, "starship.toml")
     );
     const second = await setup(m);
     expect(second.err).not.toContain("linked");
@@ -57,7 +60,14 @@ describe("setupShell", () => {
     const m = makeMachine({ binaries: new Set(["zsh"]), sudo: true });
     m.respond = passwd("/bin/bash");
     const { err } = await setup(m);
-    expect(m.calls).toContainEqual(["sudo", "-n", "chsh", "-s", "/usr/bin/zsh", m.host.user]);
+    expect(m.calls).toContainEqual([
+      "sudo",
+      "-n",
+      "chsh",
+      "-s",
+      "/usr/bin/zsh",
+      m.host.user,
+    ]);
     expect(err).toContain("login shell is now zsh");
   });
 

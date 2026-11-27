@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
+
 import { Effect, Exit, Scope } from "effect";
+
 import { freePort, proxy, rewriteHeaders } from "../src/machine/proxy.ts";
 
 describe("rewriteHeaders", () => {
@@ -12,7 +14,10 @@ describe("rewriteHeaders", () => {
 
   test("requests through an edge proxy get the public host and scheme", () => {
     expect(
-      rewriteHeaders({ host: "172.16.0.9:3773", "x-forwarded-proto": "http" }, PUBLIC),
+      rewriteHeaders(
+        { host: "172.16.0.9:3773", "x-forwarded-proto": "http" },
+        PUBLIC
+      )
     ).toEqual({
       host: "edge-7.example.com",
       "x-forwarded-proto": "https",
@@ -21,17 +26,26 @@ describe("rewriteHeaders", () => {
 
   test("an edge X-Forwarded-Host wins over the flag", () => {
     expect(
-      rewriteHeaders({ host: "10.0.0.1", "x-forwarded-host": "alias.example.com" }, PUBLIC).host,
+      rewriteHeaders(
+        { host: "10.0.0.1", "x-forwarded-host": "alias.example.com" },
+        PUBLIC
+      ).host
     ).toBe("alias.example.com");
   });
 
   test("a chained or empty X-Forwarded-Host still gives one valid Host", () => {
     const first = rewriteHeaders(
-      { host: "10.0.0.1", "x-forwarded-host": "edge1.example.com, edge2.example.com" },
-      PUBLIC,
+      {
+        host: "10.0.0.1",
+        "x-forwarded-host": "edge1.example.com, edge2.example.com",
+      },
+      PUBLIC
     );
     expect(first.host).toBe("edge1.example.com");
-    const empty = rewriteHeaders({ host: "10.0.0.1", "x-forwarded-host": "" }, PUBLIC);
+    const empty = rewriteHeaders(
+      { host: "10.0.0.1", "x-forwarded-host": "" },
+      PUBLIC
+    );
     expect(empty.host).toBe(new URL(PUBLIC).host);
   });
 });
@@ -62,7 +76,7 @@ describe("the in-process proxy", async () => {
       port,
       upstream: upstream.port!,
       publicUrl: "http://example.test",
-    }).pipe(Scope.provide(scope)),
+    }).pipe(Scope.provide(scope))
   );
   afterAll(async () => {
     await Effect.runPromise(Scope.close(scope, Exit.void));
@@ -71,11 +85,18 @@ describe("the in-process proxy", async () => {
 
   test("forwards HTTP and rewrites Host for edge traffic", async () => {
     const local = await (await fetch(`http://127.0.0.1:${port}/a?b=1`)).json();
-    expect(local).toEqual({ host: `127.0.0.1:${port}`, proto: null, path: "/a" });
+    expect(local).toEqual({
+      host: `127.0.0.1:${port}`,
+      proto: null,
+      path: "/a",
+    });
     const edge = await (
-      await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`, {
-        headers: { "x-forwarded-proto": "https" },
-      })
+      await fetch(
+        `http://127.0.0.1:${port}/.well-known/oauth-protected-resource`,
+        {
+          headers: { "x-forwarded-proto": "https" },
+        }
+      )
     ).json();
     expect(edge).toEqual({
       host: "example.test",
@@ -107,7 +128,7 @@ describe("the in-process proxy", async () => {
         port: port2,
         upstream: deadPort,
         publicUrl: "http://example.test",
-      }).pipe(Scope.provide(scope2)),
+      }).pipe(Scope.provide(scope2))
     );
     expect((await fetch(`http://127.0.0.1:${port2}/`)).status).toBe(502);
     await Effect.runPromise(Scope.close(scope2, Exit.void));

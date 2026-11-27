@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Option } from "effect";
 import {
   lstatSync,
   mkdirSync,
@@ -9,6 +8,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+
+import { Option } from "effect";
+
 import { claudeHomes, INSTRUCTIONS_FILE } from "../src/machine/instructions.ts";
 import { linkInstructions } from "../src/machine/setup.ts";
 import { absolutePath } from "../src/migrate/paths.ts";
@@ -18,8 +20,14 @@ import { runWith } from "./support/run.ts";
 const SETTINGS = JSON.stringify({
   providerInstances: {
     claudeAgent: { driver: "claudeAgent" },
-    claudeAgent_pun: { driver: "claudeAgent", config: { homePath: "~/.claude-pun" } },
-    claudeAgent_work: { driver: "claudeAgent", config: { homePath: "/srv/claude-work" } },
+    claudeAgent_pun: {
+      driver: "claudeAgent",
+      config: { homePath: "~/.claude-pun" },
+    },
+    claudeAgent_work: {
+      driver: "claudeAgent",
+      config: { homePath: "/srv/claude-work" },
+    },
     codex: { driver: "codex", config: { homePath: "~/.codex" } },
   },
 });
@@ -34,9 +42,15 @@ describe("which Claude homes get instructions", () => {
   });
 
   test("only $CLAUDE_CONFIG_DIR when T3 has no settings yet or they do not parse", () => {
-    expect(claudeHomes(Option.none(), "/home/me", "/data")).toEqual(["/data/.claude"]);
-    expect(claudeHomes(Option.some("not json"), "/home/me", "/data")).toEqual(["/data/.claude"]);
-    expect(claudeHomes(Option.some("{}"), "/home/me", "/data")).toEqual(["/data/.claude"]);
+    expect(claudeHomes(Option.none(), "/home/me", "/data")).toEqual([
+      "/data/.claude",
+    ]);
+    expect(claudeHomes(Option.some("not json"), "/home/me", "/data")).toEqual([
+      "/data/.claude",
+    ]);
+    expect(claudeHomes(Option.some("{}"), "/home/me", "/data")).toEqual([
+      "/data/.claude",
+    ]);
   });
 });
 
@@ -49,9 +63,12 @@ const machine = () => {
     JSON.stringify({
       providerInstances: {
         claudeAgent: { driver: "claudeAgent" },
-        claudeAgent_pun: { driver: "claudeAgent", config: { homePath: "~/.claude-pun" } },
+        claudeAgent_pun: {
+          driver: "claudeAgent",
+          config: { homePath: "~/.claude-pun" },
+        },
       },
-    }),
+    })
   );
   const source = join(m.base, "devbox", "instructions", "AGENTS.md");
   mkdirSync(join(source, ".."), { recursive: true });
@@ -62,8 +79,8 @@ const machine = () => {
       linkInstructions(
         { data: absolutePath(m.home), baseDir: absolutePath(baseDir) },
         m.home,
-        source,
-      ),
+        source
+      )
     );
   const file = (home: string) => join(m.home, home, "CLAUDE.md");
   const put = (home: string, text: string) => {
@@ -79,7 +96,9 @@ describe("linkInstructions", () => {
     const first = await run();
     expect(readlinkSync(file(".claude"))).toBe(source);
     expect(readlinkSync(file(".claude-pun"))).toBe(source);
-    expect(readFileSync(file(".claude-pun"), "utf8")).toBe("# Rules\n\n- Reply in Thai.\n");
+    expect(readFileSync(file(".claude-pun"), "utf8")).toBe(
+      "# Rules\n\n- Reply in Thai.\n"
+    );
     expect(first.err).toContain("instructions: linked CLAUDE.md in");
 
     const second = await run();
@@ -108,7 +127,7 @@ describe("linkInstructions", () => {
     expect(lstatSync(file(".claude")).isSymbolicLink()).toBe(false);
     expect(readFileSync(file(".claude"), "utf8")).toBe("# Mine\n");
     expect(r.err).toContain(
-      `instructions: left ${file(".claude")} alone, it is not a copy of ${source}`,
+      `instructions: left ${file(".claude")} alone, it is not a copy of ${source}`
     );
     expect(readlinkSync(file(".claude-pun"))).toBe(source);
   });
@@ -134,5 +153,7 @@ describe("linkInstructions", () => {
 
 test("the repo ships the AGENTS.md the links point at", () => {
   expect(INSTRUCTIONS_FILE.endsWith("/instructions/AGENTS.md")).toBe(true);
-  expect(readFileSync(INSTRUCTIONS_FILE, "utf8")).toContain("Never force push.");
+  expect(readFileSync(INSTRUCTIONS_FILE, "utf8")).toContain(
+    "Never force push."
+  );
 });

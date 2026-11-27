@@ -1,8 +1,17 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+
 import { Effect } from "effect";
+
 import type { Ran } from "../src/machine/host.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import {
@@ -17,9 +26,9 @@ import { devbox, start } from "./support/run.ts";
 
 const hubKey = generateKeyPairSync("ed25519").privateKey;
 const KEY = publicKeyOf(hubKey);
-const TOKEN = Buffer.from(JSON.stringify({ a: "made-up", t: "made-up", s: "made-up" })).toString(
-  "base64",
-);
+const TOKEN = Buffer.from(
+  JSON.stringify({ a: "made-up", t: "made-up", s: "made-up" })
+).toString("base64");
 const URL = "https://t3-edge-7.example.com";
 const TAILNET = "tailscale-ip-21";
 
@@ -36,28 +45,46 @@ const setUpMachine = async () => {
     if (argv[0] === "systemd-detect-virt") return ok("kvm\n");
     if (argv[0]?.endsWith("/mise") && argv[1] === "use")
       return (writeFileSync(installed, ""), ok());
-    if (argv[0]?.endsWith("/mise") && argv[1] === "which") return ok(`${installed}\n`);
+    if (argv[0]?.endsWith("/mise") && argv[1] === "which")
+      return ok(`${installed}\n`);
     return undefined;
   };
-  const r = await up(m, "--spoke", "--trust", KEY, "--name", "edge-7", "--no-setup");
+  const r = await up(
+    m,
+    "--spoke",
+    "--trust",
+    KEY,
+    "--name",
+    "edge-7",
+    "--no-setup"
+  );
   expect(r.code).toBe(0);
   return m;
 };
 
 const up = (m: Machine, ...args: ReadonlyArray<string>) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], { host: m.host });
+  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
+    host: m.host,
+  });
 
 const running = async (m: Machine) => {
   const port = await Effect.runPromise(freePort);
-  const spoke = start({ HOME: m.home }, ["spoke", "--port", String(port), "--trust", KEY], {
-    host: m.host,
-  });
-  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1) await Bun.sleep(20);
+  const spoke = start(
+    { HOME: m.home },
+    ["spoke", "--port", String(port), "--trust", KEY],
+    {
+      host: m.host,
+    }
+  );
+  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1)
+    await Bun.sleep(20);
   return { spoke, base: `http://127.0.0.1:${port}` };
 };
 
 const signedFor = async (base: string, action: Do, fields: Fields = {}) => {
-  const { nonce } = (await (await fetch(`${base}/api/challenge`)).json()) as { nonce: string };
+  const { nonce } = (await (await fetch(`${base}/api/challenge`)).json()) as {
+    nonce: string;
+  };
   return signRequest(hubKey, new Date(), nonce, action, fields);
 };
 
@@ -71,15 +98,19 @@ const send = (base: string, signed: Signed) =>
 const ask = async (base: string, action: Do, fields: Fields = {}) =>
   send(base, await signedFor(base, action, fields));
 
-const tokenPath = (m: Machine) => join(m.home, ".config", "cloudflared", "token");
+const tokenPath = (m: Machine) =>
+  join(m.home, ".config", "cloudflared", "token");
 const machineJson = (m: Machine) =>
   readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8");
-const recorded = (m: Machine): ReadonlyArray<string> => JSON.parse(machineJson(m)).up;
+const recorded = (m: Machine): ReadonlyArray<string> =>
+  JSON.parse(machineJson(m)).up;
 
 const seen = new WeakMap<Machine, number>();
 
 const started = (m: Machine) => {
-  const runs = m.calls.filter((argv) => argv[0] === "<detached>" && argv[SELF.length + 1] === "up");
+  const runs = m.calls.filter(
+    (argv) => argv[0] === "<detached>" && argv[SELF.length + 1] === "up"
+  );
   const from = seen.get(m) ?? 0;
   seen.set(m, runs.length);
   m.processes = m.processes.filter((p) => p.argv[SELF.length] !== "up");
@@ -97,7 +128,7 @@ describe("a tunnel request", async () => {
   const before = [...recorded(m), "--public-url", "https://old.example.com"];
   writeFileSync(
     join(m.home, ".config/devbox/machine.json"),
-    JSON.stringify({ ...JSON.parse(machineJson(m)), up: before }),
+    JSON.stringify({ ...JSON.parse(machineJson(m)), up: before })
   );
   const { spoke, base } = await running(m);
   afterAll(() => spoke.stop());
@@ -107,14 +138,24 @@ describe("a tunnel request", async () => {
     expect(response.status).toBe(202);
     expect(readFileSync(tokenPath(m), "utf8")).toBe(TOKEN);
     expect(statSync(tokenPath(m)).mode & 0o777).toBe(0o600);
-    expect(readdirSync(join(m.home, ".config", "cloudflared"))).toEqual(["token"]);
+    expect(readdirSync(join(m.home, ".config", "cloudflared"))).toEqual([
+      "token",
+    ]);
     const [flags] = started(m);
-    expect(flags).toEqual([...before.slice(0, -2), "--tunnel", "--public-url", URL]);
+    expect(flags).toEqual([
+      ...before.slice(0, -2),
+      "--tunnel",
+      "--public-url",
+      URL,
+    ]);
     expect(flags!.filter((arg) => arg === "--public-url")).toHaveLength(1);
 
     const r = await finish(m, flags!);
     expect(r.err).toContain("enabled cloudflared-t3.service");
-    expect(m.units.get("user:cloudflared-t3.service")).toEqual({ active: true, enabled: true });
+    expect(m.units.get("user:cloudflared-t3.service")).toEqual({
+      active: true,
+      enabled: true,
+    });
     expect(recorded(m)).toContain("--tunnel");
     expect(JSON.parse(machineJson(m)).url).toBe(URL);
   });
@@ -123,10 +164,9 @@ describe("a tunnel request", async () => {
     const response = await ask(base, "tunnel", { token: TOKEN, url: URL });
     expect(response.status).toBe(202);
     const [flags] = started(m);
-    expect(flags!.filter((arg) => arg === "--tunnel" || arg === "--public-url")).toEqual([
-      "--tunnel",
-      "--public-url",
-    ]);
+    expect(
+      flags!.filter((arg) => arg === "--tunnel" || arg === "--public-url")
+    ).toEqual(["--tunnel", "--public-url"]);
     expect((await finish(m, flags!)).err).toContain("No changes.");
   });
 
@@ -135,13 +175,17 @@ describe("a tunnel request", async () => {
     writeFileSync(tokenPath(m), "the token cloudflared runs with");
     const response = await ask(base, "tunnel", { token: TOKEN, url: URL });
     expect(response.status).toBe(409);
-    expect(readFileSync(tokenPath(m), "utf8")).toBe("the token cloudflared runs with");
+    expect(readFileSync(tokenPath(m), "utf8")).toBe(
+      "the token cloudflared runs with"
+    );
     started(m);
     writeFileSync(tokenPath(m), TOKEN);
   });
 
   test("the token is in no log, no reply, no machine.json and on no command line", () => {
-    expect(spoke.err()).toContain(`the hub asked to publish this machine at ${URL}`);
+    expect(spoke.err()).toContain(
+      `the hub asked to publish this machine at ${URL}`
+    );
     expect(`${spoke.out()}${spoke.err()}`).not.toContain(TOKEN);
     expect(machineJson(m)).not.toContain(TOKEN);
     expect(JSON.stringify(m.calls)).not.toContain(TOKEN);
@@ -157,10 +201,14 @@ describe("a tunnel request", async () => {
     expect(flags).not.toContain("--tunnel");
     expect(flags).not.toContain("--public-url");
     expect(flags).toContain("--spoke");
-    expect(spoke.err()).toContain("the hub asked to take this machine off the internet");
+    expect(spoke.err()).toContain(
+      "the hub asked to take this machine off the internet"
+    );
 
     const r = await finish(m, flags!);
-    expect(r.err).toContain("removed cloudflared-t3.service, because --tunnel is off");
+    expect(r.err).toContain(
+      "removed cloudflared-t3.service, because --tunnel is off"
+    );
     expect(JSON.parse(machineJson(m))).not.toHaveProperty("url");
   });
 
@@ -205,7 +253,10 @@ describe("a tunnel request", async () => {
     [{ token: TOKEN, url: `${URL}:8443` }, "https"],
     [{ token: TOKEN, url: `${URL}?next=evil` }, "https"],
     [{ token: TOKEN, url: "https://user:pass@t3-edge-7.example.com" }, "https"],
-    [{ token: TOKEN, url: "https://t3-edge-7.example.com@evil.example.net" }, "https"],
+    [
+      { token: TOKEN, url: "https://t3-edge-7.example.com@evil.example.net" },
+      "https",
+    ],
     [{ token: TOKEN, url: `${URL} --hub` }, "https"],
     [{ token: TOKEN, url: "https://localhost" }, "https"],
   ] satisfies ReadonlyArray<readonly [Fields, string]>)(
@@ -213,10 +264,12 @@ describe("a tunnel request", async () => {
     async (fields, names) => {
       const response = await ask(base, "tunnel", fields);
       expect(response.status).toBe(400);
-      expect(((await response.json()) as { error: string }).error).toContain(names);
+      expect(((await response.json()) as { error: string }).error).toContain(
+        names
+      );
       expect(existsSync(tokenPath(m))).toBe(false);
       expect(started(m)).toEqual([]);
-    },
+    }
   );
 });
 
@@ -234,16 +287,18 @@ test("a machine devbox up has not recorded saves no token", async () => {
 
 test("a machine on its Tailscale address keeps it, so the hub still reaches the spoke", async () => {
   const m = makeMachine({ userBus: true });
-  m.respond = (argv) => (argv[0] === "systemd-detect-virt" ? ok("kvm\n") : undefined);
+  m.respond = (argv) =>
+    argv[0] === "systemd-detect-virt" ? ok("kvm\n") : undefined;
   await up(m, "--spoke", "--trust", KEY, "--host", TAILNET, "--no-setup");
   const { spoke, base } = await running(m);
   try {
-    expect((await ask(base, "tunnel", { token: TOKEN, url: URL })).status).toBe(202);
+    expect((await ask(base, "tunnel", { token: TOKEN, url: URL })).status).toBe(
+      202
+    );
     const [flags] = started(m);
-    expect(flags!.slice(flags!.indexOf("--host"), flags!.indexOf("--host") + 2)).toEqual([
-      "--host",
-      TAILNET,
-    ]);
+    expect(
+      flags!.slice(flags!.indexOf("--host"), flags!.indexOf("--host") + 2)
+    ).toEqual(["--host", TAILNET]);
   } finally {
     await spoke.stop();
   }

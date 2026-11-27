@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Option } from "effect";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { Effect, Option } from "effect";
+
 import {
   AGENTS,
   type AgentId,
@@ -12,7 +14,11 @@ import {
 } from "../src/machine/agents.ts";
 import { serveConfig } from "../src/machine/config.ts";
 import { postStart, installSkills } from "../src/machine/setup.ts";
-import { parseSkillsList, skillsAddArgs, skillsStamp } from "../src/machine/skills.ts";
+import {
+  parseSkillsList,
+  skillsAddArgs,
+  skillsStamp,
+} from "../src/machine/skills.ts";
 import { absolutePath } from "../src/migrate/paths.ts";
 import { makeMachine } from "./support/host.ts";
 import { devbox, runWith } from "./support/run.ts";
@@ -20,19 +26,27 @@ import { devbox, runWith } from "./support/run.ts";
 type Machine = ReturnType<typeof makeMachine>;
 
 const up = (m: Machine, ...args: Array<string>) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", "--supervisor", "detached", ...args], {
-    host: m.host,
-  });
+  devbox(
+    { HOME: m.home, PATH: "/usr/bin:/bin" },
+    ["up", "--supervisor", "detached", ...args],
+    {
+      host: m.host,
+    }
+  );
 
 const upPicking = (
   m: Machine,
   pick: ReadonlyArray<ReadonlyArray<string>>,
   ...args: Array<string>
 ) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", "--supervisor", "detached", ...args], {
-    host: m.host,
-    pick,
-  });
+  devbox(
+    { HOME: m.home, PATH: "/usr/bin:/bin" },
+    ["up", "--supervisor", "detached", ...args],
+    {
+      host: m.host,
+      pick,
+    }
+  );
 
 const MUTATING =
   /^(<detached>|<stop>|tee|npm install|bash|git config --global (--add|--unset-all))/;
@@ -43,11 +57,14 @@ const mutations = (m: Machine, from: number) =>
     .filter((line) => MUTATING.test(line));
 
 const savedFile = (m: Machine) => join(m.home, ".config/devbox/agents.json");
-const saved = (m: Machine): unknown => JSON.parse(readFileSync(savedFile(m), "utf8"));
+const saved = (m: Machine): unknown =>
+  JSON.parse(readFileSync(savedFile(m), "utf8"));
 const binOf = (m: Machine, id: AgentId) =>
   join(m.home, ".local/bin", AGENTS.find((agent) => agent.id === id)!.bin);
-const starts = (m: Machine) => m.calls.filter((c) => c[0] === "<detached>").length;
-const curled = (m: Machine, url: string) => m.calls.some((c) => c[0] === "curl" && c.includes(url));
+const starts = (m: Machine) =>
+  m.calls.filter((c) => c[0] === "<detached>").length;
+const curled = (m: Machine, url: string) =>
+  m.calls.some((c) => c[0] === "curl" && c.includes(url));
 
 const TEMPLATE = `#!/bin/bash
 skill mattpocock/skills --skill grilling
@@ -62,10 +79,14 @@ describe("with no terminal and no saved choice", () => {
     expect(first.code).toBe(0);
     expect(first.err).toContain("agents      claude, codex (default)");
     expect(first.err).toContain(
-      "NOTE: no terminal to ask which agent CLIs to install, so using the defaults. Run `devbox up --agents pick` on a terminal to choose",
+      "NOTE: no terminal to ask which agent CLIs to install, so using the defaults. Run `devbox up --agents pick` on a terminal to choose"
     );
-    expect(first.err).toContain("installed Claude Code. Log in once: claude auth login");
-    expect(first.err).toContain("installed Codex. Log in once: codex login --device-auth");
+    expect(first.err).toContain(
+      "installed Claude Code. Log in once: claude auth login"
+    );
+    expect(first.err).toContain(
+      "installed Codex. Log in once: codex login --device-auth"
+    );
     expect(existsSync(binOf(m, "claude"))).toBe(true);
     expect(existsSync(binOf(m, "codex"))).toBe(true);
     expect(existsSync(binOf(m, "devin"))).toBe(false);
@@ -73,7 +94,9 @@ describe("with no terminal and no saved choice", () => {
 
     const before = m.calls.length;
     const second = await up(m);
-    expect(second.err).toContain("No changes. T3 Code answers on http://127.0.0.1:3773");
+    expect(second.err).toContain(
+      "No changes. T3 Code answers on http://127.0.0.1:3773"
+    );
     expect(second.err).toContain("agents      claude, codex (default)");
     expect(mutations(m, before)).toEqual([]);
     expect(existsSync(savedFile(m))).toBe(false);
@@ -110,12 +133,16 @@ describe("--agents", () => {
     expect(saved(m)).toEqual({ agents: ["claude", "devin"] });
     expect(r.err).toContain("agents      claude, devin (flag)");
     expect(r.err).toContain("installed Devin. Log in once: devin configure");
-    expect(r.err).toContain("started T3 Code, because an agent CLI was installed");
+    expect(r.err).toContain(
+      "started T3 Code, because an agent CLI was installed"
+    );
     expect(existsSync(binOf(m, "devin"))).toBe(true);
     expect(existsSync(binOf(m, "codex"))).toBe(false);
     expect(curled(m, "https://cli.devin.ai/install.sh")).toBe(true);
     expect(starts(m)).toBe(startsBefore + 1);
-    expect(m.calls.slice(before).filter((c) => c[0] === "<stop>")).toHaveLength(1);
+    expect(m.calls.slice(before).filter((c) => c[0] === "<stop>")).toHaveLength(
+      1
+    );
 
     const again = m.calls.length;
     const rerun = await up(m);
@@ -129,7 +156,7 @@ describe("--agents", () => {
     const m = makeMachine();
     await up(m, "--agents", "codex,claude,codex");
     expect(readFileSync(savedFile(m), "utf8")).toBe(
-      '{\n  "agents": [\n    "claude",\n    "codex"\n  ]\n}\n',
+      '{\n  "agents": [\n    "claude",\n    "codex"\n  ]\n}\n'
     );
     const before = m.calls.length;
     const r = await up(m, "--agents", "claude,codex");
@@ -147,16 +174,20 @@ describe("--agents", () => {
     expect(r.code).toBe(0);
     expect(saved(m)).toEqual({ agents: ["claude", "devin"] });
     expect(r.err).toContain(
-      `skipped Codex: no longer chosen, left installed. \`npm rm -g --prefix ${m.home}/.local @openai/codex\` removes it`,
+      `skipped Codex: no longer chosen, left installed. \`npm rm -g --prefix ${m.home}/.local @openai/codex\` removes it`
     );
     expect(existsSync(binOf(m, "codex"))).toBe(true);
-    expect(m.calls.slice(before).some((c) => c.includes("rm") || c.includes("uninstall"))).toBe(
-      false,
-    );
+    expect(
+      m.calls
+        .slice(before)
+        .some((c) => c.includes("rm") || c.includes("uninstall"))
+    ).toBe(false);
     expect(starts(m)).toBe(startsBefore);
 
     const dropped = await up(m, "--agents", "claude");
-    expect(dropped.err).toContain(`delete ${m.home}/.local/bin/devin to remove it`);
+    expect(dropped.err).toContain(
+      `delete ${m.home}/.local/bin/devin to remove it`
+    );
     const rerun = await up(m);
     expect(rerun.err).not.toContain("no longer chosen");
   });
@@ -174,7 +205,10 @@ describe("--agents", () => {
     expect([...ids.value]).toEqual([]);
     expect(skillsAgentsOf(ids.value)).toEqual([]);
     const before = m.calls.length;
-    const skills = await runWith(m.host, installSkills(m.home, {}, skillsAgentsOf(ids.value)));
+    const skills = await runWith(
+      m.host,
+      installSkills(m.home, {}, skillsAgentsOf(ids.value))
+    );
     expect(skills.err).toContain("skills: no chosen agent takes skills");
     expect(m.calls.length).toBe(before);
   });
@@ -184,7 +218,7 @@ describe("--agents", () => {
     const r = await up(m, "--agents", "claude,cursor");
     expect(r.code).toBe(2);
     expect(r.err).toContain(
-      `unknown agent "cursor"; known: claude, codex, devin, opencode, agy, grok`,
+      `unknown agent "cursor"; known: claude, codex, devin, opencode, agy, grok`
     );
     expect(m.calls).toEqual([]);
     expect(existsSync(savedFile(m))).toBe(false);
@@ -203,13 +237,17 @@ describe("--agents", () => {
     const r = await up(m, "--agents", "pick");
     expect(r.code).toBe(2);
     expect(r.err).toContain("--agents pick needs a terminal");
-    expect(r.err).toContain("name them instead, for example --agents claude,codex");
+    expect(r.err).toContain(
+      "name them instead, for example --agents claude,codex"
+    );
     expect(m.calls).toEqual([]);
   });
 
   test("parseAgentsFlag reads pick, none and lists", () => {
     expect(parseAgentsFlag("pick")._tag).toBe("Success");
-    expect(parseAgentsFlag(" none ")).toMatchObject({ success: { _tag: "Set", ids: [] } });
+    expect(parseAgentsFlag(" none ")).toMatchObject({
+      success: { _tag: "Set", ids: [] },
+    });
     expect(parseAgentsFlag("opencode, claude")).toMatchObject({
       success: { _tag: "Set", ids: ["claude", "opencode"] },
     });
@@ -246,10 +284,9 @@ describe("the picker", () => {
     const m = makeMachine();
     await up(m, "--agents", "codex,opencode");
     const r = await upPicking(m, [["Codex"]], "--agents", "pick");
-    expect(r.asked[0]!.choices.filter((c) => c.selected).map((c) => c.title)).toEqual([
-      "Codex",
-      "OpenCode",
-    ]);
+    expect(
+      r.asked[0]!.choices.filter((c) => c.selected).map((c) => c.title)
+    ).toEqual(["Codex", "OpenCode"]);
     expect(saved(m)).toEqual({ agents: ["codex"] });
     expect(r.err).toContain("agents      codex (picked)");
     expect(r.err).toContain("skipped OpenCode: no longer chosen");
@@ -293,7 +330,9 @@ describe("a failed install", () => {
     m.brokenInstallers.add("claude");
     const r = await up(m, "--agents", "claude,codex");
     expect(r.code).toBe(0);
-    expect(r.err).toContain("✖ Claude Code did not install. The next devbox up tries again");
+    expect(r.err).toContain(
+      "✖ Claude Code did not install. The next devbox up tries again"
+    );
     expect(r.err).toContain("claude: install failed");
     expect(r.err).not.toContain("installed Claude Code");
     expect(r.err).toContain("installed Codex");
@@ -324,17 +363,17 @@ describe("skills follow the choice", () => {
       "devin",
       "opencode",
     ]);
-    expect(skillsAddArgs(list.sources[0]!, ["claude-code", "devin"]).slice(-3)).toEqual([
-      "--agent",
-      "claude-code",
-      "devin",
-    ]);
+    expect(
+      skillsAddArgs(list.sources[0]!, ["claude-code", "devin"]).slice(-3)
+    ).toEqual(["--agent", "claude-code", "devin"]);
   });
 
   test("the stamp names the list and the agents it was installed for", () => {
     expect(skillsStamp(list, BOTH)).toBe(`${list.hash} claude-code,codex`);
     expect(skillsStamp(list, ["claude-code"])).toBe(`${list.hash} claude-code`);
-    expect(skillsStamp(list, [...BOTH, "devin"])).toBe(`${list.hash} claude-code,codex,devin`);
+    expect(skillsStamp(list, [...BOTH, "devin"])).toBe(
+      `${list.hash} claude-code,codex,devin`
+    );
   });
 
   test("choosing a new agent installs the skills again for it, and only then", async () => {
@@ -347,7 +386,7 @@ describe("skills follow the choice", () => {
 
     await runWith(m.host, installSkills(m.home, {}, BOTH));
     expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
-      `${list.hash} claude-code,codex`,
+      `${list.hash} claude-code,codex`
     );
     expect(npx()).toHaveLength(2);
 
@@ -356,9 +395,14 @@ describe("skills follow the choice", () => {
 
     await runWith(m.host, installSkills(m.home, {}, [...BOTH, "devin"]));
     expect(npx()).toHaveLength(4);
-    expect(npx().at(-1)?.slice(-4)).toEqual(["--agent", "claude-code", "codex", "devin"]);
+    expect(npx().at(-1)?.slice(-4)).toEqual([
+      "--agent",
+      "claude-code",
+      "codex",
+      "devin",
+    ]);
     expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
-      `${list.hash} claude-code,codex,devin`,
+      `${list.hash} claude-code,codex,devin`
     );
   });
 });
@@ -375,13 +419,16 @@ describe("devbox serve keeps the chosen agents current", () => {
         publicUrl: Option.none(),
         setup: true,
       },
-      absolutePath(m.home),
+      absolutePath(m.home)
     );
 
   test("npm agents reinstall @latest, Claude and Devin are left alone, and skills get the targets", async () => {
     const m = makeMachine();
     mkdirSync(join(m.home, ".config/devbox"), { recursive: true });
-    writeFileSync(savedFile(m), '{"agents":["claude","codex","devin","opencode"]}\n');
+    writeFileSync(
+      savedFile(m),
+      '{"agents":["claude","codex","devin","opencode"]}\n'
+    );
     mkdirSync(join(m.home, ".local/bin"), { recursive: true });
     for (const bin of ["claude", "codex", "devin"])
       writeFileSync(join(m.home, ".local/bin", bin), "");
@@ -393,7 +440,7 @@ describe("devbox serve keeps the chosen agents current", () => {
           : undefined;
     const { err } = await runWith(
       m.host,
-      Effect.flatMap(serving(m), (config) => postStart(config, m.home)),
+      Effect.flatMap(serving(m), (config) => postStart(config, m.home))
     );
     const prefix = join(m.home, ".local");
     expect(m.calls).toContainEqual([
@@ -408,7 +455,9 @@ describe("devbox serve keeps the chosen agents current", () => {
     expect(m.calls.some((c) => c.includes("opencode-ai@latest"))).toBe(false);
     expect(m.calls.some((c) => c[0] === "claude")).toBe(false);
     expect(err).toContain("agents: Codex is current");
-    expect(err).toContain("agents: OpenCode is chosen but not installed, run `devbox up`");
+    expect(err).toContain(
+      "agents: OpenCode is chosen but not installed, run `devbox up`"
+    );
     expect(m.calls.find((c) => c[0] === "npx")?.slice(-5)).toEqual([
       "--agent",
       "claude-code",
@@ -432,23 +481,27 @@ describe("devbox serve keeps the chosen agents current", () => {
       writeFileSync(join(m.home, ".local/bin/mise"), "");
       await runWith(
         m.host,
-        Effect.flatMap(serving(m), (config) => postStart(config, m.home)),
+        Effect.flatMap(serving(m), (config) => postStart(config, m.home))
       );
     }
-    const miseUse = (m: Machine) => m.calls.find((c) => c.includes("--global"))!;
+    const miseUse = (m: Machine) =>
+      m.calls.find((c) => c.includes("--global"))!;
     expect(miseUse(without)).toContain("gh@latest");
     expect(miseUse(withGh)).not.toContain("gh@latest");
   });
 });
 
 describe("the README", () => {
-  const readme = readFileSync(join(import.meta.dir, "..", "..", "..", "README.md"), "utf8");
+  const readme = readFileSync(
+    join(import.meta.dir, "..", "..", "..", "README.md"),
+    "utf8"
+  );
 
   test.each(AGENTS.map((agent) => [agent.id, agent.login]))(
     "lists the agent %s and how to log in with `%s`",
     (id, login) => {
       expect(readme).toContain(`\`${id}\``);
       expect(readme).toContain(`\`${login}\``);
-    },
+    }
   );
 });

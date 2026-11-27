@@ -1,5 +1,7 @@
-import { Effect, FileSystem, Result, Schema } from "effect";
 import { join } from "node:path";
+
+import { Effect, FileSystem, Result, Schema } from "effect";
+
 import { AbsolutePath, absolutePath } from "../migrate/paths.ts";
 
 export const backupPaths = (home: string) => {
@@ -47,7 +49,9 @@ AWS_SECRET_ACCESS_KEY=
 AWS_DEFAULT_REGION=auto
 `;
 
-const EnvName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)));
+const EnvName = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/))
+);
 
 export type ParsedEnv = {
   readonly values: Readonly<Record<string, string>>;
@@ -55,7 +59,9 @@ export type ParsedEnv = {
 };
 
 const unquote = (value: string) =>
-  value.length >= 2 && (value.startsWith('"') || value.startsWith("'")) && value.endsWith(value[0]!)
+  value.length >= 2 &&
+  (value.startsWith('"') || value.startsWith("'")) &&
+  value.endsWith(value[0]!)
     ? value.slice(1, -1)
     : value;
 
@@ -67,7 +73,10 @@ export const parseEnv = (text: string): ParsedEnv => {
     if (line === "" || line.startsWith("#")) return;
     const at = line.indexOf("=");
     const name = at < 1 ? undefined : line.slice(0, at).trim();
-    if (name === undefined || Result.isFailure(Schema.decodeUnknownResult(EnvName)(name)))
+    if (
+      name === undefined ||
+      Result.isFailure(Schema.decodeUnknownResult(EnvName)(name))
+    )
       return void invalid.push(index + 1);
     values[name] = unquote(line.slice(at + 1).trim());
   });
@@ -92,8 +101,8 @@ export const ensureConfig = (home: AbsolutePath) =>
         Effect.as(true),
         Effect.catchIf(
           (error) => error.reason._tag === "AlreadyExists",
-          () => Effect.succeed(false),
-        ),
+          () => Effect.succeed(false)
+        )
       );
     const created = yield* Effect.forEach(
       [
@@ -102,7 +111,7 @@ export const ensureConfig = (home: AbsolutePath) =>
         [paths.env, envTemplate(home), 0o600],
       ] as const,
       ([path, content, mode]) =>
-        Effect.map(create(path, content, mode), (made) => (made ? [path] : [])),
+        Effect.map(create(path, content, mode), (made) => (made ? [path] : []))
     );
     return created.flat();
   });

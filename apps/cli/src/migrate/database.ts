@@ -1,7 +1,9 @@
+import { join } from "node:path";
+
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { Data, Effect, Equal, FileSystem, Layer, Option, Schema } from "effect";
 import { SqlClient, type Statement } from "effect/sql";
-import { join } from "node:path";
+
 import { formatBytes } from "../output.ts";
 import { Locations } from "./locations.ts";
 import { type AbsolutePath, absolutePath } from "./paths.ts";
@@ -35,9 +37,12 @@ export type DbTarget = Data.TaggedEnum<{
 }>;
 export const DbTarget = Data.taggedEnum<DbTarget>();
 
-export class DatabaseNotFound extends Schema.TaggedError<DatabaseNotFound>()("DatabaseNotFound", {
-  path: Schema.String,
-}) {
+export class DatabaseNotFound extends Schema.TaggedError<DatabaseNotFound>()(
+  "DatabaseNotFound",
+  {
+    path: Schema.String,
+  }
+) {
   override get message() {
     return `database not found: ${this.path}`;
   }
@@ -46,9 +51,12 @@ export class DatabaseNotFound extends Schema.TaggedError<DatabaseNotFound>()("Da
   }
 }
 
-export class SchemaMismatch extends Schema.TaggedError<SchemaMismatch>()("SchemaMismatch", {
-  missing: Schema.Array(Schema.String),
-}) {
+export class SchemaMismatch extends Schema.TaggedError<SchemaMismatch>()(
+  "SchemaMismatch",
+  {
+    missing: Schema.Array(Schema.String),
+  }
+) {
   override get message() {
     return `schema mismatch, missing ${this.missing.join(", ")}`;
   }
@@ -57,9 +65,12 @@ export class SchemaMismatch extends Schema.TaggedError<SchemaMismatch>()("Schema
   }
 }
 
-export class EventLogNotEmpty extends Schema.TaggedError<EventLogNotEmpty>()("EventLogNotEmpty", {
-  rows: Schema.Number,
-}) {
+export class EventLogNotEmpty extends Schema.TaggedError<EventLogNotEmpty>()(
+  "EventLogNotEmpty",
+  {
+    rows: Schema.Number,
+  }
+) {
   override get message() {
     return `${Tables.events} has ${this.rows} rows, projections may be rebuilt from it`;
   }
@@ -68,9 +79,12 @@ export class EventLogNotEmpty extends Schema.TaggedError<EventLogNotEmpty>()("Ev
   }
 }
 
-export class ProjectNotFound extends Schema.TaggedError<ProjectNotFound>()("ProjectNotFound", {
-  ref: Schema.String,
-}) {
+export class ProjectNotFound extends Schema.TaggedError<ProjectNotFound>()(
+  "ProjectNotFound",
+  {
+    ref: Schema.String,
+  }
+) {
   override get message() {
     return `no project with id or title "${this.ref}"`;
   }
@@ -79,14 +93,19 @@ export class ProjectNotFound extends Schema.TaggedError<ProjectNotFound>()("Proj
   }
 }
 
-export class AmbiguousProject extends Schema.TaggedError<AmbiguousProject>()("AmbiguousProject", {
-  ref: Schema.String,
-  candidates: Schema.Array(
-    Schema.Struct({ projectId: Schema.String, workspaceRoot: Schema.String }),
-  ),
-}) {
+export class AmbiguousProject extends Schema.TaggedError<AmbiguousProject>()(
+  "AmbiguousProject",
+  {
+    ref: Schema.String,
+    candidates: Schema.Array(
+      Schema.Struct({ projectId: Schema.String, workspaceRoot: Schema.String })
+    ),
+  }
+) {
   override get message() {
-    const list = this.candidates.map((p) => `${p.projectId} (${p.workspaceRoot})`).join(", ");
+    const list = this.candidates
+      .map((p) => `${p.projectId} (${p.workspaceRoot})`)
+      .join(", ");
     return `"${this.ref}" names ${this.candidates.length} projects: ${list}`;
   }
   get hint() {
@@ -94,18 +113,26 @@ export class AmbiguousProject extends Schema.TaggedError<AmbiguousProject>()("Am
   }
 }
 
-export class BackupFailed extends Schema.TaggedError<BackupFailed>()("BackupFailed", {
-  message: Schema.String,
-}) {}
+export class BackupFailed extends Schema.TaggedError<BackupFailed>()(
+  "BackupFailed",
+  {
+    message: Schema.String,
+  }
+) {}
 
-export const resolveTarget = Effect.fn("resolveTarget")(function* (db: Option.Option<string>) {
+export const resolveTarget = Effect.fn("resolveTarget")(function* (
+  db: Option.Option<string>
+) {
   const { liveDb } = yield* Locations;
   if (Option.isNone(db)) return DbTarget.Live({ path: liveDb });
   const path = absolutePath(db.value);
   const fs = yield* FileSystem.FileSystem;
   const same = yield* Effect.all([fs.stat(path), fs.stat(liveDb)]).pipe(
-    Effect.map(([a, b]) => a.dev === b.dev && Option.isSome(a.ino) && Equal.equals(a.ino, b.ino)),
-    Effect.orElseSucceed(() => path === liveDb),
+    Effect.map(
+      ([a, b]) =>
+        a.dev === b.dev && Option.isSome(a.ino) && Equal.equals(a.ino, b.ino)
+    ),
+    Effect.orElseSucceed(() => path === liveDb)
   );
   return same ? DbTarget.Live({ path }) : DbTarget.Copy({ path });
 });
@@ -123,24 +150,30 @@ export const databaseLayer = (path: AbsolutePath, access: "read" | "write") =>
         create: false,
         disableWAL: true,
       });
-    }),
+    })
   );
 
 const Count = Schema.Array(Schema.Struct({ n: Schema.Number }));
 
-export const count = <E, R>(statement: Effect.Effect<ReadonlyArray<object>, E, R>) =>
+export const count = <E, R>(
+  statement: Effect.Effect<ReadonlyArray<object>, E, R>
+) =>
   statement.pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(Count)),
-    Effect.map((rows) => rows[0]?.n ?? 0),
+    Effect.map((rows) => rows[0]?.n ?? 0)
   );
 
 export const columnsOf = Effect.fn("columnsOf")(function* (table: string) {
   const sql = yield* SqlClient.SqlClient;
-  const rows = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info(${table})`;
+  const rows = yield* sql<{
+    name: string;
+  }>`SELECT name FROM pragma_table_info(${table})`;
   return rows.map((row) => row.name);
 });
 
-export const schemaGaps = Effect.fn("schemaGaps")(function* (required: SchemaRequirement) {
+export const schemaGaps = Effect.fn("schemaGaps")(function* (
+  required: SchemaRequirement
+) {
   const gaps: Array<string> = [];
   for (const [table, columns] of Object.entries(required)) {
     const present = yield* columnsOf(table);
@@ -152,7 +185,9 @@ export const schemaGaps = Effect.fn("schemaGaps")(function* (required: SchemaReq
   return gaps;
 });
 
-export const assertSchema = Effect.fn("assertSchema")(function* (required: SchemaRequirement) {
+export const assertSchema = Effect.fn("assertSchema")(function* (
+  required: SchemaRequirement
+) {
   const missing = yield* schemaGaps(required);
   if (missing.length > 0) return yield* new SchemaMismatch({ missing });
 });
@@ -186,10 +221,15 @@ export const backup = Effect.fn("backup")(function* (source: AbsolutePath) {
   yield* fs.makeDirectory(backupDir, { recursive: true });
   const path = join(backupDir, `statev2-${stamp(new Date())}.sqlite`);
   if (yield* fs.exists(path))
-    return yield* new BackupFailed({ message: `backup already exists: ${path}` });
+    return yield* new BackupFailed({
+      message: `backup already exists: ${path}`,
+    });
   yield* sql`VACUUM INTO ${path}`;
   const bytes = Number((yield* fs.stat(path)).size);
-  if (bytes === 0) return yield* new BackupFailed({ message: `backup failed: ${path} is empty` });
+  if (bytes === 0)
+    return yield* new BackupFailed({
+      message: `backup failed: ${path} is empty`,
+    });
   if (Number((yield* fs.stat(source)).size) > 0 && bytes < 4096) {
     return yield* new BackupFailed({
       message: `backup looks wrong: ${path} is ${formatBytes(bytes)}`,
@@ -219,14 +259,18 @@ const projects = (where: (sql: SqlClient.SqlClient) => Statement.Fragment) =>
   });
 
 export const listProjects = projects((sql) =>
-  sql.literal("ORDER BY deleted_at IS NOT NULL, title"),
+  sql.literal("ORDER BY deleted_at IS NOT NULL, title")
 );
 
-export const resolveProject = Effect.fn("resolveProject")(function* (ref: string) {
+export const resolveProject = Effect.fn("resolveProject")(function* (
+  ref: string
+) {
   const sql = yield* SqlClient.SqlClient;
   const [byId] = yield* projects(() => sql`WHERE project_id = ${ref}`);
   if (byId) return byId;
-  const byTitle = yield* projects(() => sql`WHERE title = ${ref} ORDER BY deleted_at IS NOT NULL`);
+  const byTitle = yield* projects(
+    () => sql`WHERE title = ${ref} ORDER BY deleted_at IS NOT NULL`
+  );
   const live = byTitle.filter((p) => p.deletedAt === null);
   const candidates = live.length > 0 ? live : byTitle;
   const [only, ...rest] = candidates;

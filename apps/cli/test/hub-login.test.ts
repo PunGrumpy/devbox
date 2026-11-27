@@ -4,7 +4,9 @@ import { mkdtempSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect } from "effect";
+
 import {
   type HubMachine,
   type HubRequest,
@@ -37,8 +39,17 @@ const machine = (name: string, spoke: Machine["spoke"]): HubMachine => ({
 const SNAPSHOT: HubSnapshot = {
   generatedAt: "2026-11-27T12:00:00.000Z",
   tailscale: true,
-  machines: [machine("edge-7", "trusted"), machine("edge-8", "untrusted"), machine("edge-9", null)],
-  history: { sampleSeconds: 60, startedAt: "2026-11-27T12:00:00.000Z", states: {}, latency: {} },
+  machines: [
+    machine("edge-7", "trusted"),
+    machine("edge-8", "untrusted"),
+    machine("edge-9", null),
+  ],
+  history: {
+    sampleSeconds: 60,
+    startedAt: "2026-11-27T12:00:00.000Z",
+    states: {},
+    latency: {},
+  },
   latest: { t3: null },
   key: "made-up-public-key",
   cloudflare: null,
@@ -53,19 +64,26 @@ const request = (
   method: string,
   url: string,
   headers: HubRequest["headers"] = {},
-  body: string | null = "",
-): HubRequest => ({ method, url, headers: { host: "hub.tail1234.ts.net:3780", ...headers }, body });
+  body: string | null = ""
+): HubRequest => ({
+  method,
+  url,
+  headers: { host: "hub.tail1234.ts.net:3780", ...headers },
+  body,
+});
 
 const answer = (r: HubRequest, now = NOW, token = TOKEN) =>
   route(r, { snapshot: SNAPSHOT, token, now }, page);
 
 const reply = (r: HubRequest, now = NOW, token = TOKEN): Reply => {
   const routed = answer(r, now, token);
-  if (!("status" in routed)) throw new Error(`asked ${routed.ask} instead of replying`);
+  if (!("status" in routed))
+    throw new Error(`asked ${routed.ask} instead of replying`);
   return routed;
 };
 
-const errorOf = (r: Reply) => (JSON.parse(String(r.body)) as { error: string }).error;
+const errorOf = (r: Reply) =>
+  (JSON.parse(String(r.body)) as { error: string }).error;
 
 const mac = (expiry: string, token = TOKEN) =>
   createHmac("sha256", token).update(expiry).digest("base64url");
@@ -74,7 +92,9 @@ const loginBody = (token: string) => JSON.stringify({ token });
 
 const cookieFrom = (r: Reply) => r.headers["set-cookie"]?.split(";")[0] ?? "";
 
-const SESSION = cookieFrom(reply(request("POST", "/api/login", {}, loginBody(TOKEN))));
+const SESSION = cookieFrom(
+  reply(request("POST", "/api/login", {}, loginBody(TOKEN)))
+);
 
 describe("logging in", () => {
   test("the right token answers 204 with a 30 day session cookie the hub can check without keeping it", () => {
@@ -83,7 +103,7 @@ describe("logging in", () => {
     expect(r.body).toBe("");
     expect(r.headers["cache-control"]).toBe("no-store");
     expect(r.headers["set-cookie"]).toBe(
-      `devbox_hub=${EXPIRY}.${mac(String(EXPIRY))}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`,
+      `devbox_hub=${EXPIRY}.${mac(String(EXPIRY))}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`
     );
   });
 
@@ -93,7 +113,12 @@ describe("logging in", () => {
   });
 
   test("a wrong token: 403, and no cookie", () => {
-    for (const wrong of [`${TOKEN.slice(1)}x`, "", TOKEN.toUpperCase(), `${TOKEN} `]) {
+    for (const wrong of [
+      `${TOKEN.slice(1)}x`,
+      "",
+      TOKEN.toUpperCase(),
+      `${TOKEN} `,
+    ]) {
       const r = reply(request("POST", "/api/login", {}, loginBody(wrong)));
       expect(r.status).toBe(403);
       expect(errorOf(r)).toBe("That is not the hub token.");
@@ -153,7 +178,9 @@ describe("a request that is not logged in: 401", () => {
   test("with nothing", () => {
     const r = reply(request("GET", "/api/machines"));
     expect(r.status).toBe(401);
-    expect(errorOf(r)).toBe("Sign in with the token that devbox hub token prints.");
+    expect(errorOf(r)).toBe(
+      "Sign in with the token that devbox hub token prints."
+    );
     expect(r.headers["cache-control"]).toBe("no-store");
   });
 
@@ -193,17 +220,31 @@ describe("a request that is not logged in: 401", () => {
 
   test("with a cookie whose expiry was pushed later without a new mac", () => {
     const sent = SESSION.split(".")[1] ?? "";
-    expect(status({ cookie: `devbox_hub=${EXPIRY + MONTH}.${sent}` })).toBe(401);
+    expect(status({ cookie: `devbox_hub=${EXPIRY + MONTH}.${sent}` })).toBe(
+      401
+    );
   });
 
   test("with a cookie another hub made, or one made with a guess", () => {
-    expect(status({ cookie: SESSION }, NOW, "another-hub-token-0123456789abcdefghijklm")).toBe(401);
-    expect(status({ cookie: `devbox_hub=${EXPIRY}.${mac(String(EXPIRY), "")}` })).toBe(401);
-    expect(status({ cookie: `devbox_hub=${EXPIRY}.${"A".repeat(43)}` })).toBe(401);
+    expect(
+      status(
+        { cookie: SESSION },
+        NOW,
+        "another-hub-token-0123456789abcdefghijklm"
+      )
+    ).toBe(401);
+    expect(
+      status({ cookie: `devbox_hub=${EXPIRY}.${mac(String(EXPIRY), "")}` })
+    ).toBe(401);
+    expect(status({ cookie: `devbox_hub=${EXPIRY}.${"A".repeat(43)}` })).toBe(
+      401
+    );
   });
 
   test("with the cookie under another name", () => {
-    expect(status({ cookie: SESSION.replace("devbox_hub", "devbox_hub2") })).toBe(401);
+    expect(
+      status({ cookie: SESSION.replace("devbox_hub", "devbox_hub2") })
+    ).toBe(401);
   });
 });
 
@@ -211,7 +252,11 @@ describe("a page on another site", () => {
   const evil = "https://example.com";
 
   test("cannot POST anything, even with the token, and the check comes first: 403", () => {
-    const signedIn = { origin: evil, authorization: `Bearer ${TOKEN}`, cookie: SESSION };
+    const signedIn = {
+      origin: evil,
+      authorization: `Bearer ${TOKEN}`,
+      cookie: SESSION,
+    };
     for (const path of [
       "/api/login",
       "/api/logout",
@@ -229,12 +274,14 @@ describe("a page on another site", () => {
   });
 
   test("is refused for an Origin of null, one that is not a URL, or a request with no Host", () => {
-    expect(reply(request("POST", "/api/login", { origin: "null" }, loginBody(TOKEN))).status).toBe(
-      403,
-    );
-    expect(reply(request("POST", "/api/login", { origin: "::" }, loginBody(TOKEN))).status).toBe(
-      403,
-    );
+    expect(
+      reply(request("POST", "/api/login", { origin: "null" }, loginBody(TOKEN)))
+        .status
+    ).toBe(403);
+    expect(
+      reply(request("POST", "/api/login", { origin: "::" }, loginBody(TOKEN)))
+        .status
+    ).toBe(403);
     const hostless: HubRequest = {
       method: "POST",
       url: "/api/login",
@@ -246,20 +293,33 @@ describe("a page on another site", () => {
 
   test("the hub's own page may post, and so may a client that names no origin", () => {
     const own = { origin: "http://HUB.tail1234.ts.net:3780" };
-    expect(reply(request("POST", "/api/login", own, loginBody(TOKEN))).status).toBe(204);
-    expect(reply(request("POST", "/api/login", {}, loginBody(TOKEN))).status).toBe(204);
+    expect(
+      reply(request("POST", "/api/login", own, loginBody(TOKEN))).status
+    ).toBe(204);
+    expect(
+      reply(request("POST", "/api/login", {}, loginBody(TOKEN))).status
+    ).toBe(204);
   });
 
   test("a GET from it carries no cookie, because the cookie is SameSite=Strict, so it reads nothing", () => {
-    expect(reply(request("GET", "/api/machines", { origin: evil })).status).toBe(401);
+    expect(
+      reply(request("GET", "/api/machines", { origin: evil })).status
+    ).toBe(401);
   });
 
   test("a name that DNS points at the hub reaches only the static page, never the data", () => {
-    const rebound = { host: "evil.example.com:3780", origin: "http://evil.example.com:3780" };
+    const rebound = {
+      host: "evil.example.com:3780",
+      origin: "http://evil.example.com:3780",
+    };
     expect(reply(request("GET", "/", rebound)).status).toBe(200);
     expect(reply(request("GET", "/api/machines", rebound)).status).toBe(401);
-    expect(reply(request("POST", "/api/machines/edge-7/pair", rebound)).status).toBe(401);
-    expect(reply(request("POST", "/api/login", rebound, loginBody("guess"))).status).toBe(403);
+    expect(
+      reply(request("POST", "/api/machines/edge-7/pair", rebound)).status
+    ).toBe(401);
+    expect(
+      reply(request("POST", "/api/login", rebound, loginBody("guess"))).status
+    ).toBe(403);
   });
 });
 
@@ -268,12 +328,14 @@ describe("logging out", () => {
     const r = reply(request("POST", "/api/logout", { cookie: SESSION }));
     expect(r.status).toBe(204);
     expect(r.headers["set-cookie"]).toBe(
-      "devbox_hub=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+      "devbox_hub=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
     );
   });
 
   test("takes only POST", () => {
-    expect(reply(request("GET", "/api/logout", { cookie: SESSION })).status).toBe(405);
+    expect(
+      reply(request("GET", "/api/logout", { cookie: SESSION })).status
+    ).toBe(405);
   });
 });
 
@@ -289,36 +351,53 @@ describe("a request for a machine passes one admission step", () => {
 
   test("logged in, for a machine whose spoke trusts this hub: the hub asks that spoke", () => {
     for (const action of ["update", "pair"] as const) {
-      const routed = answer(request("POST", `/api/machines/edge-7/${action}`, signedIn));
+      const routed = answer(
+        request("POST", `/api/machines/edge-7/${action}`, signedIn)
+      );
       expect(routed).toEqual({ ask: action, machine: SNAPSHOT.machines[0]! });
     }
   });
 
   test("logged out: 401, before the hub says whether the machine exists", () => {
     for (const action of ["update", "pair"]) {
-      expect(reply(request("POST", `/api/machines/edge-7/${action}`)).status).toBe(401);
-      expect(reply(request("POST", `/api/machines/edge-99/${action}`)).status).toBe(401);
+      expect(
+        reply(request("POST", `/api/machines/edge-7/${action}`)).status
+      ).toBe(401);
+      expect(
+        reply(request("POST", `/api/machines/edge-99/${action}`)).status
+      ).toBe(401);
     }
   });
 
   test("an unknown machine: 404", () => {
     for (const action of ["update", "pair"])
-      expect(reply(request("POST", `/api/machines/edge-99/${action}`, signedIn)).status).toBe(404);
+      expect(
+        reply(request("POST", `/api/machines/edge-99/${action}`, signedIn))
+          .status
+      ).toBe(404);
   });
 
   test("a machine whose spoke does not trust this hub, or has no spoke: 409", () => {
     for (const action of ["update", "pair"]) {
-      const untrusted = reply(request("POST", `/api/machines/edge-8/${action}`, signedIn));
+      const untrusted = reply(
+        request("POST", `/api/machines/edge-8/${action}`, signedIn)
+      );
       expect(untrusted.status).toBe(409);
       expect(errorOf(untrusted)).toBe("edge-8 does not trust this hub's key.");
-      const none = reply(request("POST", `/api/machines/edge-9/${action}`, signedIn));
+      const none = reply(
+        request("POST", `/api/machines/edge-9/${action}`, signedIn)
+      );
       expect(errorOf(none)).toBe("edge-9 has no devbox spoke that answers.");
     }
   });
 
   test("an action the hub does not know is no machine path", () => {
-    expect(reply(request("POST", "/api/machines/edge-7/untunnel", signedIn)).status).toBe(404);
-    expect(reply(request("POST", "/api/machines/edge-7/reboot", signedIn)).status).toBe(404);
+    expect(
+      reply(request("POST", "/api/machines/edge-7/untunnel", signedIn)).status
+    ).toBe(404);
+    expect(
+      reply(request("POST", "/api/machines/edge-7/reboot", signedIn)).status
+    ).toBe(404);
   });
 });
 
@@ -326,16 +405,26 @@ describe("devbox hub, logged in through a browser", async () => {
   const m = makeMachine();
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
-  const hub = start({ HOME: m.home }, ["hub", "--port", String(port), "--ui", empty], {
-    host: m.host,
-  });
-  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) await Bun.sleep(20);
+  const hub = start(
+    { HOME: m.home },
+    ["hub", "--port", String(port), "--ui", empty],
+    {
+      host: m.host,
+    }
+  );
+  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1)
+    await Bun.sleep(20);
   afterAll(() => hub.stop());
   const base = `http://127.0.0.1:${port}`;
-  const token = (await devbox({ HOME: m.home }, ["hub", "token"], { host: m.host })).out.trim();
+  const token = (
+    await devbox({ HOME: m.home }, ["hub", "token"], { host: m.host })
+  ).out.trim();
 
-  const post = (path: string, body: string, headers: Record<string, string> = {}) =>
-    fetch(`${base}${path}`, { method: "POST", headers, body });
+  const post = (
+    path: string,
+    body: string,
+    headers: Record<string, string> = {}
+  ) => fetch(`${base}${path}`, { method: "POST", headers, body });
 
   test("a login sets the cookie, the cookie reads the machines, and a logout clears it", async () => {
     expect((await fetch(`${base}/api/machines`)).status).toBe(401);
@@ -343,7 +432,9 @@ describe("devbox hub, logged in through a browser", async () => {
     expect(login.status).toBe(204);
     const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     expect(cookie).toMatch(/^devbox_hub=\d+\.[A-Za-z0-9_-]{43}$/);
-    expect((await fetch(`${base}/api/machines`, { headers: { cookie } })).status).toBe(200);
+    expect(
+      (await fetch(`${base}/api/machines`, { headers: { cookie } })).status
+    ).toBe(200);
     const logout = await post("/api/logout", "", { cookie, origin: base });
     expect(logout.status).toBe(204);
     expect(logout.headers.get("set-cookie")).toContain("Max-Age=0");
@@ -351,10 +442,14 @@ describe("devbox hub, logged in through a browser", async () => {
 
   test("a login with a huge body is cut off at a kilobyte and the hub still answers", async () => {
     const answered = await new Promise<number>((done, fail) => {
-      const req = http.request(`${base}/api/login`, { method: "POST" }, (response) => {
-        response.resume();
-        done(response.statusCode ?? 0);
-      });
+      const req = http.request(
+        `${base}/api/login`,
+        { method: "POST" },
+        (response) => {
+          response.resume();
+          done(response.statusCode ?? 0);
+        }
+      );
       req.on("error", fail);
       req.end(JSON.stringify({ token: "x".repeat(64 * 1024) }));
     });

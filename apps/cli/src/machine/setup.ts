@@ -1,16 +1,27 @@
-import { Effect, FileSystem, Option } from "effect";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { Effect, FileSystem, Option } from "effect";
+
 import { Output, plural } from "../output.ts";
 import { currentAgents, skillsAgentsOf, updateAgents } from "./agents.ts";
 import { type ServeConfig, pathsOf } from "./config.ts";
 import { Host } from "./host.ts";
-import { claudeHomes, INSTRUCTIONS_FILE, instructionsLink } from "./instructions.ts";
+import {
+  claudeHomes,
+  INSTRUCTIONS_FILE,
+  instructionsLink,
+} from "./instructions.ts";
 import { t3SettingsPath } from "./plan.ts";
 import { processEnv, settingsFor } from "./settings.ts";
 import { setupShell } from "./shell.ts";
-import { parseSkillsList, SKILLS_LIST_URL, skillsAddArgs, skillsStamp } from "./skills.ts";
+import {
+  parseSkillsList,
+  SKILLS_LIST_URL,
+  skillsAddArgs,
+  skillsStamp,
+} from "./skills.ts";
 
 const BROWSER_PACKAGES = [
   "libnss3",
@@ -37,15 +48,18 @@ const BROWSER_PACKAGES = [
 export const browserLibraries = Effect.gen(function* () {
   const host = yield* Host;
   const out = yield* Output;
-  if (!(yield* host.which("apt-get"))) return yield* out.log("browser: no apt-get, skipped");
+  if (!(yield* host.which("apt-get")))
+    return yield* out.log("browser: no apt-get, skipped");
   const packages = yield* Effect.forEach(BROWSER_PACKAGES, (name) =>
     Effect.map(host.run(["apt-cache", "policy", `${name}t64`]), (policy) =>
-      /Candidate: (?!\(none\))/.test(policy.stdout) ? `${name}t64` : name,
-    ),
+      /Candidate: (?!\(none\))/.test(policy.stdout) ? `${name}t64` : name
+    )
   );
   if ((yield* host.run(["dpkg", "-s", ...packages])).code === 0)
     return yield* out.log("browser: libraries present");
-  const update = yield* host.run(["sudo", "-n", "apt-get", "update", "-qq"], { inherit: true });
+  const update = yield* host.run(["sudo", "-n", "apt-get", "update", "-qq"], {
+    inherit: true,
+  });
   const install =
     update.code === 0
       ? yield* host.run(
@@ -61,13 +75,13 @@ export const browserLibraries = Effect.gen(function* () {
             "--no-install-recommends",
             ...packages,
           ],
-          { inherit: true },
+          { inherit: true }
         )
       : update;
   yield* install.code === 0
     ? out.log("browser: libraries installed")
     : out.warn(
-        `browser: apt-get failed with exit ${install.code}; T3's browser preview may not start`,
+        `browser: apt-get failed with exit ${install.code}; T3's browser preview may not start`
       );
 });
 
@@ -76,7 +90,8 @@ export const ensureMise = (data: string, env: Record<string, string>) =>
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
     const { mise } = pathsOf(data);
-    if (yield* fs.exists(mise).pipe(Effect.orElseSucceed(() => false))) return true;
+    if (yield* fs.exists(mise).pipe(Effect.orElseSucceed(() => false)))
+      return true;
     const installer = yield* host.run(["curl", "-fsSL", "https://mise.run"]);
     if (installer.code !== 0) return false;
     const ran = yield* host.run(["sh"], {
@@ -92,11 +107,21 @@ const languages = (data: string, env: Record<string, string>) =>
     const host = yield* Host;
     const out = yield* Output;
     const { mise } = pathsOf(data);
-    if (!(yield* ensureMise(data, env))) return yield* out.warn("tools: cannot download mise");
+    if (!(yield* ensureMise(data, env)))
+      return yield* out.warn("tools: cannot download mise");
     const gh = (yield* host.which("gh")) ? [] : ["gh@latest"];
     const use = yield* host.run(
-      [mise, "use", "--global", "--yes", "go@latest", "rust@latest", "starship@latest", ...gh],
-      { env, inherit: true },
+      [
+        mise,
+        "use",
+        "--global",
+        "--yes",
+        "go@latest",
+        "rust@latest",
+        "starship@latest",
+        ...gh,
+      ],
+      { env, inherit: true }
     );
     yield* use.code === 0
       ? out.log("tools: go, rust and starship ready")
@@ -106,84 +131,101 @@ const languages = (data: string, env: Record<string, string>) =>
 export const installSkills = (
   data: string,
   env: Record<string, string>,
-  agents: ReadonlyArray<string>,
+  agents: ReadonlyArray<string>
 ) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
-    if (agents.length === 0) return yield* out.log("skills: no chosen agent takes skills");
+    if (agents.length === 0)
+      return yield* out.log("skills: no chosen agent takes skills");
     const fetched = yield* host.run(["curl", "-fsSL", SKILLS_LIST_URL]);
-    if (fetched.code !== 0) return yield* out.warn("skills: cannot read the list");
+    if (fetched.code !== 0)
+      return yield* out.warn("skills: cannot read the list");
     const list = parseSkillsList(fetched.stdout);
     const paths = pathsOf(data);
-    const stamp = yield* fs.readFileString(paths.skillsStamp).pipe(Effect.option);
+    const stamp = yield* fs
+      .readFileString(paths.skillsStamp)
+      .pipe(Effect.option);
     const wanted = skillsStamp(list, agents);
     if (
       Option.contains(
         Option.map(stamp, (s) => s.trim()),
-        wanted,
+        wanted
       )
     )
       return yield* out.log("skills: up to date");
     for (const line of list.rejected)
-      yield* out.warn(`skills: ignored a line that is not a skill source: ${line}`);
+      yield* out.warn(
+        `skills: ignored a line that is not a skill source: ${line}`
+      );
     const cwd = mkdtempSync(join(tmpdir(), "devbox-skills-"));
     const failed = yield* Effect.filter(list.sources, (source) =>
       Effect.map(
         host.run(skillsAddArgs(source, agents), { env, cwd, inherit: true }),
-        (r) => r.code !== 0,
-      ),
+        (r) => r.code !== 0
+      )
     );
     yield* fs.remove(cwd, { recursive: true }).pipe(Effect.ignore);
     if (failed.length === 0 && list.rejected.length === 0) {
-      yield* fs.writeFileString(paths.skillsStamp, `${wanted}\n`).pipe(Effect.ignore);
-      return yield* out.log(`skills: installed ${plural(list.sources.length, "source")}`);
+      yield* fs
+        .writeFileString(paths.skillsStamp, `${wanted}\n`)
+        .pipe(Effect.ignore);
+      return yield* out.log(
+        `skills: installed ${plural(list.sources.length, "source")}`
+      );
     }
     yield* out.warn(
-      `skills: ${plural(failed.length + list.rejected.length, "source")} failed, trying again on the next start`,
+      `skills: ${plural(failed.length + list.rejected.length, "source")} failed, trying again on the next start`
     );
   });
 
 export const linkInstructions = (
   config: Pick<ServeConfig, "data" | "baseDir">,
   home: string,
-  sourcePath: string,
+  sourcePath: string
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
     const text = yield* fs.readFileString(sourcePath).pipe(Effect.option);
-    if (Option.isNone(text)) return yield* out.warn(`instructions: no ${sourcePath}`);
+    if (Option.isNone(text))
+      return yield* out.warn(`instructions: no ${sourcePath}`);
     const source = { path: sourcePath, text: text.value };
-    const settings = yield* fs.readFileString(t3SettingsPath(config.baseDir)).pipe(Effect.option);
-    const linked = yield* Effect.filter(claudeHomes(settings, home, config.data), (dir) =>
-      Effect.gen(function* () {
-        const path = join(dir, "CLAUDE.md");
-        const now = {
-          target: yield* fs.readLink(path).pipe(Effect.option),
-          text: yield* fs.readFileString(path).pipe(Effect.option),
-        };
-        switch (instructionsLink(now, source)._tag) {
-          case "Linked":
-            return false;
-          case "NotOurs":
-            yield* out.warn(`instructions: left ${path} alone, it is not a copy of ${sourcePath}`);
-            return false;
-          case "Link":
-            return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
-              Effect.andThen(fs.remove(path, { force: true })),
-              Effect.andThen(fs.symlink(sourcePath, path)),
-              Effect.as(true),
-              Effect.orElseSucceed(() => false),
-            );
-        }
-      }),
+    const settings = yield* fs
+      .readFileString(t3SettingsPath(config.baseDir))
+      .pipe(Effect.option);
+    const linked = yield* Effect.filter(
+      claudeHomes(settings, home, config.data),
+      (dir) =>
+        Effect.gen(function* () {
+          const path = join(dir, "CLAUDE.md");
+          const now = {
+            target: yield* fs.readLink(path).pipe(Effect.option),
+            text: yield* fs.readFileString(path).pipe(Effect.option),
+          };
+          switch (instructionsLink(now, source)._tag) {
+            case "Linked":
+              return false;
+            case "NotOurs":
+              yield* out.warn(
+                `instructions: left ${path} alone, it is not a copy of ${sourcePath}`
+              );
+              return false;
+            case "Link":
+              return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
+                Effect.andThen(fs.remove(path, { force: true })),
+                Effect.andThen(fs.symlink(sourcePath, path)),
+                Effect.as(true),
+                Effect.orElseSucceed(() => false)
+              );
+          }
+        })
     );
     yield* out.log(
       linked.length === 0
         ? "instructions: up to date"
-        : `instructions: linked CLAUDE.md in ${linked.join(", ")}`,
+        : `instructions: linked CLAUDE.md in ${linked.join(", ")}`
     );
   });
 
@@ -200,9 +242,10 @@ export const postStart = (config: ServeConfig, home: string) =>
     yield* updateAgents(
       config.data,
       ids,
-      (yield* host.which("npm")) ? "npm" : pathsOf(config.data).npmShim,
+      (yield* host.which("npm")) ? "npm" : pathsOf(config.data).npmShim
     );
     yield* installSkills(config.data, env, skillsAgentsOf(ids));
-    if (ids.includes("claude")) yield* linkInstructions(config, home, INSTRUCTIONS_FILE);
+    if (ids.includes("claude"))
+      yield* linkInstructions(config, home, INSTRUCTIONS_FILE);
     yield* out.log("setup: done");
   });

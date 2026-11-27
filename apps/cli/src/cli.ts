@@ -1,7 +1,14 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Cause, Effect, Layer, Runtime } from "effect";
-import { CliConfig, CliError, CliOutput, Command, GlobalFlag } from "effect/cli";
+import {
+  CliConfig,
+  CliError,
+  CliOutput,
+  Command,
+  GlobalFlag,
+} from "effect/cli";
+
 import packageJson from "../package.json" with { type: "json" };
 import { backup } from "./backup/command.ts";
 import { hintOf } from "./errors.ts";
@@ -17,13 +24,13 @@ import { doctor } from "./migrate/doctor.ts";
 import { Locations } from "./migrate/locations.ts";
 import { moveThreads } from "./migrate/move-threads.ts";
 import { renameRoot } from "./migrate/rename-root.ts";
-import { spoke } from "./spoke/spoke.ts";
 import { T3Process } from "./migrate/t3-process.ts";
 import { Output } from "./output.ts";
+import { spoke } from "./spoke/spoke.ts";
 
 export const devbox = Command.make("devbox").pipe(
   Command.withDescription(
-    "Set up machines for T3 Code coding agents and maintain T3 Code's local state",
+    "Set up machines for T3 Code coding agents and maintain T3 Code's local state"
   ),
   Command.withSubcommands([
     up,
@@ -34,8 +41,10 @@ export const devbox = Command.make("devbox").pipe(
     machines,
     hub,
     spoke,
-    migrateRoot.pipe(Command.withSubcommands([doctor, moveThreads, renameRoot])),
-  ]),
+    migrateRoot.pipe(
+      Command.withSubcommands([doctor, moveThreads, renameRoot])
+    ),
+  ])
 );
 
 const presenter = Layer.effect(
@@ -56,13 +65,17 @@ const presenter = Layer.effect(
           case "InvalidInvocation":
             return Effect.forEach(
               event.errors,
-              (error) => out.error(error.message, `run \`${event.commandPath.join(" ")} --help\``),
-              { discard: true },
+              (error) =>
+                out.error(
+                  error.message,
+                  `run \`${event.commandPath.join(" ")} --help\``
+                ),
+              { discard: true }
             );
         }
       },
     };
-  }),
+  })
 );
 
 const isHelp = (error: unknown): error is CliError.ShowHelp =>
@@ -76,27 +89,27 @@ export const runCli = (args: ReadonlyArray<string>) =>
         if (isHelp(error)) return error.errors.length === 0 ? 0 : 2;
         yield* (yield* Output).error(error.message, hintOf(error));
         return Runtime.getErrorExitCode(error);
-      }),
+      })
     ),
     Effect.catchCause((cause) =>
       Effect.gen(function* () {
         yield* (yield* Output).error(String(Cause.squash(cause)));
         return 1;
-      }),
+      })
     ),
     Effect.provide(
       Layer.mergeAll(
         presenter,
-        CliConfig.layer({ builtIns: [GlobalFlag.Help, GlobalFlag.Version] }),
-      ),
-    ),
+        CliConfig.layer({ builtIns: [GlobalFlag.Help, GlobalFlag.Version] })
+      )
+    )
   );
 
 export const MainLayer = Layer.mergeAll(
   Output.layer,
   Locations.layer,
   Host.layer,
-  T3Process.layer.pipe(Layer.provide(Locations.layer)),
+  T3Process.layer.pipe(Layer.provide(Locations.layer))
 ).pipe(Layer.provideMerge(BunServices.layer));
 
 if (import.meta.main) {
@@ -104,9 +117,9 @@ if (import.meta.main) {
     Effect.flatMap((code) =>
       Effect.sync(() => {
         process.exitCode = code;
-      }),
+      })
     ),
     Effect.provide(MainLayer),
-    BunRuntime.runMain,
+    BunRuntime.runMain
   );
 }

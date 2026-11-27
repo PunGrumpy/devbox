@@ -1,5 +1,6 @@
-import { Result, Schema } from "effect";
 import { createHash } from "node:crypto";
+
+import { Result, Schema } from "effect";
 
 export const SKILLS_LIST_URL =
   "https://raw.githubusercontent.com/PunGrumpy/dotfiles/main/home/run_onchange_after_40-install-agent-skills.sh.tmpl";
@@ -7,12 +8,12 @@ export const SKILLS_LIST_URL =
 const Source = Schema.String.pipe(
   Schema.check(
     Schema.isPattern(
-      /^(?!.*\.\.)(?:[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*|https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_./-]+)$/,
-    ),
-  ),
+      /^(?!.*\.\.)(?:[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*|https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_./-]+)$/
+    )
+  )
 );
 const SkillName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/)),
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/))
 );
 
 export const SkillSource = Schema.Struct({
@@ -56,12 +57,14 @@ export const parseSkillsList = (text: string): SkillsList => {
   };
 };
 
-export const skillsStamp = (list: SkillsList, agents: ReadonlyArray<string>): string =>
-  `${list.hash} ${agents.join(",")}`;
+export const skillsStamp = (
+  list: SkillsList,
+  agents: ReadonlyArray<string>
+): string => `${list.hash} ${agents.join(",")}`;
 
 export const skillsAddArgs = (
   source: SkillSource,
-  agents: ReadonlyArray<string>,
+  agents: ReadonlyArray<string>
 ): ReadonlyArray<string> => [
   "npx",
   "-y",

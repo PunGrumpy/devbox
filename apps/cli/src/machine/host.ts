@@ -1,4 +1,3 @@
-import { Context, Effect, Layer, Option } from "effect";
 import { spawn } from "node:child_process";
 import {
   closeSync,
@@ -9,11 +8,25 @@ import {
   readFileSync,
   statfsSync,
 } from "node:fs";
-import { availableParallelism, freemem, hostname, loadavg, totalmem, userInfo } from "node:os";
+import {
+  availableParallelism,
+  freemem,
+  hostname,
+  loadavg,
+  totalmem,
+  userInfo,
+} from "node:os";
 import { dirname } from "node:path";
+
+import { Context, Effect, Layer, Option } from "effect";
+
 import { type Vitals, vitalsOf } from "../spoke/vitals.ts";
 
-export type Ran = { readonly code: number; readonly stdout: string; readonly stderr: string };
+export type Ran = {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+};
 
 export type RunOptions = {
   readonly env?: Readonly<Record<string, string>>;
@@ -25,7 +38,10 @@ export type RunOptions = {
 
 export const TIMED_OUT = 124;
 
-export type Proc = { readonly pid: number; readonly argv: ReadonlyArray<string> };
+export type Proc = {
+  readonly pid: number;
+  readonly argv: ReadonlyArray<string>;
+};
 
 export type Fetched = { readonly body: string; readonly ms: number };
 
@@ -41,7 +57,8 @@ export type Answer = { readonly status: number; readonly body: string };
 const MAX_ANSWER_BYTES = 1024 * 1024;
 
 const capped = async (response: Response): Promise<string | undefined> => {
-  if (Number(response.headers.get("content-length") ?? 0) > MAX_ANSWER_BYTES) return undefined;
+  if (Number(response.headers.get("content-length") ?? 0) > MAX_ANSWER_BYTES)
+    return undefined;
   const reader = response.body?.getReader();
   if (reader === undefined) return "";
   const chunks: Array<Uint8Array> = [];
@@ -70,17 +87,26 @@ export class Host extends Context.Service<
     readonly systemd: boolean;
     /** `process.platform`, such as linux or darwin. */
     readonly platform: string;
-    readonly run: (argv: ReadonlyArray<string>, options?: RunOptions) => Effect.Effect<Ran>;
+    readonly run: (
+      argv: ReadonlyArray<string>,
+      options?: RunOptions
+    ) => Effect.Effect<Ran>;
     readonly which: (name: string) => Effect.Effect<boolean>;
     readonly processes: Effect.Effect<ReadonlyArray<Proc>>;
     readonly spawnDetached: (
       argv: ReadonlyArray<string>,
-      options: { readonly env: Readonly<Record<string, string>>; readonly log: string },
+      options: {
+        readonly env: Readonly<Record<string, string>>;
+        readonly log: string;
+      }
     ) => Effect.Effect<number>;
     readonly stop: (pid: number) => Effect.Effect<void>;
     readonly answers: (port: number, address: string) => Effect.Effect<boolean>;
     /** The body of a 200 answer and how long it took, or none for anything else. */
-    readonly fetchText: (url: string, timeoutMs: number) => Effect.Effect<Option.Option<Fetched>>;
+    readonly fetchText: (
+      url: string,
+      timeoutMs: number
+    ) => Effect.Effect<Option.Option<Fetched>>;
     /** The body of a 2xx answer to a POST, or none for anything else. */
     readonly post: (
       url: string,
@@ -89,7 +115,7 @@ export class Host extends Context.Service<
         readonly contentType: string;
         readonly headers?: Readonly<Record<string, string>>;
       },
-      timeoutMs: number,
+      timeoutMs: number
     ) => Effect.Effect<Option.Option<string>>;
     /**
      * The answer to any request, whatever its status, or none when nothing answered in time or the
@@ -98,7 +124,7 @@ export class Host extends Context.Service<
     readonly request: (
       url: string,
       request: Request,
-      timeoutMs: number,
+      timeoutMs: number
     ) => Effect.Effect<Option.Option<Answer>>;
     /** Load, memory, and the disk that holds `dir`. */
     readonly vitals: (dir: string) => Effect.Effect<Vitals>;
@@ -107,10 +133,14 @@ export class Host extends Context.Service<
 >()("devbox/machine/Host") {
   static readonly layer = Layer.sync(Host, () => ({
     hostname: hostname(),
-    user: Bun.spawnSync(["id", "-un"]).stdout.toString().trim() || userInfo().username,
+    user:
+      Bun.spawnSync(["id", "-un"]).stdout.toString().trim() ||
+      userInfo().username,
     etc: "/etc",
     path: process.env.PATH ?? "",
-    self: Bun.main.endsWith(".ts") ? [process.execPath, Bun.main] : [process.execPath],
+    self: Bun.main.endsWith(".ts")
+      ? [process.execPath, Bun.main]
+      : [process.execPath],
     systemd: existsSync("/run/systemd/system"),
     platform: process.platform,
     run: (argv, options = {}) =>
@@ -120,10 +150,15 @@ export class Host extends Context.Service<
           const child = Bun.spawn([...argv], {
             env: { ...process.env, ...options.env },
             cwd: options.cwd ?? "/",
-            stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
+            stdin:
+              options.stdin === undefined
+                ? "ignore"
+                : new Blob([options.stdin]),
             stdout: options.inherit ? "inherit" : "pipe",
             stderr: options.inherit ? "inherit" : "pipe",
-            ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+            ...(options.timeoutMs === undefined
+              ? {}
+              : { timeout: options.timeoutMs }),
           });
           const [stdout, stderr, code] = await Promise.all([
             child.stdout ? new Response(child.stdout).text() : "",
@@ -144,12 +179,14 @@ export class Host extends Context.Service<
       readdirSync("/proc").flatMap((entry) => {
         if (!/^\d+$/.test(entry)) return [];
         try {
-          const argv = readFileSync(`/proc/${entry}/cmdline`, "utf8").split("\0").slice(0, -1);
+          const argv = readFileSync(`/proc/${entry}/cmdline`, "utf8")
+            .split("\0")
+            .slice(0, -1);
           return [{ pid: Number(entry), argv }];
         } catch {
           return [];
         }
-      }),
+      })
     ),
     spawnDetached: (argv, { env, log }) =>
       Effect.sync(() => {
@@ -169,18 +206,22 @@ export class Host extends Context.Service<
     stop: (pid) =>
       Effect.gen(function* () {
         signal(pid, "SIGTERM");
-        for (let i = 0; i < 50 && alive(pid); i += 1) yield* Effect.sleep("200 millis");
+        for (let i = 0; i < 50 && alive(pid); i += 1)
+          yield* Effect.sleep("200 millis");
         if (alive(pid)) signal(pid, "SIGKILL");
       }),
     answers: (port, address) =>
       Effect.promise(() =>
-        fetch(`http://${address.includes(":") ? `[${address}]` : address}:${port}/`, {
-          redirect: "manual",
-          signal: AbortSignal.timeout(2000),
-        }).then(
+        fetch(
+          `http://${address.includes(":") ? `[${address}]` : address}:${port}/`,
+          {
+            redirect: "manual",
+            signal: AbortSignal.timeout(2000),
+          }
+        ).then(
           (response) => response.status < 500,
-          () => false,
-        ),
+          () => false
+        )
       ),
     fetchText: (url, timeoutMs) =>
       Effect.promise(async (): Promise<Option.Option<Fetched>> => {
@@ -193,7 +234,10 @@ export class Host extends Context.Service<
           if (response.status !== 200) return Option.none();
           const body = await capped(response);
           if (body === undefined) return Option.none();
-          return Option.some({ body, ms: Math.round(performance.now() - started) });
+          return Option.some({
+            body,
+            ms: Math.round(performance.now() - started),
+          });
         } catch {
           return Option.none();
         }
@@ -224,10 +268,13 @@ export class Host extends Context.Service<
             redirect: "manual",
             signal: AbortSignal.timeout(timeoutMs),
           });
-          return Option.map(Option.fromUndefinedOr(await capped(response)), (text) => ({
-            status: response.status,
-            body: text,
-          }));
+          return Option.map(
+            Option.fromUndefinedOr(await capped(response)),
+            (text) => ({
+              status: response.status,
+              body: text,
+            })
+          );
         } catch {
           return Option.none();
         }
@@ -245,7 +292,11 @@ export class Host extends Context.Service<
           load1: loadavg()[0] ?? 0,
           cores: availableParallelism(),
           memory: { total: totalmem(), available: freemem() },
-          disk: { blocks: disk.blocks, free: disk.bfree, blockSize: disk.bsize },
+          disk: {
+            blocks: disk.blocks,
+            free: disk.bfree,
+            blockSize: disk.bsize,
+          },
         });
       }),
     readLine: Effect.promise(
@@ -263,16 +314,20 @@ export class Host extends Context.Service<
                   resolve(line.split("\n")[0] ?? "");
                 } else next();
               },
-              () => resolve(line),
+              () => resolve(line)
             );
           };
           next();
-        }),
+        })
     ),
   }));
 }
 
-const timedOut = (limit: number | undefined, started: number, code: number): boolean =>
+const timedOut = (
+  limit: number | undefined,
+  started: number,
+  code: number
+): boolean =>
   limit !== undefined && code !== 0 && performance.now() - started >= limit;
 
 const alive = (pid: number): boolean => {

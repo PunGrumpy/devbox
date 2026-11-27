@@ -10,21 +10,27 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+
 import { Option } from "effect";
-import { absolutePath } from "../src/migrate/paths.ts";
+
 import { t3Bind } from "../src/machine/serve.ts";
+import { absolutePath } from "../src/migrate/paths.ts";
 import { makeMachine, SELF } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
 const up = (m: ReturnType<typeof makeMachine>, ...args: Array<string>) =>
-  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], { host: m.host });
+  devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
+    host: m.host,
+  });
 
 const MUTATING =
   /^(<detached>|<stop>|tee|npm install|git config --global (--add|--unset-all)|systemctl (enable|restart|daemon-reload)|loginctl enable-linger)/;
 const mutations = (m: ReturnType<typeof makeMachine>, from: number) =>
   m.calls
     .slice(from)
-    .map((argv) => argv.filter((a) => a !== "sudo" && a !== "-n" && a !== "--user").join(" "))
+    .map((argv) =>
+      argv.filter((a) => a !== "sudo" && a !== "-n" && a !== "--user").join(" ")
+    )
     .filter((line) => MUTATING.test(line));
 
 describe("flags become one machine config", () => {
@@ -37,7 +43,11 @@ describe("flags become one machine config", () => {
     expect(r.err).toContain(`base dir    ${m.home}/.t3`);
     expect(r.err).toContain("port        3773");
     expect(r.err).toContain("channel     nightly");
-    expect(JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8"))).toEqual({
+    expect(
+      JSON.parse(
+        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")
+      )
+    ).toEqual({
       name: "box-1.example.internal",
       port: 3773,
       data: m.home,
@@ -79,7 +89,7 @@ describe("flags become one machine config", () => {
       "3799",
       "--channel",
       "latest",
-      "--no-setup",
+      "--no-setup"
     );
     expect(r.code).toBe(0);
     expect(m.calls).toContainEqual(["npm", "view", "t3@latest", "version"]);
@@ -100,9 +110,11 @@ describe("flags become one machine config", () => {
         "--no-setup",
       ],
     ]);
-    expect(JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")).url).toBe(
-      "https://edge-7.example.com",
-    );
+    expect(
+      JSON.parse(
+        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")
+      ).url
+    ).toBe("https://edge-7.example.com");
     expect(r.err).toContain("T3 Code answers on https://edge-7.example.com");
   });
 
@@ -150,7 +162,7 @@ describe("linked environments", () => {
         linkedEnvironmentsEnabled: false,
         nested: { a: [1] },
       }),
-      { mode: 0o644 },
+      { mode: 0o644 }
     );
     const r = await up(m, "--supervisor", "detached");
     expect(r.code).toBe(0);
@@ -177,21 +189,26 @@ describe("linked environments", () => {
     ["null", "null"],
     ["invalid JSON", "{ // comment\n}"],
     ["empty", ""],
-  ])("when settings.json is %s it skips with a note and does not overwrite it", async (_, text) => {
-    const m = makeMachine();
-    mkdirSync(dirname(settingsFile(m)), { recursive: true });
-    writeFileSync(settingsFile(m), text);
-    const r = await up(m, "--supervisor", "detached");
-    expect(r.code).toBe(0);
-    expect(r.err).toContain(`skipped ${settingsFile(m)}: not a JSON object`);
-    expect(readFileSync(settingsFile(m), "utf8")).toBe(text);
-  });
+  ])(
+    "when settings.json is %s it skips with a note and does not overwrite it",
+    async (_, text) => {
+      const m = makeMachine();
+      mkdirSync(dirname(settingsFile(m)), { recursive: true });
+      writeFileSync(settingsFile(m), text);
+      const r = await up(m, "--supervisor", "detached");
+      expect(r.code).toBe(0);
+      expect(r.err).toContain(`skipped ${settingsFile(m)}: not a JSON object`);
+      expect(readFileSync(settingsFile(m), "utf8")).toBe(text);
+    }
+  );
 
   test("it follows --base-dir", async () => {
     const m = makeMachine();
     const baseDir = join(m.base, "t3-home");
     await up(m, "--supervisor", "detached", "--base-dir", baseDir);
-    expect(JSON.parse(readFileSync(join(baseDir, "userdata/settings.json"), "utf8"))).toEqual({
+    expect(
+      JSON.parse(readFileSync(join(baseDir, "userdata/settings.json"), "utf8"))
+    ).toEqual({
       linkedEnvironmentsEnabled: true,
     });
   });
@@ -219,7 +236,9 @@ describe("--host", () => {
     expect(m.probes.at(-1)).toEqual({ address: "127.0.0.1", port: 3773 });
     expect(r.err).toContain("host        0.0.0.0");
     expect(
-      JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")),
+      JSON.parse(
+        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")
+      )
     ).not.toHaveProperty("host");
   });
 
@@ -227,13 +246,18 @@ describe("--host", () => {
     const m = makeMachine({ userBus: true });
     const r = await up(m, "--host", TAILNET);
     expect(r.code).toBe(0);
-    const unit = readFileSync(join(m.home, ".config/systemd/user/devbox.service"), "utf8");
+    const unit = readFileSync(
+      join(m.home, ".config/systemd/user/devbox.service"),
+      "utf8"
+    );
     expect(unit).toContain(
-      `--port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --host ${TAILNET}\n`,
+      `--port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --host ${TAILNET}\n`
     );
-    expect(JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")).host).toBe(
-      TAILNET,
-    );
+    expect(
+      JSON.parse(
+        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")
+      ).host
+    ).toBe(TAILNET);
     expect(m.probes.at(-1)).toEqual({ address: TAILNET, port: 3773 });
     expect(r.err).toContain(`T3 Code answers on http://${TAILNET}:3773`);
 
@@ -247,7 +271,9 @@ describe("--host", () => {
     await up(m, "--supervisor", "detached");
     const moved = await up(m, "--supervisor", "detached", "--host", TAILNET);
     expect(moved.err).toContain("because its flags changed");
-    expect(m.processes.map((p) => p.argv.slice(-2))).toEqual([["--host", TAILNET]]);
+    expect(m.processes.map((p) => p.argv.slice(-2))).toEqual([
+      ["--host", TAILNET],
+    ]);
     const back = await up(m, "--supervisor", "detached");
     expect(back.err).toContain("because its flags changed");
     expect(m.processes[0]!.argv).not.toContain("--host");
@@ -277,7 +303,7 @@ describe("--host", () => {
       expect(r.code).toBe(2);
       expect(r.err).toContain("--host");
       expect(m.calls).toEqual([]);
-    },
+    }
   );
 
   test("with --public-url the proxy listens on it, so a tunnel can reach T3 at the Tailscale address", async () => {
@@ -289,7 +315,7 @@ describe("--host", () => {
       "--host",
       TAILNET,
       "--public-url",
-      "https://t3-edge-7.example.com",
+      "https://t3-edge-7.example.com"
     );
     expect(r.code).toBe(0);
     expect(m.processes[0]!.argv.slice(-4)).toEqual([
@@ -310,10 +336,18 @@ describe("--host", () => {
       workspace: absolutePath("/d"),
       setup: true,
     };
-    expect(t3Bind({ ...base, host: TAILNET, publicUrl: Option.none() })).toBe(TAILNET);
-    expect(t3Bind({ ...base, host: "0.0.0.0", publicUrl: Option.none() })).toBe("0.0.0.0");
+    expect(t3Bind({ ...base, host: TAILNET, publicUrl: Option.none() })).toBe(
+      TAILNET
+    );
+    expect(t3Bind({ ...base, host: "0.0.0.0", publicUrl: Option.none() })).toBe(
+      "0.0.0.0"
+    );
     expect(
-      t3Bind({ ...base, host: "0.0.0.0", publicUrl: Option.some("https://x.example.com") }),
+      t3Bind({
+        ...base,
+        host: "0.0.0.0",
+        publicUrl: Option.some("https://x.example.com"),
+      })
     ).toBe("127.0.0.1");
   });
 });
@@ -329,22 +363,27 @@ describe("devbox up converges", () => {
     const before = m.calls.length;
     const second = await up(m, "--supervisor", "detached", "--name", "edge-7");
     expect(second.code).toBe(0);
-    expect(second.err).toContain("No changes. T3 Code answers on http://127.0.0.1:3773");
+    expect(second.err).toContain(
+      "No changes. T3 Code answers on http://127.0.0.1:3773"
+    );
     expect(mutations(m, before)).toEqual([]);
     expect(m.processes).toHaveLength(1);
   });
 
   test("it writes the name, the profile and git as one list of settings when sudo works", async () => {
     const m = makeMachine({ sudo: true });
-    writeFileSync(join(m.etc, "machine-info"), "PRETTY_HOSTNAME=old\nCHASSIS=vm\n");
+    writeFileSync(
+      join(m.etc, "machine-info"),
+      "PRETTY_HOSTNAME=old\nCHASSIS=vm\n"
+    );
     await up(m, "--supervisor", "detached", "--name", "edge-7");
     expect(readFileSync(join(m.etc, "machine-info"), "utf8")).toBe(
-      "PRETTY_HOSTNAME=edge-7\nCHASSIS=vm\n",
+      "PRETTY_HOSTNAME=edge-7\nCHASSIS=vm\n"
     );
     const profile = readFileSync(join(m.etc, "profile.d/devbox.sh"), "utf8");
     expect(profile).toContain(`export CLAUDE_CONFIG_DIR='${m.home}/.claude'`);
     expect(profile).toContain(
-      `export PATH='${m.home}/.local/bin':'${m.home}/.local/share/mise/shims':"$PATH"`,
+      `export PATH='${m.home}/.local/bin':'${m.home}/.local/share/mise/shims':"$PATH"`
     );
     expect(profile).not.toContain("GIT_CONFIG");
     expect(m.git.get("user.name")).toEqual(["PunGrumpy"]);
@@ -359,8 +398,12 @@ describe("devbox up converges", () => {
     const m = makeMachine({ sudo: false });
     const r = await up(m, "--supervisor", "detached");
     expect(r.code).toBe(0);
-    expect(r.err).toContain(`skipped ${m.etc}/machine-info: no passwordless sudo`);
-    expect(r.err).toContain(`skipped ${m.etc}/profile.d/devbox.sh: no passwordless sudo`);
+    expect(r.err).toContain(
+      `skipped ${m.etc}/machine-info: no passwordless sudo`
+    );
+    expect(r.err).toContain(
+      `skipped ${m.etc}/profile.d/devbox.sh: no passwordless sudo`
+    );
     expect(existsSync(join(m.etc, "machine-info"))).toBe(false);
     expect(m.processes).toHaveLength(1);
   });
@@ -372,7 +415,9 @@ describe("devbox up converges", () => {
     m.latest = "0.3.0";
     const updated = await up(m, "--supervisor", "detached");
     expect(updated.err).toContain("t3 0.2.0 -> 0.3.0");
-    expect(updated.err).toContain("started T3 Code, because T3 Code was updated");
+    expect(updated.err).toContain(
+      "started T3 Code, because T3 Code was updated"
+    );
     expect(m.calls).toContainEqual(["<stop>", String(first!.pid)]);
 
     const moved = await up(m, "--supervisor", "detached", "--port", "3800");
@@ -386,7 +431,9 @@ describe("devbox up converges", () => {
     m.latest = undefined;
     const r = await up(m, "--supervisor", "detached");
     expect(r.code).toBe(0);
-    expect(r.err).toContain("skipped t3@nightly: npm did not answer, keeping 0.2.0");
+    expect(r.err).toContain(
+      "skipped t3@nightly: npm did not answer, keeping 0.2.0"
+    );
     expect(r.err).toContain("No changes.");
   });
 
@@ -403,22 +450,28 @@ describe("devbox up converges", () => {
     const r = await up(m, "--public-url", "https://edge-7.example.com");
     expect(r.code).toBe(0);
     expect(r.err).toContain("supervisor: systemd user unit devbox.service");
-    const unit = readFileSync(join(m.home, ".config/systemd/user/devbox.service"), "utf8");
-    expect(unit).toContain(
-      `ExecStart=/opt/bun /opt/devbox/apps/cli/src/cli.ts serve --data ${m.home} --port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --public-url https://edge-7.example.com\n`,
+    const unit = readFileSync(
+      join(m.home, ".config/systemd/user/devbox.service"),
+      "utf8"
     );
     expect(unit).toContain(
-      `Environment=PATH=${m.home}/.local/bin:${m.home}/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n`,
+      `ExecStart=/opt/bun /opt/devbox/apps/cli/src/cli.ts serve --data ${m.home} --port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --public-url https://edge-7.example.com\n`
+    );
+    expect(unit).toContain(
+      `Environment=PATH=${m.home}/.local/bin:${m.home}/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n`
     );
     expect(unit).toContain("WantedBy=default.target");
     expect(unit).not.toContain("User=");
     expect(m.linger).toBe(true);
-    expect(m.units.get("user:devbox.service")).toEqual({ active: true, enabled: true });
+    expect(m.units.get("user:devbox.service")).toEqual({
+      active: true,
+      enabled: true,
+    });
 
     const before = m.calls.length;
-    expect((await up(m, "--public-url", "https://edge-7.example.com")).err).toContain(
-      "No changes.",
-    );
+    expect(
+      (await up(m, "--public-url", "https://edge-7.example.com")).err
+    ).toContain("No changes.");
     expect(mutations(m, before)).toEqual([]);
   });
 
@@ -426,10 +479,19 @@ describe("devbox up converges", () => {
     const m = makeMachine({ systemd: true, sudo: true });
     const r = await up(m);
     expect(r.code).toBe(0);
-    const unit = readFileSync(join(m.etc, "systemd/system/devbox.service"), "utf8");
+    const unit = readFileSync(
+      join(m.etc, "systemd/system/devbox.service"),
+      "utf8"
+    );
     expect(unit).toContain("User=agent\n");
     expect(unit).toContain("WantedBy=multi-user.target");
-    expect(m.calls).toContainEqual(["sudo", "-n", "systemctl", "restart", "devbox.service"]);
+    expect(m.calls).toContainEqual([
+      "sudo",
+      "-n",
+      "systemctl",
+      "restart",
+      "devbox.service",
+    ]);
   });
 
   test("on a machine whose $HOME does not survive, agent folders and a saved gh login live in --data", async () => {
@@ -440,7 +502,9 @@ describe("devbox up converges", () => {
     mkdirSync(join(m.home, ".config/gh"), { recursive: true });
     await up(m, "--supervisor", "detached", "--data", data);
     expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
-    expect(readlinkSync(join(m.home, ".config/gh"))).toBe(join(data, ".config/gh"));
+    expect(readlinkSync(join(m.home, ".config/gh"))).toBe(
+      join(data, ".config/gh")
+    );
     expect(lstatSync(join(data, ".agents")).isDirectory()).toBe(true);
   });
 
@@ -452,7 +516,9 @@ describe("devbox up converges", () => {
     const r = await up(m, "--supervisor", "detached", "--data", data);
     expect(r.code).toBe(0);
     expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
-    expect(readFileSync(join(data, ".agents/skills/tdd/SKILL.md"), "utf8")).toBe("keep me\n");
+    expect(
+      readFileSync(join(data, ".agents/skills/tdd/SKILL.md"), "utf8")
+    ).toBe("keep me\n");
   });
 
   test("when $HOME and --data both hold agent files it keeps --data and moves the other aside", async () => {
@@ -466,9 +532,13 @@ describe("devbox up converges", () => {
     expect(r.code).toBe(0);
     expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
     expect(readFileSync(join(data, ".agents/data.md"), "utf8")).toBe("data\n");
-    const aside = readdirSync(m.home).find((name) => name.startsWith(".agents.devbox-"));
+    const aside = readdirSync(m.home).find((name) =>
+      name.startsWith(".agents.devbox-")
+    );
     expect(aside).toBeDefined();
-    expect(readFileSync(join(m.home, aside!, "home.md"), "utf8")).toBe("home\n");
+    expect(readFileSync(join(m.home, aside!, "home.md"), "utf8")).toBe(
+      "home\n"
+    );
   });
 
   test("on a machine without npm it installs Node with mise and uses that npm for T3", async () => {
@@ -491,7 +561,9 @@ describe("devbox up converges", () => {
       return undefined;
     };
     const r = await up(m, "--supervisor", "detached");
-    expect(m.calls.some((c) => c[0]?.endsWith("/mise") && c.includes("node@lts"))).toBe(true);
+    expect(
+      m.calls.some((c) => c[0]?.endsWith("/mise") && c.includes("node@lts"))
+    ).toBe(true);
     expect(m.calls.some((c) => c[0] === shim && c[1] === "install")).toBe(true);
     expect(r.code).toBe(0);
   });
@@ -499,9 +571,19 @@ describe("devbox up converges", () => {
   test("before installing Node it adds libatomic1 when dpkg says it is missing", async () => {
     const m = makeMachine({ binaries: new Set(), sudo: true });
     m.respond = (argv) =>
-      argv[0] === "dpkg" ? { code: 1, stdout: "", stderr: "not installed" } : undefined;
+      argv[0] === "dpkg"
+        ? { code: 1, stdout: "", stderr: "not installed" }
+        : undefined;
     await up(m, "--supervisor", "detached");
-    expect(m.calls).toContainEqual(["sudo", "-n", "apt-get", "install", "-y", "-qq", "libatomic1"]);
+    expect(m.calls).toContainEqual([
+      "sudo",
+      "-n",
+      "apt-get",
+      "install",
+      "-y",
+      "-qq",
+      "libatomic1",
+    ]);
   });
 
   test("an empty agent folder left in --data does not block moving the one in $HOME", async () => {
@@ -529,6 +611,8 @@ describe("devbox up converges", () => {
     };
     await up(m, "--supervisor", "detached", "--data", data);
     expect(seen.length).toBeGreaterThan(0);
-    expect(seen.every((dir) => dir === join(data, ".local/share/mise"))).toBe(true);
+    expect(seen.every((dir) => dir === join(data, ".local/share/mise"))).toBe(
+      true
+    );
   });
 });

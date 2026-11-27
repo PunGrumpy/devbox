@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+
 import {
   ALPHA,
   ALPHA_ROOT,
@@ -17,20 +18,20 @@ const threadsOf = (db: string, projectId: string) =>
   query<{ n: number }>(
     db,
     "SELECT count(*) AS n FROM orchestration_v2_projection_threads WHERE project_id = ?",
-    projectId,
+    projectId
   )[0]!.n;
 
 const payloadProjects = (db: string) =>
   query<{ p: string }>(
     db,
-    "SELECT DISTINCT json_extract(payload_json, '$.projectId') AS p FROM orchestration_v2_projection_threads ORDER BY p",
+    "SELECT DISTINCT json_extract(payload_json, '$.projectId') AS p FROM orchestration_v2_projection_threads ORDER BY p"
   ).map((r) => r.p);
 
 const rootOf = (db: string, projectId: string) =>
   query<{ r: string }>(
     db,
     "SELECT workspace_root AS r FROM projection_projects WHERE project_id = ?",
-    projectId,
+    projectId
   )[0]!.r;
 
 describe("help and usage", () => {
@@ -96,7 +97,9 @@ describe("doctor", () => {
     expect(report.schema).toEqual({ ok: true, missing: [] });
     expect(report.events).toBe(0);
     expect(report.quickCheck).toBe("ok");
-    expect(report.projects.find((p: { projectId: string }) => p.projectId === BETA)).toMatchObject({
+    expect(
+      report.projects.find((p: { projectId: string }) => p.projectId === BETA)
+    ).toMatchObject({
       title: "beta-service",
       threads: 3,
       deleted: 1,
@@ -122,10 +125,17 @@ describe("doctor", () => {
     db.close();
     const text = await migrate(f.env, "doctor", "--db", f.db);
     expect(text.code).toBe(0);
-    expect(text.err).toContain("✖ schema  missing table orchestration_v2_events");
+    expect(text.err).toContain(
+      "✖ schema  missing table orchestration_v2_events"
+    );
     expect(text.err).not.toContain("thread project_id matches payload");
-    const report = JSON.parse((await migrate(f.env, "doctor", "--db", f.db, "--json")).out);
-    expect(report.schema).toEqual({ ok: false, missing: ["table orchestration_v2_events"] });
+    const report = JSON.parse(
+      (await migrate(f.env, "doctor", "--db", f.db, "--json")).out
+    );
+    expect(report.schema).toEqual({
+      ok: false,
+      missing: ["table orchestration_v2_events"],
+    });
     expect(report.events).toBeNull();
     expect(report.issues).toBeNull();
   });
@@ -139,7 +149,9 @@ describe("doctor", () => {
   });
   test("takes no positionals", async () => {
     const f = makeFixture();
-    expect((await migrate(f.env, "doctor", "--db", f.db, "extra")).code).toBe(2);
+    expect((await migrate(f.env, "doctor", "--db", f.db, "extra")).code).toBe(
+      2
+    );
   });
 });
 
@@ -156,7 +168,7 @@ describe("move-threads", () => {
       "--from",
       "beta-service",
       "--from",
-      GAMMA,
+      GAMMA
     );
     expect(r.code).toBe(0);
     expect(r.err).toContain("from beta-service (3), gamma-lab (0)");
@@ -164,7 +176,9 @@ describe("move-threads", () => {
     expect(r.err).toContain("Pipeline");
     expect(r.err).toContain("1 scheduled task still point");
     expect(r.err).toContain("3 threads to move");
-    expect(r.err).toContain("NOTE: dry run. Re-run with --apply to move 3 threads into alpha.");
+    expect(r.err).toContain(
+      "NOTE: dry run. Re-run with --apply to move 3 threads into alpha."
+    );
     expect(threadsOf(f.db, BETA)).toBe(3);
     expect(existsSync(f.backups)).toBe(false);
   });
@@ -180,7 +194,7 @@ describe("move-threads", () => {
       "--from",
       BETA,
       "--apply",
-      "--yes",
+      "--yes"
     );
     expect(r.code).toBe(0);
     expect(r.err).toContain("> backup ");
@@ -206,15 +220,15 @@ describe("move-threads", () => {
       "--thread",
       "t-beta-2",
       "--apply",
-      "--yes",
+      "--yes"
     );
     expect(r.code).toBe(0);
     expect(threadsOf(f.db, BETA)).toBe(2);
     expect(
       query<{ project_id: string }>(
         f.db,
-        "SELECT project_id FROM orchestration_v2_projection_threads WHERE thread_id = 't-beta-2'",
-      )[0],
+        "SELECT project_id FROM orchestration_v2_projection_threads WHERE thread_id = 't-beta-2'"
+      )[0]
     ).toEqual({ project_id: ALPHA });
   });
   test("--thread not in the source projects is a usage error", async () => {
@@ -229,7 +243,7 @@ describe("move-threads", () => {
       "--from",
       BETA,
       "--thread",
-      "t-alpha-1",
+      "t-alpha-1"
     );
     expect(r.code).toBe(2);
     expect(r.err).toContain("Error: thread t-alpha-1 is not in beta-service");
@@ -245,17 +259,30 @@ describe("move-threads", () => {
       "alpha",
       "--from",
       BETA,
-      "--apply",
+      "--apply"
     );
     expect(r.code).toBe(1);
-    expect(r.err).toContain("Error: not a terminal, cannot ask for confirmation");
+    expect(r.err).toContain(
+      "Error: not a terminal, cannot ask for confirmation"
+    );
     expect(r.err).toContain("> pass --yes to skip the prompt");
     expect(threadsOf(f.db, BETA)).toBe(3);
   });
   test("missing --to and same project are usage errors", async () => {
     const f = makeFixture();
-    expect((await migrate(f.env, "move-threads", "--db", f.db, "--from", BETA)).code).toBe(2);
-    const same = await migrate(f.env, "move-threads", "--db", f.db, "--to", BETA, "--from", BETA);
+    expect(
+      (await migrate(f.env, "move-threads", "--db", f.db, "--from", BETA)).code
+    ).toBe(2);
+    const same = await migrate(
+      f.env,
+      "move-threads",
+      "--db",
+      f.db,
+      "--to",
+      BETA,
+      "--from",
+      BETA
+    );
     expect(same.code).toBe(2);
     expect(same.err).toContain("--from and --to both name");
   });
@@ -269,7 +296,7 @@ describe("move-threads", () => {
       "--to",
       "alpha",
       "--from",
-      "No project",
+      "No project"
     );
     expect(ambiguous.code).toBe(1);
     expect(ambiguous.err).toContain('"No project" names 2 projects: dup-3');
@@ -282,7 +309,7 @@ describe("move-threads", () => {
       "--to",
       "alpha",
       "--from",
-      "delta",
+      "delta"
     );
     expect(live.code).toBe(0);
     expect(live.err).toContain("0 threads to move");
@@ -291,7 +318,7 @@ describe("move-threads", () => {
     const f = makeFixture();
     const db = new Database(f.db, { strict: true });
     db.exec(
-      `UPDATE orchestration_v2_projection_threads SET payload_json = json_set(payload_json, '$.projectId', 'stale') WHERE thread_id = 't-alpha-1'`,
+      `UPDATE orchestration_v2_projection_threads SET payload_json = json_set(payload_json, '$.projectId', 'stale') WHERE thread_id = 't-alpha-1'`
     );
     db.close();
     const r = await migrate(
@@ -304,14 +331,23 @@ describe("move-threads", () => {
       "--from",
       BETA,
       "--apply",
-      "--yes",
+      "--yes"
     );
     expect(r.code).toBe(0);
     expect(threadsOf(f.db, BETA)).toBe(0);
   });
   test("refuses when the event log is not empty", async () => {
     const f = makeFixture({ events: 1 });
-    const r = await migrate(f.env, "move-threads", "--db", f.db, "--to", "alpha", "--from", BETA);
+    const r = await migrate(
+      f.env,
+      "move-threads",
+      "--db",
+      f.db,
+      "--to",
+      "alpha",
+      "--from",
+      BETA
+    );
     expect(r.code).toBe(1);
     expect(r.err).toContain("Error: orchestration_v2_events has 1 rows");
   });
@@ -331,8 +367,17 @@ describe("the live database", () => {
     const f = live();
     const r = await devbox(
       f.env,
-      ["migrate", "move-threads", "--to", "alpha", "--from", BETA, "--apply", "--yes"],
-      { t3 },
+      [
+        "migrate",
+        "move-threads",
+        "--to",
+        "alpha",
+        "--from",
+        BETA,
+        "--apply",
+        "--yes",
+      ],
+      { t3 }
     );
     expect(r.code).toBe(1);
     expect(r.err).toContain("Error: T3 Code is running (pid 4242)");
@@ -340,9 +385,13 @@ describe("the live database", () => {
   });
   test("a dry run is fine while T3 Code runs", async () => {
     const f = live();
-    const r = await devbox(f.env, ["migrate", "move-threads", "--to", "alpha", "--from", BETA], {
-      t3,
-    });
+    const r = await devbox(
+      f.env,
+      ["migrate", "move-threads", "--to", "alpha", "--from", BETA],
+      {
+        t3,
+      }
+    );
     expect(r.code).toBe(0);
     expect(r.err).toContain("3 threads to move");
   });
@@ -362,7 +411,7 @@ describe("the live database", () => {
         "--apply",
         "--yes",
       ],
-      { t3 },
+      { t3 }
     );
     expect(r.code).toBe(0);
     expect(threadsOf(f.db, BETA)).toBe(3);
@@ -380,7 +429,7 @@ describe("rename-root", () => {
       "--project",
       "alpha",
       "--to",
-      "/Users/me/Projects/alpha",
+      "/Users/me/Projects/alpha"
     );
     expect(r.code).toBe(0);
     expect(r.err).toContain(`from      ${ALPHA_ROOT}`);
@@ -401,16 +450,18 @@ describe("rename-root", () => {
       "--to",
       "/Users/me/Projects/alpha/",
       "--apply",
-      "--yes",
+      "--yes"
     );
     expect(r.code).toBe(0);
-    expect(r.err).toContain("> Success! rename the root of alpha to /Users/me/Projects/alpha.");
+    expect(r.err).toContain(
+      "> Success! rename the root of alpha to /Users/me/Projects/alpha."
+    );
     expect(rootOf(f.db, ALPHA)).toBe("/Users/me/Projects/alpha");
     expect(
       query<{ id: string; cwd: string | null }>(
         f.db,
-        "SELECT provider_session_id AS id, json_extract(payload_json, '$.cwd') AS cwd FROM orchestration_v2_projection_provider_sessions ORDER BY id",
-      ),
+        "SELECT provider_session_id AS id, json_extract(payload_json, '$.cwd') AS cwd FROM orchestration_v2_projection_provider_sessions ORDER BY id"
+      )
     ).toEqual([
       { id: "s-1", cwd: "/Users/me/Projects/alpha" },
       { id: "s-2", cwd: "/Users/me/Projects/alpha/Beta-Service" },
@@ -433,31 +484,65 @@ describe("rename-root", () => {
       "--to",
       `${ALPHA_ROOT}/inner`,
       "--apply",
-      "--yes",
+      "--yes"
     );
     expect(nested.code).toBe(2);
     expect(nested.err).toContain("is inside");
     expect(
-      (await migrate(f.env, "rename-root", "--db", f.db, "--project", BETA, "--to", ALPHA_ROOT))
-        .code,
+      (
+        await migrate(
+          f.env,
+          "rename-root",
+          "--db",
+          f.db,
+          "--project",
+          BETA,
+          "--to",
+          ALPHA_ROOT
+        )
+      ).code
     ).toBe(2);
     expect(rootOf(f.db, ALPHA)).toBe(ALPHA_ROOT);
   });
   test("same root and missing flags are usage errors", async () => {
     const f = makeFixture();
     expect(
-      (await migrate(f.env, "rename-root", "--db", f.db, "--project", "alpha", "--to", ALPHA_ROOT))
-        .code,
+      (
+        await migrate(
+          f.env,
+          "rename-root",
+          "--db",
+          f.db,
+          "--project",
+          "alpha",
+          "--to",
+          ALPHA_ROOT
+        )
+      ).code
     ).toBe(2);
-    expect((await migrate(f.env, "rename-root", "--db", f.db, "--to", "/x")).code).toBe(2);
-    expect((await migrate(f.env, "rename-root", "--db", f.db, "--project", "alpha")).code).toBe(2);
+    expect(
+      (await migrate(f.env, "rename-root", "--db", f.db, "--to", "/x")).code
+    ).toBe(2);
+    expect(
+      (await migrate(f.env, "rename-root", "--db", f.db, "--project", "alpha"))
+        .code
+    ).toBe(2);
   });
   test("refuses when the sessions table is gone", async () => {
     const f = makeFixture({ dropSessions: true });
-    const r = await migrate(f.env, "rename-root", "--db", f.db, "--project", "alpha", "--to", "/x");
+    const r = await migrate(
+      f.env,
+      "rename-root",
+      "--db",
+      f.db,
+      "--project",
+      "alpha",
+      "--to",
+      "/x"
+    );
     expect(r.code).toBe(1);
     expect(r.err).toContain(
-      "Error: schema mismatch, missing table orchestration_v2_projection_provider_sessions",
+      "Error: schema mismatch, missing table orchestration_v2_projection_provider_sessions"
     );
   });
 });

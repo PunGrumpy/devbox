@@ -1,5 +1,15 @@
-import { Context, Effect, FileSystem, Layer, Option, Predicate, Schema } from "effect";
 import { join } from "node:path";
+
+import {
+  Context,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Predicate,
+  Schema,
+} from "effect";
+
 import { Locations } from "./locations.ts";
 import { type AbsolutePath, absolutePath } from "./paths.ts";
 
@@ -14,7 +24,7 @@ export class SettingsUnreadable extends Schema.TaggedError<SettingsUnreadable>()
   {
     file: Schema.String,
     reason: Schema.String,
-  },
+  }
 ) {
   override get message() {
     return `cannot read ${this.file}: ${this.reason}`;
@@ -28,8 +38,10 @@ export const CLAUDE_DRIVER = "claudeAgent";
 
 const Settings = Schema.fromJsonString(
   Schema.Struct({
-    providerInstances: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
-  }),
+    providerInstances: Schema.optional(
+      Schema.Record(Schema.String, Schema.Unknown)
+    ),
+  })
 );
 
 const ClaudeInstance = Schema.Struct({
@@ -65,32 +77,51 @@ export class ClaudeHomes extends Context.Service<
           fs.realPath(path).pipe(Effect.orElseSucceed(() => path));
 
         const list = Effect.gen(function* () {
-          if (!(yield* fs.exists(settingsFile).pipe(Effect.orElseSucceed(() => false)))) return [];
+          if (
+            !(yield* fs
+              .exists(settingsFile)
+              .pipe(Effect.orElseSucceed(() => false)))
+          )
+            return [];
           const settings = yield* fs.readFileString(settingsFile).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(Settings)),
             Effect.mapError(
-              (error) => new SettingsUnreadable({ file: settingsFile, reason: error.message }),
-            ),
+              (error) =>
+                new SettingsUnreadable({
+                  file: settingsFile,
+                  reason: error.message,
+                })
+            )
           );
           const homes = new Map<
             string,
             { instances: Array<string>; enabled: boolean; path: AbsolutePath }
           >();
-          for (const [id, raw] of Object.entries(settings.providerInstances ?? {})) {
+          for (const [id, raw] of Object.entries(
+            settings.providerInstances ?? {}
+          )) {
             const instance = Schema.decodeUnknownOption(ClaudeInstance)(raw);
             if (Option.isNone(instance)) continue;
             const { config, enabled } = instance.value;
             const configured =
-              Predicate.hasProperty(config, "homePath") && Predicate.isString(config.homePath)
+              Predicate.hasProperty(config, "homePath") &&
+              Predicate.isString(config.homePath)
                 ? config.homePath.trim()
                 : "";
-            const path = configured ? absolutePath(expandHome(configured)) : defaultHome;
+            const path = configured
+              ? absolutePath(expandHome(configured))
+              : defaultHome;
             const key = yield* realOrSelf(path);
             const known = homes.get(key);
             if (known) {
               known.instances.push(id);
               known.enabled ||= enabled !== false;
-            } else homes.set(key, { instances: [id], enabled: enabled !== false, path });
+            } else
+              homes.set(key, {
+                instances: [id],
+                enabled: enabled !== false,
+                path,
+              });
           }
           return [...homes.values()];
         });
@@ -98,8 +129,11 @@ export class ClaudeHomes extends Context.Service<
         return {
           list,
           defaultHome,
-          configDirElsewhere: Option.filter(claudeConfigDir, (dir) => dir !== defaultHome),
+          configDirElsewhere: Option.filter(
+            claudeConfigDir,
+            (dir) => dir !== defaultHome
+          ),
         };
-      }),
+      })
     );
 }

@@ -14,7 +14,11 @@ export type Readings = {
   readonly load1: number;
   readonly cores: number;
   readonly memory: { readonly total: number; readonly available: number };
-  readonly disk: { readonly blocks: number; readonly free: number; readonly blockSize: number };
+  readonly disk: {
+    readonly blocks: number;
+    readonly free: number;
+    readonly blockSize: number;
+  };
 };
 
 /** Memory in use is what the kernel says a new program could not have without swapping. */
@@ -35,7 +39,9 @@ export const SPOKE_PORT = 3782;
 /** What a machine knows itself to be. */
 export type SelfKind = "vm" | "wsl" | "computer" | "mac";
 
-const NonNegative = Schema.Number.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+const NonNegative = Schema.Number.pipe(
+  Schema.check(Schema.isGreaterThanOrEqualTo(0))
+);
 const Used = Schema.Struct({ used: NonNegative, total: NonNegative });
 
 /** `GET /api/spoke`, parsed where the hub reads it. */
@@ -44,6 +50,6 @@ export const SpokeAnswer = Schema.fromJsonString(
     kind: Schema.Literals(["vm", "wsl", "computer", "mac"]),
     vitals: Schema.Struct({ load: NonNegative, memory: Used, disk: Used }),
     trusts: Schema.Array(Schema.String),
-  }),
+  })
 );
 export type SpokeAnswer = typeof SpokeAnswer.Type;

@@ -1,9 +1,17 @@
-import { Effect, Option } from "effect";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
+import { Effect, Option } from "effect";
+
 import { AGENTS } from "../../src/machine/agents.ts";
-import type { Answer, Host, Proc, Ran, Request } from "../../src/machine/host.ts";
+import type {
+  Answer,
+  Host,
+  Proc,
+  Ran,
+  Request,
+} from "../../src/machine/host.ts";
 import type { Vitals } from "../../src/spoke/vitals.ts";
 
 export type Posted = {
@@ -72,7 +80,9 @@ const writeBin = (dir: string, bin: string) => {
 
 export const SELF = ["/opt/bun", "/opt/devbox/apps/cli/src/cli.ts"] as const;
 
-export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine => {
+export const makeMachine = (
+  overrides: Partial<FakeMachine> = {}
+): FakeMachine => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "devbox-machine-")));
   const home = join(base, "home");
   const etc = join(base, "etc");
@@ -118,7 +128,7 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
   const run = (
     argv: ReadonlyArray<string>,
     stdin?: string,
-    env: Readonly<Record<string, string>> = {},
+    env: Readonly<Record<string, string>> = {}
   ): Ran => {
     const custom = m.respond(argv);
     if (custom) return custom;
@@ -130,14 +140,20 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     if (bin === "true") return ok();
     if (bin === "curl") {
       const url = args.at(-1);
-      const agent = AGENTS.find((a) => a.install._tag === "Script" && a.install.url === url);
-      return agent ? ok(installerScript(agent.bin)) : fail(22, `fake host: no ${url}`);
+      const agent = AGENTS.find(
+        (a) => a.install._tag === "Script" && a.install.url === url
+      );
+      return agent
+        ? ok(installerScript(agent.bin))
+        : fail(22, `fake host: no ${url}`);
     }
     if (bin === "setsid") return run(args, stdin, env);
     if (bin === "bash") {
       const installs = /# installs (\S+)/.exec(stdin ?? "")?.[1];
-      if (installs === undefined || env.HOME === undefined) return fail(1, "fake host: bash");
-      if (m.brokenInstallers.has(installs)) return fail(1, `${installs}: install failed`);
+      if (installs === undefined || env.HOME === undefined)
+        return fail(1, "fake host: bash");
+      if (m.brokenInstallers.has(installs))
+        return fail(1, `${installs}: install failed`);
       writeBin(join(env.HOME, ".local", "bin"), installs);
       return installs === "devin" ? fail(1, "Error: Login canceled") : ok();
     }
@@ -150,7 +166,9 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
       const [, , op, key, value] = args;
       const values = m.git.get(key!) ?? [];
       if (op === "--get-all")
-        return values.length === 0 ? fail(1) : ok(values.map((v) => `${v}\n`).join(""));
+        return values.length === 0
+          ? fail(1)
+          : ok(values.map((v) => `${v}\n`).join(""));
       if (op === "--unset-all") return m.git.delete(key!) ? ok() : fail(5);
       if (op === "--add") return (m.git.set(key!, [...values, value!]), ok());
     }
@@ -160,10 +178,11 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
       const prefix = args[args.indexOf("--prefix") + 1]!;
       const target = args.at(-1)!;
       const agent = AGENTS.find(
-        (a) => a.install._tag === "Npm" && target === `${a.install.pkg}@latest`,
+        (a) => a.install._tag === "Npm" && target === `${a.install.pkg}@latest`
       );
       if (agent) {
-        if (m.brokenInstallers.has(agent.bin)) return fail(1, `${agent.bin}: install failed`);
+        if (m.brokenInstallers.has(agent.bin))
+          return fail(1, `${agent.bin}: install failed`);
         writeBin(join(prefix, "bin"), agent.bin);
         return ok();
       }
@@ -176,14 +195,19 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     if (bin === "systemctl") {
       const user = args[0] === "--user";
       const [verb, unit] = user ? args.slice(1) : args;
-      if (verb === "show-environment") return m.userBus ? ok("PATH=/usr/bin\n") : fail(1);
+      if (verb === "show-environment")
+        return m.userBus ? ok("PATH=/usr/bin\n") : fail(1);
       const key = `${user ? "user" : "system"}:${unit}`;
       const state = m.units.get(key) ?? { active: false, enabled: false };
-      if (verb === "is-active") return ok(state.active ? "active\n" : "inactive\n");
-      if (verb === "is-enabled") return ok(state.enabled ? "enabled\n" : "disabled\n");
+      if (verb === "is-active")
+        return ok(state.active ? "active\n" : "inactive\n");
+      if (verb === "is-enabled")
+        return ok(state.enabled ? "enabled\n" : "disabled\n");
       if (verb === "daemon-reload") return ok();
-      if (verb === "enable") return (m.units.set(key, { ...state, enabled: true }), ok());
-      if (verb === "restart") return (m.units.set(key, { ...state, active: true }), ok());
+      if (verb === "enable")
+        return (m.units.set(key, { ...state, enabled: true }), ok());
+      if (verb === "restart")
+        return (m.units.set(key, { ...state, active: true }), ok());
       if (verb === "disable") {
         m.units.set(`${user ? "user" : "system"}:${args.at(-1)}`, {
           active: false,
@@ -194,7 +218,8 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     }
     if (bin === "loginctl" && args[0] === "show-user")
       return ok(`Linger=${m.linger ? "yes" : "no"}\n`);
-    if (bin === "loginctl" && args[0] === "enable-linger") return ((m.linger = true), ok());
+    if (bin === "loginctl" && args[0] === "enable-linger")
+      return ((m.linger = true), ok());
     return fail(127, `fake host: no ${argv.join(" ")}`);
   };
 
@@ -210,7 +235,8 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
       Effect.sync(() => {
         m.calls.push(argv);
         m.runs.push({ argv, env: options.env, timeoutMs: options.timeoutMs });
-        if (options.stdin !== undefined) m.stdin.set(argv.join(" "), options.stdin);
+        if (options.stdin !== undefined)
+          m.stdin.set(argv.join(" "), options.stdin);
         return run(argv, options.stdin, options.env);
       }),
     which: (name) => Effect.sync(() => m.binaries.has(name)),
@@ -238,7 +264,10 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     fetchText: (url) =>
       Effect.sync(() => {
         m.fetches.push(url);
-        return Option.map(Option.fromUndefinedOr(m.pages.get(url)), (body) => ({ body, ms: 12 }));
+        return Option.map(Option.fromUndefinedOr(m.pages.get(url)), (body) => ({
+          body,
+          ms: 12,
+        }));
       }),
     post: (url, message) =>
       Effect.sync(() => {

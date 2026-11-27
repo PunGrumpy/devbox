@@ -1,25 +1,32 @@
+import { join } from "node:path";
+
 import { Effect, Option, Result, Schema } from "effect";
 import { Flag } from "effect/cli";
-import { join } from "node:path";
+
 import { UsageError } from "../errors.ts";
 import { type AbsolutePath, absolutePath } from "../migrate/paths.ts";
 import { PublicKey } from "../spoke/signed.ts";
-import { type AgentChoice, type AgentsFlag, agentsFile, parseAgentsFlag } from "./agents.ts";
+import {
+  type AgentChoice,
+  type AgentsFlag,
+  agentsFile,
+  parseAgentsFlag,
+} from "./agents.ts";
 
 export const Name = Schema.String.pipe(
   Schema.check(
     Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, {
       message: "use letters, digits, '.', '_' and '-'",
-    }),
-  ),
+    })
+  )
 );
 
 export const PublicUrl = Schema.String.pipe(
   Schema.check(
     Schema.isPattern(/^https?:\/\/[^/\s?#]+\/?$/, {
       message: "expected an origin such as https://box.example.com",
-    }),
-  ),
+    })
+  )
 );
 
 export const originFlag = (name: string, description: string) =>
@@ -27,15 +34,15 @@ export const originFlag = (name: string, description: string) =>
     Flag.withDescription(description),
     Flag.withSchema(PublicUrl),
     Flag.map((url) => url.replace(/\/$/, "")),
-    Flag.optional,
+    Flag.optional
   );
 
 export const BindHost = Schema.String.pipe(
   Schema.check(
     Schema.isPattern(/^[A-Za-z0-9._:-]+$/, {
       message: "expected an IP address or host name such as 100.64.0.7",
-    }),
-  ),
+    })
+  )
 );
 
 // Listening on every interface is what T3 did before --host existed, so a box without the flag
@@ -46,12 +53,16 @@ export const ALL_INTERFACES = "0.0.0.0";
 export const probeHost = (bind: string): string =>
   bind === ALL_INTERFACES || bind === "::" ? "127.0.0.1" : bind;
 
-export const Port = Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 })));
+export const Port = Schema.Int.pipe(
+  Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))
+);
 
 const Channel = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.+-]*$/, { message: "expected an npm tag" }),
-  ),
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.+-]*$/, {
+      message: "expected an npm tag",
+    })
+  )
 );
 
 export const SUPERVISORS = ["auto", "system", "user", "detached"] as const;
@@ -60,90 +71,100 @@ export type Supervisor = (typeof SUPERVISORS)[number];
 export const serveFlags = {
   data: Flag.String("data").pipe(
     Flag.withDescription("directory that survives a rebuild (default $HOME)"),
-    Flag.optional,
+    Flag.optional
   ),
   port: Flag.Int("port").pipe(
     Flag.withDescription("port T3 Code answers on (default 3773)"),
     Flag.withSchema(Port),
-    Flag.withDefault(3773),
+    Flag.withDefault(3773)
   ),
   baseDir: Flag.String("base-dir").pipe(
     Flag.withDescription("T3 Code data directory (default <data>/.t3)"),
-    Flag.optional,
+    Flag.optional
   ),
   workspace: Flag.String("workspace").pipe(
-    Flag.withDescription("working directory for agent sessions (default <data>)"),
-    Flag.optional,
+    Flag.withDescription(
+      "working directory for agent sessions (default <data>)"
+    ),
+    Flag.optional
   ),
   host: Flag.String("host").pipe(
     Flag.withDescription(
-      "address T3 Code listens on, for example a Tailscale IP, or the proxy does with --public-url (default 0.0.0.0, every interface)",
+      "address T3 Code listens on, for example a Tailscale IP, or the proxy does with --public-url (default 0.0.0.0, every interface)"
     ),
     Flag.withSchema(BindHost),
-    Flag.optional,
+    Flag.optional
   ),
-  publicUrl: originFlag("public-url", "public origin an edge proxy serves this machine on"),
+  publicUrl: originFlag(
+    "public-url",
+    "public origin an edge proxy serves this machine on"
+  ),
   setup: Flag.Boolean("setup").pipe(
     Flag.withDescription(
-      "after T3 starts, install browser libraries, Go, Rust and agent skills (default on, --no-setup skips)",
+      "after T3 starts, install browser libraries, Go, Rust and agent skills (default on, --no-setup skips)"
     ),
-    Flag.withDefault(true),
+    Flag.withDefault(true)
   ),
 };
 
 export const upFlags = {
   ...serveFlags,
   name: Flag.String("name").pipe(
-    Flag.withDescription("environment name T3 Code shows (default the hostname)"),
+    Flag.withDescription(
+      "environment name T3 Code shows (default the hostname)"
+    ),
     Flag.withSchema(Name),
-    Flag.optional,
+    Flag.optional
   ),
   channel: Flag.String("channel").pipe(
     Flag.withDescription("T3 Code release channel on npm (default nightly)"),
     Flag.withSchema(Channel),
-    Flag.withDefault("nightly"),
+    Flag.withDefault("nightly")
   ),
   hub: Flag.Boolean("hub").pipe(
     Flag.withDescription(
-      "also keep `devbox hub` running, on --host when that is one address and on 127.0.0.1 otherwise",
+      "also keep `devbox hub` running, on --host when that is one address and on 127.0.0.1 otherwise"
     ),
-    Flag.withDefault(false),
+    Flag.withDefault(false)
   ),
   spoke: Flag.Boolean("spoke").pipe(
     Flag.withDescription(
-      "also keep `devbox spoke` running, which tells the hub this machine's load, memory and disk",
+      "also keep `devbox spoke` running, which tells the hub this machine's load, memory and disk"
     ),
-    Flag.withDefault(false),
+    Flag.withDefault(false)
   ),
   tunnel: Flag.Boolean("tunnel").pipe(
     Flag.withDescription(
-      "also keep a Cloudflare Tunnel running with the token in ~/.config/cloudflared/token, which the hub saves when it publishes this machine",
+      "also keep a Cloudflare Tunnel running with the token in ~/.config/cloudflared/token, which the hub saves when it publishes this machine"
     ),
-    Flag.withDefault(false),
+    Flag.withDefault(false)
   ),
   trust: Flag.String("trust").pipe(
     Flag.withDescription(
-      "with --spoke, a hub key (`devbox hub key` prints it) whose hub may update T3 Code here (repeatable)",
+      "with --spoke, a hub key (`devbox hub key` prints it) whose hub may update T3 Code here (repeatable)"
     ),
     Flag.withSchema(PublicKey),
-    Flag.atLeast(0),
+    Flag.atLeast(0)
   ),
   supervisor: Flag.Literals("supervisor", SUPERVISORS).pipe(
     Flag.withDescription(
-      "what keeps T3 running: a systemd system or user unit, or a detached process (default auto)",
+      "what keeps T3 running: a systemd system or user unit, or a detached process (default auto)"
     ),
-    Flag.withDefault("auto"),
+    Flag.withDefault("auto")
   ),
   agents: Flag.String("agents").pipe(
     Flag.withDescription(
-      "agent CLIs to install: pick, none, or a list like claude,codex. Saved in <data>, so later runs ask nothing (default: ask once on a terminal)",
+      "agent CLIs to install: pick, none, or a list like claude,codex. Saved in <data>, so later runs ask nothing (default: ask once on a terminal)"
     ),
     Flag.filterMap(
       (text) => Result.getSuccess(parseAgentsFlag(text)),
       (text) =>
-        Result.match(parseAgentsFlag(text), { onSuccess: () => "", onFailure: (why) => why }),
+        Result.match(parseAgentsFlag(text), {
+          onSuccess: () => "",
+          onFailure: (why) => why,
+        })
     ),
-    Flag.optional,
+    Flag.optional
   ),
 };
 
@@ -193,7 +214,10 @@ type UpFlags = ServeFlags & {
 
 export const serveConfig = (flags: ServeFlags, home: AbsolutePath) =>
   Effect.sync(() => {
-    const data = Option.match(flags.data, { onNone: () => home, onSome: (d) => absolutePath(d) });
+    const data = Option.match(flags.data, {
+      onNone: () => home,
+      onSome: (d) => absolutePath(d),
+    });
     const under = (value: Option.Option<string>, fallback: string) =>
       absolutePath(Option.getOrElse(value, () => join(data, fallback)));
     return {
@@ -211,7 +235,7 @@ export const machineConfig = (
   flags: UpFlags,
   home: AbsolutePath,
   hostname: string,
-  agents: AgentChoice,
+  agents: AgentChoice
 ) =>
   Effect.gen(function* () {
     if (flags.trust.length > 0 && !flags.spoke)
@@ -244,7 +268,10 @@ export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [
   "--workspace",
   config.workspace,
   ...(config.host === ALL_INTERFACES ? [] : ["--host", config.host]),
-  ...Option.match(config.publicUrl, { onNone: () => [], onSome: (url) => ["--public-url", url] }),
+  ...Option.match(config.publicUrl, {
+    onNone: () => [],
+    onSome: (url) => ["--public-url", url],
+  }),
   ...(config.setup ? [] : ["--no-setup"]),
 ];
 
@@ -278,7 +305,8 @@ export const pathsOf = (data: string) => ({
   agents: agentsFile(data),
 });
 
-export const machineFile = (home: string) => join(home, ".config", "devbox", "machine.json");
+export const machineFile = (home: string) =>
+  join(home, ".config", "devbox", "machine.json");
 
 export const MachineFile = Schema.Struct({
   name: Schema.String,

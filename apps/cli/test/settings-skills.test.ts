@@ -2,8 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+import {
+  gitEntries,
+  processEnv,
+  profileScript,
+  settingsFor,
+} from "../src/machine/settings.ts";
 import { browserLibraries, installSkills } from "../src/machine/setup.ts";
-import { gitEntries, processEnv, profileScript, settingsFor } from "../src/machine/settings.ts";
 import { parseSkillsList, skillsAddArgs } from "../src/machine/skills.ts";
 import { makeMachine } from "./support/host.ts";
 import { runWith } from "./support/run.ts";
@@ -12,7 +18,9 @@ describe("one settings list, three sinks", () => {
   const settings = settingsFor("/data");
 
   test("git gets identity, no signing, and the gh credential helper", () => {
-    expect(gitEntries(settings).map(({ key, values }) => [key, values])).toEqual([
+    expect(
+      gitEntries(settings).map(({ key, values }) => [key, values])
+    ).toEqual([
       ["user.name", ["PunGrumpy"]],
       ["user.email", ["108584943+PunGrumpy@users.noreply.github.com"]],
       ["commit.gpgsign", ["false"]],
@@ -41,7 +49,7 @@ describe("one settings list, three sinks", () => {
         `  export PATH='/it'\\''s/.local/bin':'/it'\\''s/.local/share/mise/shims':"$PATH"`,
         "fi",
         "",
-      ].join("\n"),
+      ].join("\n")
     );
     const me = Bun.spawnSync(["id", "-un"]).stdout.toString().trim();
     const sourced = (user: string) =>
@@ -70,7 +78,10 @@ describe("the skills list is data", () => {
     expect(list.sources).toEqual([
       { repo: "mattpocock/skills", skills: ["grilling"] },
       { repo: "rauchg/skills", skills: [] },
-      { repo: "https://github.com/PunGrumpy/agents.git", skills: ["cli-builder", "dx-design"] },
+      {
+        repo: "https://github.com/PunGrumpy/agents.git",
+        skills: ["cli-builder", "dx-design"],
+      },
     ]);
     expect(list.rejected).toEqual([]);
     expect(skillsAddArgs(list.sources[2]!, ["claude-code", "codex"])).toEqual([
@@ -96,7 +107,7 @@ describe("the skills list is data", () => {
       .filter((l) => l.startsWith("skill "))
       .map((l) => l.replace("git@github.com:", "https://github.com/"));
     expect(parseSkillsList(TEMPLATE).hash).toBe(
-      createHash("sha256").update(lines.join("\n")).digest("hex"),
+      createHash("sha256").update(lines.join("\n")).digest("hex")
     );
   });
 
@@ -132,7 +143,7 @@ describe("the skills list is data", () => {
     ]);
     expect(m.calls.flat().some((arg) => arg.includes(marker))).toBe(false);
     expect(err).toContain(
-      `ignored a line that is not a skill source: skill foo/bar; touch ${marker}`,
+      `ignored a line that is not a skill source: skill foo/bar; touch ${marker}`
     );
     expect(err).toContain("2 sources failed, trying again on the next start");
     expect(existsSync(join(m.home, ".devbox-skills"))).toBe(false);
@@ -146,7 +157,7 @@ describe("the skills list is data", () => {
         : undefined;
     await runWith(m.host, installSkills(m.home, {}, BOTH));
     expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
-      `${parseSkillsList(TEMPLATE).hash} ${BOTH.join(",")}`,
+      `${parseSkillsList(TEMPLATE).hash} ${BOTH.join(",")}`
     );
     const before = m.calls.length;
     const { err } = await runWith(m.host, installSkills(m.home, {}, BOTH));
@@ -163,7 +174,10 @@ describe("browser libraries", () => {
       if (argv[0] === "apt-cache")
         return {
           code: 0,
-          stdout: argv[2] === "libasound2t64" ? "Candidate: 1.2.11\n" : "Candidate: (none)\n",
+          stdout:
+            argv[2] === "libasound2t64"
+              ? "Candidate: 1.2.11\n"
+              : "Candidate: (none)\n",
           stderr: "",
         };
       if (argv[0] === "dpkg") return { code: 1, stdout: "", stderr: "" };

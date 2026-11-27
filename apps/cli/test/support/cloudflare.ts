@@ -6,8 +6,14 @@ export const CLOUDFLARE_TOKEN = "made-up-cloudflare-token-0123456789abcdef";
 export const OAUTH_ACCESS = "made-up-oauth-access-token-0123456789";
 export const OAUTH_REFRESH = "made-up-oauth-refresh-token-0123456789";
 export const TUNNEL_TOKEN = `made-up-tunnel-token-${Buffer.from(JSON.stringify({ a: "1234567890" })).toString("base64")}`;
-export const ACCOUNT = { id: "acc0000000000000000000000000001", name: "Owner's account" };
-export const ZONE = { id: "zone000000000000000000000000001", name: "example.com" };
+export const ACCOUNT = {
+  id: "acc0000000000000000000000000001",
+  name: "Owner's account",
+};
+export const ZONE = {
+  id: "zone000000000000000000000000001",
+  name: "example.com",
+};
 
 export type Call = {
   readonly method: string;
@@ -16,7 +22,13 @@ export type Call = {
   readonly body: unknown;
 };
 
-type Rule = { id: string; ref: string; expression: string; action: string; description: string };
+type Rule = {
+  id: string;
+  ref: string;
+  expression: string;
+  action: string;
+  description: string;
+};
 type Tunnel = {
   id: string;
   name: string;
@@ -60,13 +72,20 @@ const ok = (result: unknown, status = 200): Answer => ({
 
 const no = (status: number, message: string): Answer => ({
   status,
-  body: JSON.stringify({ success: false, errors: [{ code: 1000, message }], result: null }),
+  body: JSON.stringify({
+    success: false,
+    errors: [{ code: 1000, message }],
+    result: null,
+  }),
 });
 
 let ids = 0;
-const nextId = (prefix: string) => `${prefix}${String((ids += 1)).padStart(8, "0")}`;
+const nextId = (prefix: string) =>
+  `${prefix}${String((ids += 1)).padStart(8, "0")}`;
 
-export const makeCloudflare = (overrides: Partial<FakeCloudflare> = {}): FakeCloudflare => {
+export const makeCloudflare = (
+  overrides: Partial<FakeCloudflare> = {}
+): FakeCloudflare => {
   const cf: FakeCloudflare = {
     bearer: CLOUDFLARE_TOKEN,
     accounts: [ACCOUNT],
@@ -94,12 +113,19 @@ export const makeCloudflare = (overrides: Partial<FakeCloudflare> = {}): FakeClo
       return ok(
         cf.zones
           .filter((z) => z.account === query["account.id"])
-          .map(({ id, name }) => ({ id, name, account: { id: query["account.id"] } })),
+          .map(({ id, name }) => ({
+            id,
+            name,
+            account: { id: query["account.id"] },
+          }))
       );
     if (parts[0] === "zones" && parts[2] === "rulesets") {
       if (method === "GET" && parts[3] === "phases")
         return cf.ruleset === undefined
-          ? no(404, "could not find entrypoint ruleset in the http_request_firewall_custom phase")
+          ? no(
+              404,
+              "could not find entrypoint ruleset in the http_request_firewall_custom phase"
+            )
           : ok({ ...cf.ruleset, phase: "http_request_firewall_custom" });
       if (method === "POST" && parts.length === 3) {
         cf.ruleset = {
@@ -111,9 +137,13 @@ export const makeCloudflare = (overrides: Partial<FakeCloudflare> = {}): FakeClo
         };
         return ok(cf.ruleset);
       }
-      if (cf.ruleset === undefined || parts[3] !== cf.ruleset.id) return no(404, "no ruleset");
+      if (cf.ruleset === undefined || parts[3] !== cf.ruleset.id)
+        return no(404, "no ruleset");
       if (method === "POST" && parts[4] === "rules") {
-        cf.ruleset.rules.push({ ...(input as Omit<Rule, "id">), id: nextId("rule") });
+        cf.ruleset.rules.push({
+          ...(input as Omit<Rule, "id">),
+          id: nextId("rule"),
+        });
         return ok(cf.ruleset);
       }
       if (method === "DELETE" && parts[4] === "rules") {
@@ -125,7 +155,9 @@ export const makeCloudflare = (overrides: Partial<FakeCloudflare> = {}): FakeClo
       const live = cf.tunnels.filter((t) => !t.deleted);
       const tunnel = live.find((t) => t.id === parts[3]);
       if (method === "GET" && parts.length === 3)
-        return ok(live.filter((t) => query.name === undefined || t.name === query.name));
+        return ok(
+          live.filter((t) => query.name === undefined || t.name === query.name)
+        );
       if (method === "POST" && parts.length === 3) {
         const made = {
           id: nextId("tun"),
@@ -160,7 +192,11 @@ export const makeCloudflare = (overrides: Partial<FakeCloudflare> = {}): FakeClo
         return ok(cf.records.filter((r) => r.name === query["name.exact"]));
       if (method === "POST" && parts.length === 3) {
         const name = String(input.name);
-        cf.guarded.push((cf.ruleset?.rules ?? []).some((r) => r.expression.includes(`"${name}"`)));
+        cf.guarded.push(
+          (cf.ruleset?.rules ?? []).some((r) =>
+            r.expression.includes(`"${name}"`)
+          )
+        );
         const made: DnsRecord = {
           id: nextId("rec"),
           type: String(input.type),
@@ -224,6 +260,8 @@ export const stateOf = (cf: FakeCloudflare) => ({
     name,
     comment,
     proxied,
-    pointsAtTunnel: cf.tunnels.some((t) => !t.deleted && content === `${t.id}.cfargotunnel.com`),
+    pointsAtTunnel: cf.tunnels.some(
+      (t) => !t.deleted && content === `${t.id}.cfargotunnel.com`
+    ),
   })),
 });

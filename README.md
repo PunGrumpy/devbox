@@ -22,23 +22,23 @@ devbox up --name edge-7 --data /persist --public-url https://edge-7.example.com
 
 `devbox up` reads the machine as it is, changes only what differs, and says what it changed. A second run prints `No changes`.
 
-| Flag           | Default      | What it sets                                                                                                                              |
-| -------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `--name`       | the hostname | The environment name T3 Code shows, as `PRETTY_HOSTNAME` in `/etc/machine-info`.                                                          |
-| `--data`       | `$HOME`      | The directory that survives a rebuild. T3 Code, mise, Rust, Claude Code and agent skills keep their data here.                            |
-| `--public-url` | none         | The origin an edge proxy serves the machine on. T3 then runs behind a proxy that gives it this host, so OAuth and pairing URLs use it.    |
-| `--port`       | `3773`       | The port T3 Code answers on, directly or through the proxy.                                                                               |
-| `--host`       | `0.0.0.0`    | The address T3 Code listens on, so every interface. With `--public-url`, the proxy listens there and T3 on `127.0.0.1` behind it.         |
-| `--base-dir`   | `<data>/.t3` | T3 Code's data directory.                                                                                                                 |
-| `--workspace`  | `<data>`     | The working directory for agent sessions.                                                                                                 |
-| `--channel`    | `nightly`    | The npm dist-tag T3 Code installs and updates from.                                                                                       |
-| `--hub`        | off          | Also keeps [`devbox hub`](#see-your-machines) running, on `--host` when that is one address and on `127.0.0.1` otherwise.                 |
-| `--spoke`      | off          | Also keeps [`devbox spoke`](#vitals-and-updates) running on port 3782, where the hub reads load, memory and disk.                         |
-| `--trust`      | none         | With `--spoke`, a hub key that `devbox hub key` prints. That hub may update T3 Code here. Repeatable.                                     |
-| `--tunnel`     | off          | Also keeps a [Cloudflare Tunnel](#reach-t3-without-tailscale) running with the token in `~/.config/cloudflared/token`.                    |
-| `--supervisor` | `auto`       | What keeps T3 running: a systemd system unit when systemd and passwordless sudo exist, else a systemd user unit, else a detached process. |
-| `--agents`     | ask once     | The agent CLIs to install: `pick`, `none`, or a list like `claude,codex`. Saved in `<data>`, so later runs ask nothing.                   |
-| `--no-setup`   | setup runs   | Skips the slow setup that runs after T3 starts.                                                                                           |
+| Flag | Default | What it sets |
+| --- | --- | --- |
+| `--name` | the hostname | The environment name T3 Code shows, as `PRETTY_HOSTNAME` in `/etc/machine-info`. |
+| `--data` | `$HOME` | The directory that survives a rebuild. T3 Code, mise, Rust, Claude Code and agent skills keep their data here. |
+| `--public-url` | none | The origin an edge proxy serves the machine on. T3 then runs behind a proxy that gives it this host, so OAuth and pairing URLs use it. |
+| `--port` | `3773` | The port T3 Code answers on, directly or through the proxy. |
+| `--host` | `0.0.0.0` | The address T3 Code listens on, so every interface. With `--public-url`, the proxy listens there and T3 on `127.0.0.1` behind it. |
+| `--base-dir` | `<data>/.t3` | T3 Code's data directory. |
+| `--workspace` | `<data>` | The working directory for agent sessions. |
+| `--channel` | `nightly` | The npm dist-tag T3 Code installs and updates from. |
+| `--hub` | off | Also keeps [`devbox hub`](#see-your-machines) running, on `--host` when that is one address and on `127.0.0.1` otherwise. |
+| `--spoke` | off | Also keeps [`devbox spoke`](#vitals-and-updates) running on port 3782, where the hub reads load, memory and disk. |
+| `--trust` | none | With `--spoke`, a hub key that `devbox hub key` prints. That hub may update T3 Code here. Repeatable. |
+| `--tunnel` | off | Also keeps a [Cloudflare Tunnel](#reach-t3-without-tailscale) running with the token in `~/.config/cloudflared/token`. |
+| `--supervisor` | `auto` | What keeps T3 running: a systemd system unit when systemd and passwordless sudo exist, else a systemd user unit, else a detached process. |
+| `--agents` | ask once | The agent CLIs to install: `pick`, `none`, or a list like `claude,codex`. Saved in `<data>`, so later runs ask nothing. |
+| `--no-setup` | setup runs | Skips the slow setup that runs after T3 starts. |
 
 What it does:
 
@@ -68,14 +68,14 @@ Logs of a detached `devbox serve` go to `<data>/.devbox-logs/serve.log`. A syste
 
 T3 Code finds an agent by its binary name on `PATH`, so a fresh machine needs the CLIs installed. `devbox up` installs the ones you choose. The first time it runs on a terminal it asks, and it saves the answer in `<data>/.config/devbox/agents.json`. Later runs read that file and ask nothing. Without a terminal and without that file (Upstash, instabox, a systemd start) it installs the defaults, Claude Code and Codex, and saves nothing, so the next run on a terminal still asks.
 
-| Agent           | `--agents` id | Installed with                                                                  | Kept current by              | Log in once with                          |
-| --------------- | ------------- | ------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------- |
-| Claude Code     | `claude`      | `claude.ai/install.sh`, into `<data>/.local/bin`                                | itself                       | `claude auth login`                       |
-| Codex           | `codex`       | npm, `@openai/codex`, into `<data>/.local`                                      | `devbox serve` at each start | `codex login --device-auth`               |
-| Devin           | `devin`       | `cli.devin.ai/install.sh`, into `<data>/.local/bin`                             | `devin update` on a terminal | `devin configure`                         |
-| OpenCode        | `opencode`    | npm, `opencode-ai`, into `<data>/.local`                                        | `devbox serve` at each start | `opencode auth login`                     |
-| Antigravity CLI | `agy`         | `antigravity.google/cli/install.sh`, into `<data>/.local/bin`                   | itself                       | `agy`, then sign in on its welcome screen |
-| Grok Build      | `grok`        | `x.ai/cli/install.sh`, into `<data>/.grok/bin`, linked into `<data>/.local/bin` | itself                       | `grok login --device-auth`                |
+| Agent | `--agents` id | Installed with | Kept current by | Log in once with |
+| --- | --- | --- | --- | --- |
+| Claude Code | `claude` | `claude.ai/install.sh`, into `<data>/.local/bin` | itself | `claude auth login` |
+| Codex | `codex` | npm, `@openai/codex`, into `<data>/.local` | `devbox serve` at each start | `codex login --device-auth` |
+| Devin | `devin` | `cli.devin.ai/install.sh`, into `<data>/.local/bin` | `devin update` on a terminal | `devin configure` |
+| OpenCode | `opencode` | npm, `opencode-ai`, into `<data>/.local` | `devbox serve` at each start | `opencode auth login` |
+| Antigravity CLI | `agy` | `antigravity.google/cli/install.sh`, into `<data>/.local/bin` | itself | `agy`, then sign in on its welcome screen |
+| Grok Build | `grok` | `x.ai/cli/install.sh`, into `<data>/.grok/bin`, linked into `<data>/.local/bin` | itself | `grok login --device-auth` |
 
 ```sh
 devbox up --agents claude,codex,devin   # set the list; it is saved
@@ -380,11 +380,11 @@ devbox migrate move-threads --to alpha --from beta --apply
 devbox migrate rename-root --project alpha --to ~/Projects/alpha --apply
 ```
 
-| Command                                                           | What it changes                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `doctor [--json] [--check]`                                       | Nothing. It reports whether T3 Code is running, the schema, the event log, each project with its thread count and whether its root exists, mismatches between a thread's column and its payload, session folders missing on disk, and Claude memory left under a symlinked spelling of a project's path. `--check` adds `PRAGMA quick_check`, which reads the whole file. |
-| `move-threads --to <project> --from <project>... [--thread <id>]` | The project of each thread, in its column and in its payload. Scheduled tasks on the source projects stay where they are, with a warning.                                                                                                                                                                                                                                 |
-| `rename-root --project <project> --to <path>`                     | The project's workspace root, and the folder of every provider session at or under the old root. With `--apply` it also copies the root's Claude transcripts and memory.                                                                                                                                                                                                  |
+| Command | What it changes |
+| --- | --- |
+| `doctor [--json] [--check]` | Nothing. It reports whether T3 Code is running, the schema, the event log, each project with its thread count and whether its root exists, mismatches between a thread's column and its payload, session folders missing on disk, and Claude memory left under a symlinked spelling of a project's path. `--check` adds `PRAGMA quick_check`, which reads the whole file. |
+| `move-threads --to <project> --from <project>... [--thread <id>]` | The project of each thread, in its column and in its payload. Scheduled tasks on the source projects stay where they are, with a warning. |
+| `rename-root --project <project> --to <path>` | The project's workspace root, and the folder of every provider session at or under the old root. With `--apply` it also copies the root's Claude transcripts and memory. |
 
 Name a project by its id or its title. A title that two live projects share is an error that lists both ids.
 
@@ -419,10 +419,10 @@ Output goes to stderr in the style of the Vercel CLI, so a pipe gets only data. 
 
 This repo is a [Turborepo](https://turborepo.dev) workspace on Bun, with one lockfile.
 
-| Package      | Where      | What it is                                               |
-| ------------ | ---------- | -------------------------------------------------------- |
-| `devbox`     | `apps/cli` | The command-line tool, on Bun and Effect.                |
-| `hub`        | `apps/hub` | The hub page, a Next.js app that exports static files.   |
+| Package | Where | What it is |
+| --- | --- | --- |
+| `devbox` | `apps/cli` | The command-line tool, on Bun and Effect. |
+| `hub` | `apps/hub` | The hub page, a Next.js app that exports static files. |
 
 ```sh
 bun install          # every package

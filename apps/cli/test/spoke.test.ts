@@ -3,7 +3,9 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { join } from "node:path";
+
 import { Effect } from "effect";
+
 import { freePort } from "../src/machine/proxy.ts";
 import {
   type Do,
@@ -19,9 +21,20 @@ import { devbox, start } from "./support/run.ts";
 const hubKey = generateKeyPairSync("ed25519").privateKey;
 const strangerKey = generateKeyPairSync("ed25519").privateKey;
 const KEY = publicKeyOf(hubKey);
-const SET_UP = ["--data", "/srv/data", "--port", "3773", "--supervisor", "user", "--spoke"];
+const SET_UP = [
+  "--data",
+  "/srv/data",
+  "--port",
+  "3773",
+  "--supervisor",
+  "user",
+  "--spoke",
+];
 const PAIRING_TOKEN = "made-up-pairing-token-0123";
-const PAIRING = { url: "http://edge-7.tail1234.ts.net:3773", token: PAIRING_TOKEN };
+const PAIRING = {
+  url: "http://edge-7.tail1234.ts.net:3773",
+  token: PAIRING_TOKEN,
+};
 
 const setUpMachine = (options: { recorded?: boolean; virt?: string } = {}) => {
   const m = makeMachine();
@@ -42,27 +55,41 @@ const setUpMachine = (options: { recorded?: boolean; virt?: string } = {}) => {
       baseDir: "/srv/data/.t3",
       t3: "/srv/data/.local/bin/t3",
       ...(options.recorded === false ? {} : { up: SET_UP }),
-    }),
+    })
   );
   return m;
 };
 
-const running = async (m: ReturnType<typeof makeMachine>, ...args: Array<string>) => {
+const running = async (
+  m: ReturnType<typeof makeMachine>,
+  ...args: Array<string>
+) => {
   const port = await Effect.runPromise(freePort);
-  const spoke = start({ HOME: m.home }, ["spoke", "--port", String(port), ...args], {
-    host: m.host,
-  });
-  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1) await Bun.sleep(20);
+  const spoke = start(
+    { HOME: m.home },
+    ["spoke", "--port", String(port), ...args],
+    {
+      host: m.host,
+    }
+  );
+  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1)
+    await Bun.sleep(20);
   return { spoke, base: `http://127.0.0.1:${port}`, port };
 };
 
 const challenge = async (base: string) =>
-  ((await (await fetch(`${base}/api/challenge`)).json()) as { nonce: string }).nonce;
+  ((await (await fetch(`${base}/api/challenge`)).json()) as { nonce: string })
+    .nonce;
 
-const signedFor = async (base: string, key = hubKey, at = new Date(), action: Do = "update") =>
-  signRequest(key, at, await challenge(base), action);
+const signedFor = async (
+  base: string,
+  key = hubKey,
+  at = new Date(),
+  action: Do = "update"
+) => signRequest(key, at, await challenge(base), action);
 
-const post = async (base: string, signed?: Signed) => send(base, signed ?? (await signedFor(base)));
+const post = async (base: string, signed?: Signed) =>
+  send(base, signed ?? (await signedFor(base)));
 
 const send = (base: string, signed: Signed) =>
   fetch(`${base}/api/do`, {
@@ -132,7 +159,10 @@ describe("devbox spoke", async () => {
   });
 
   test("a request with a nonce this spoke never handed out is refused", async () => {
-    const response = await send(base, signRequest(hubKey, new Date(), newNonce(), "update"));
+    const response = await send(
+      base,
+      signRequest(hubKey, new Date(), newNonce(), "update")
+    );
     expect(response.status).toBe(403);
     expect(updates(m)).toHaveLength(2);
   });
@@ -146,18 +176,24 @@ describe("devbox spoke", async () => {
   test("a request from the past is refused", async () => {
     const response = await post(
       base,
-      await signedFor(base, hubKey, new Date(Date.now() - 120_000)),
+      await signedFor(base, hubKey, new Date(Date.now() - 120_000))
     );
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "the request is too old or too new" });
+    expect(await response.json()).toEqual({
+      error: "the request is too old or too new",
+    });
   });
 
   test("a body longer than any signed request is refused without reading it", async () => {
     const status = await new Promise<number>((done, fail) => {
-      const req = http.request(`${base}/api/do`, { method: "POST" }, (response) => {
-        response.resume();
-        done(response.statusCode ?? 0);
-      });
+      const req = http.request(
+        `${base}/api/do`,
+        { method: "POST" },
+        (response) => {
+          response.resume();
+          done(response.statusCode ?? 0);
+        }
+      );
       req.on("error", fail);
       req.end("x".repeat(64 * 1024));
     });
@@ -166,13 +202,22 @@ describe("devbox spoke", async () => {
   });
 
   test("a pairing request runs devbox pair here and answers with the link, which it never logs", async () => {
-    const response = await post(base, await signedFor(base, hubKey, new Date(), "pair"));
+    const response = await post(
+      base,
+      await signedFor(base, hubKey, new Date(), "pair")
+    );
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({
       url: `http://edge-7.tail1234.ts.net:3773/pair#token=${PAIRING_TOKEN}`,
     });
-    expect(m.calls).toContainEqual([...SELF, "pair", "--json", "--label", "hub"]);
+    expect(m.calls).toContainEqual([
+      ...SELF,
+      "pair",
+      "--json",
+      "--label",
+      "hub",
+    ]);
     expect(spoke.err()).toContain("asked for a pairing link");
     expect(spoke.err()).not.toContain(PAIRING_TOKEN);
     expect(spoke.out()).not.toContain(PAIRING_TOKEN);
@@ -182,9 +227,14 @@ describe("devbox spoke", async () => {
   test("a request for something the spoke cannot do is refused, though signed", async () => {
     const before = m.calls.length;
     for (const action of ["reboot", "constructor", "__proto__", "toString"]) {
-      const response = await post(base, await signedFor(base, hubKey, new Date(), action as Do));
+      const response = await post(
+        base,
+        await signedFor(base, hubKey, new Date(), action as Do)
+      );
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ error: "this spoke does not do that" });
+      expect(await response.json()).toEqual({
+        error: "this spoke does not do that",
+      });
     }
     expect(m.calls.length).toBe(before);
   });
@@ -196,15 +246,23 @@ describe("devbox spoke", async () => {
       body: signed.body.replace('"do":"update"', '"do":"pair"'),
     });
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "the signature does not match" });
+    expect(await response.json()).toEqual({
+      error: "the signature does not match",
+    });
   });
 
   test("other paths are 404 and other methods are 405", async () => {
     expect((await fetch(`${base}/`)).status).toBe(404);
-    expect((await fetch(`${base}/api/update`, { method: "POST" })).status).toBe(404);
+    expect((await fetch(`${base}/api/update`, { method: "POST" })).status).toBe(
+      404
+    );
     expect((await fetch(`${base}/api/do`)).status).toBe(405);
-    expect((await fetch(`${base}/api/spoke`, { method: "POST" })).status).toBe(405);
-    expect((await fetch(`${base}/api/challenge`, { method: "POST" })).status).toBe(405);
+    expect((await fetch(`${base}/api/spoke`, { method: "POST" })).status).toBe(
+      405
+    );
+    expect(
+      (await fetch(`${base}/api/challenge`, { method: "POST" })).status
+    ).toBe(405);
   });
 });
 
@@ -232,7 +290,9 @@ describe("what a spoke says it is", () => {
   const kindOf = async (m: ReturnType<typeof makeMachine>) => {
     const { spoke, base } = await running(m);
     try {
-      return ((await (await fetch(`${base}/api/spoke`)).json()) as { kind: string }).kind;
+      return (
+        (await (await fetch(`${base}/api/spoke`)).json()) as { kind: string }
+      ).kind;
     } finally {
       await spoke.stop();
     }
@@ -265,7 +325,8 @@ test("a spoke that trusts nobody takes no update", async () => {
   const { spoke, base } = await running(m);
   try {
     expect(
-      ((await (await fetch(`${base}/api/spoke`)).json()) as { trusts: unknown }).trusts,
+      ((await (await fetch(`${base}/api/spoke`)).json()) as { trusts: unknown })
+        .trusts
     ).toEqual([]);
     expect((await post(base)).status).toBe(403);
     expect(updates(m)).toEqual([]);
@@ -275,7 +336,11 @@ test("a spoke that trusts nobody takes no update", async () => {
 });
 
 test("--trust takes only a hub key", async () => {
-  const r = await devbox({ HOME: makeMachine().home }, ["spoke", "--trust", "not-a-key"]);
+  const r = await devbox({ HOME: makeMachine().home }, [
+    "spoke",
+    "--trust",
+    "not-a-key",
+  ]);
   expect(r.code).not.toBe(0);
   expect(r.err).toContain("devbox hub key");
 });
@@ -284,14 +349,23 @@ test("a pairing request devbox pair cannot answer is refused, and says nothing o
   const m = setUpMachine();
   m.respond = (argv) =>
     argv[SELF.length] === "pair"
-      ? { code: 1, stdout: "", stderr: `t3 pair printed no token ${PAIRING_TOKEN}` }
+      ? {
+          code: 1,
+          stdout: "",
+          stderr: `t3 pair printed no token ${PAIRING_TOKEN}`,
+        }
       : undefined;
   const { spoke, base } = await running(m, "--trust", KEY);
   try {
-    const response = await post(base, await signedFor(base, hubKey, new Date(), "pair"));
+    const response = await post(
+      base,
+      await signedFor(base, hubKey, new Date(), "pair")
+    );
     expect(response.status).toBe(502);
     const text = await response.text();
-    expect(JSON.parse(text)).toEqual({ error: "devbox pair gave no pairing link" });
+    expect(JSON.parse(text)).toEqual({
+      error: "devbox pair gave no pairing link",
+    });
     expect(spoke.err()).not.toContain(PAIRING_TOKEN);
   } finally {
     await spoke.stop();

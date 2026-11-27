@@ -1,6 +1,13 @@
 import { Database } from "bun:sqlite";
-import { cpSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
+
 import type { Ran } from "../../src/machine/host.ts";
 import type { FakeMachine } from "./host.ts";
 
@@ -30,7 +37,7 @@ export type FakeRepo = { exists: boolean; failCheck: boolean; stage?: string };
 
 export const withBackupTools = (
   m: FakeMachine,
-  repo: FakeRepo = { exists: false, failCheck: false },
+  repo: FakeRepo = { exists: false, failCheck: false }
 ) => {
   m.binaries.add("restic");
   m.binaries.add("sqlite3");
@@ -68,7 +75,11 @@ export const withBackupTools = (
       if (args[0] === "backup") return ((repo.stage = args.at(-1)), ok());
       if (args[0] === "restore") {
         if (repo.stage === undefined)
-          return { code: 1, stdout: "", stderr: "Fatal: no matching ID found for prefix latest\n" };
+          return {
+            code: 1,
+            stdout: "",
+            stderr: "Fatal: no matching ID found for prefix latest\n",
+          };
         const target = args[args.indexOf("--target") + 1]!;
         if (existsSync(repo.stage))
           cpSync(repo.stage, join(target, repo.stage), { recursive: true });

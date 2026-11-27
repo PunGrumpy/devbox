@@ -2,11 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { Effect, Option } from "effect";
+
 import { HISTORY_LIMIT, type HubSnapshot, stateFile } from "../src/hub/hub.ts";
 import type { MachineState, Snapshot } from "../src/hub/machines.ts";
 import { restore, serialize } from "../src/hub/saved.ts";
-import { nextWatch, sentence, type Watch, webhookBody } from "../src/hub/watch.ts";
+import {
+  nextWatch,
+  sentence,
+  type Watch,
+  webhookBody,
+} from "../src/hub/watch.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { makeMachine } from "./support/host.ts";
 import { asOwner, start } from "./support/run.ts";
@@ -44,53 +51,90 @@ describe("what the hub announces", () => {
   });
 
   test("one missed probe is not news", () => {
-    expect(announce({ a: "t3" }, { a: "offline" }, { a: "t3" }, { a: "t3" })).toEqual([
-      [],
-      [],
-      [],
-      [],
-    ]);
+    expect(
+      announce({ a: "t3" }, { a: "offline" }, { a: "t3" }, { a: "t3" })
+    ).toEqual([[], [], [], []]);
   });
 
   test("a state that holds for two samples is announced once", () => {
-    expect(announce({ a: "t3" }, { a: "offline" }, { a: "offline" }, { a: "offline" })).toEqual([
-      [],
-      [],
-      ["a went offline"],
-      [],
-    ]);
+    expect(
+      announce(
+        { a: "t3" },
+        { a: "offline" },
+        { a: "offline" },
+        { a: "offline" }
+      )
+    ).toEqual([[], [], ["a went offline"], []]);
   });
 
   test("a recovery is announced too", () => {
     expect(
-      announce({ a: "t3" }, { a: "offline" }, { a: "offline" }, { a: "t3" }, { a: "t3" }).at(-1),
+      announce(
+        { a: "t3" },
+        { a: "offline" },
+        { a: "offline" },
+        { a: "t3" },
+        { a: "t3" }
+      ).at(-1)
     ).toEqual(["a is back online, and T3 Code answers"]);
   });
 
   test("T3 Code stopping and answering again have their own words", () => {
     expect(
-      announce({ a: "t3" }, { a: "online" }, { a: "online" }, { a: "t3" }, { a: "t3" }),
-    ).toEqual([[], [], ["T3 Code stopped answering on a"], [], ["T3 Code answers on a again"]]);
+      announce(
+        { a: "t3" },
+        { a: "online" },
+        { a: "online" },
+        { a: "t3" },
+        { a: "t3" }
+      )
+    ).toEqual([
+      [],
+      [],
+      ["T3 Code stopped answering on a"],
+      [],
+      ["T3 Code answers on a again"],
+    ]);
   });
 
   test("a machine seen later sets its baseline silently, and one that leaves is remembered", () => {
-    expect(announce({ a: "t3" }, { a: "t3", b: "offline" }, { b: "offline" }, { a: "t3" })).toEqual(
-      [[], [], [], []],
-    );
+    expect(
+      announce(
+        { a: "t3" },
+        { a: "t3", b: "offline" },
+        { b: "offline" },
+        { a: "t3" }
+      )
+    ).toEqual([[], [], [], []]);
   });
 });
 
 describe("what a webhook is sent", () => {
   test("Discord and Slack take JSON, and anything else takes the sentence", () => {
-    expect(webhookBody(new URL("https://discord.com/api/webhooks/1/x"), "a went offline")).toEqual({
+    expect(
+      webhookBody(
+        new URL("https://discord.com/api/webhooks/1/x"),
+        "a went offline"
+      )
+    ).toEqual({
       body: '{"content":"a went offline"}',
       contentType: "application/json",
     });
-    expect(webhookBody(new URL("https://hooks.slack.com/services/x"), "a went offline")).toEqual({
+    expect(
+      webhookBody(
+        new URL("https://hooks.slack.com/services/x"),
+        "a went offline"
+      )
+    ).toEqual({
       body: '{"text":"a went offline"}',
       contentType: "application/json",
     });
-    expect(webhookBody(new URL("https://ntfy.example.com/machines"), "a went offline")).toEqual({
+    expect(
+      webhookBody(
+        new URL("https://ntfy.example.com/machines"),
+        "a went offline"
+      )
+    ).toEqual({
       body: "a went offline",
       contentType: "text/plain; charset=utf-8",
     });
@@ -109,13 +153,20 @@ describe("what a hub takes over when it starts again", () => {
         },
         watch: { announced: { a: "t3" }, pending: {} },
       },
-      savedAt,
+      savedAt
     );
   const at = (iso: string) => Date.parse(iso);
 
   test("the time it was down becomes unknown samples", () => {
-    const resumed = restore(saved(T0), at("2026-11-27T00:03:10.000Z"), HISTORY_LIMIT);
-    expect(Option.getOrThrow(resumed).history.states).toEqual({ a: "2222   ", gone: "1      " });
+    const resumed = restore(
+      saved(T0),
+      at("2026-11-27T00:03:10.000Z"),
+      HISTORY_LIMIT
+    );
+    expect(Option.getOrThrow(resumed).history.states).toEqual({
+      a: "2222   ",
+      gone: "1      ",
+    });
     expect(Option.getOrThrow(resumed).watch.announced).toEqual({ a: "t3" });
   });
 
@@ -125,12 +176,16 @@ describe("what a hub takes over when it starts again", () => {
   });
 
   test("a file a day old, from the future, or broken gives nothing", () => {
-    expect(Option.isNone(restore(saved(T0), at("2026-11-28T00:00:00.000Z"), HISTORY_LIMIT))).toBe(
-      true,
-    );
-    expect(Option.isNone(restore(saved(T0), at("2026-11-26T23:00:00.000Z"), HISTORY_LIMIT))).toBe(
-      true,
-    );
+    expect(
+      Option.isNone(
+        restore(saved(T0), at("2026-11-28T00:00:00.000Z"), HISTORY_LIMIT)
+      )
+    ).toBe(true);
+    expect(
+      Option.isNone(
+        restore(saved(T0), at("2026-11-26T23:00:00.000Z"), HISTORY_LIMIT)
+      )
+    ).toBe(true);
     expect(Option.isNone(restore("{", at(T0), HISTORY_LIMIT))).toBe(true);
   });
 });
@@ -160,13 +215,21 @@ const onlineComputer = () => {
   return m;
 };
 
-const running = async (m: ReturnType<typeof makeMachine>, env: Record<string, string> = {}) => {
+const running = async (
+  m: ReturnType<typeof makeMachine>,
+  env: Record<string, string> = {}
+) => {
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
-  const hub = start({ HOME: m.home, ...env }, ["hub", "--port", String(port), "--ui", empty], {
-    host: m.host,
-  });
-  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) await Bun.sleep(20);
+  const hub = start(
+    { HOME: m.home, ...env },
+    ["hub", "--port", String(port), "--ui", empty],
+    {
+      host: m.host,
+    }
+  );
+  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1)
+    await Bun.sleep(20);
   const answered = await fetch(`http://127.0.0.1:${port}/api/machines`, {
     headers: asOwner(m.home),
   });
@@ -192,16 +255,23 @@ describe("devbox hub over a restart", () => {
       stateFile(m.home),
       serialize(
         {
-          history: { sampleSeconds: 60, startedAt: T0, states: { "edge-7": "000" }, latency: {} },
+          history: {
+            sampleSeconds: 60,
+            startedAt: T0,
+            states: { "edge-7": "000" },
+            latency: {},
+          },
           watch: {
             announced: { "edge-7": "offline" },
             pending: { "edge-7": { state: "online", samples: 1 } },
           },
         },
-        new Date().toISOString(),
-      ),
+        new Date().toISOString()
+      )
     );
-    const { hub, json } = await running(m, { DEVBOX_HUB_NOTIFY: "https://ntfy.example.com/hub" });
+    const { hub, json } = await running(m, {
+      DEVBOX_HUB_NOTIFY: "https://ntfy.example.com/hub",
+    });
     await hub.stop();
     expect(json.history.states).toEqual({ "edge-7": "0001" });
     expect(m.posts).toEqual([
@@ -221,14 +291,19 @@ describe("devbox hub over a restart", () => {
       stateFile(m.home),
       serialize(
         {
-          history: { sampleSeconds: 60, startedAt: T0, states: {}, latency: {} },
+          history: {
+            sampleSeconds: 60,
+            startedAt: T0,
+            states: {},
+            latency: {},
+          },
           watch: {
             announced: { "edge-7": "offline" },
             pending: { "edge-7": { state: "online", samples: 1 } },
           },
         },
-        new Date().toISOString(),
-      ),
+        new Date().toISOString()
+      )
     );
     const { hub, json } = await running(m, {
       DEVBOX_HUB_NOTIFY: "https://ntfy.example.com/secret",

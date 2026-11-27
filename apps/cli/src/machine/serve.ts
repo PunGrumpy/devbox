@@ -1,13 +1,20 @@
 import { Effect, FileSystem, Option, Schedule, Schema } from "effect";
 import { Command } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
-import { pathsOf, probeHost, type ServeConfig, serveConfig, serveFlags } from "./config.ts";
+import {
+  pathsOf,
+  probeHost,
+  type ServeConfig,
+  serveConfig,
+  serveFlags,
+} from "./config.ts";
 import { Host } from "./host.ts";
 import { freePort, proxy } from "./proxy.ts";
-import { postStart } from "./setup.ts";
 import { processEnv, settingsFor } from "./settings.ts";
+import { postStart } from "./setup.ts";
 
 export class T3Missing extends Schema.TaggedError<T3Missing>()("T3Missing", {
   path: Schema.String,
@@ -29,7 +36,7 @@ export const answering = (bind: string, port: number, attempts: number) =>
     return yield* host.answers(port, probeHost(bind)).pipe(
       Effect.flatMap((ok) => (ok ? Effect.succeed(true) : Effect.fail(false))),
       Effect.retry({ schedule: Schedule.spaced("1 second"), times: attempts }),
-      Effect.orElseSucceed(() => false),
+      Effect.orElseSucceed(() => false)
     );
   });
 
@@ -55,7 +62,9 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
       T3CODE_SERVER_BROWSER_SANDBOX: sandbox ? "1" : "0",
     };
     const bind = t3Bind(config);
-    const t3Port = Option.isSome(config.publicUrl) ? yield* freePort : config.port;
+    const t3Port = Option.isSome(config.publicUrl)
+      ? yield* freePort
+      : config.port;
     if (Option.isSome(config.publicUrl)) {
       yield* proxy({
         host: config.host,
@@ -64,7 +73,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
         publicUrl: config.publicUrl.value,
       });
       yield* out.log(
-        `proxy: :${config.port} -> T3 on 127.0.0.1:${t3Port} as ${config.publicUrl.value}`,
+        `proxy: :${config.port} -> T3 on 127.0.0.1:${t3Port} as ${config.publicUrl.value}`
       );
     }
     yield* out.log(`t3: browser sandbox ${sandbox ? "on" : "off"}`);
@@ -72,9 +81,11 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
     if (config.setup) {
       yield* answering(bind, t3Port, 600).pipe(
         Effect.flatMap((up) =>
-          up ? postStart(config, home) : out.warn("setup: T3 never answered, skipped"),
+          up
+            ? postStart(config, home)
+            : out.warn("setup: T3 never answered, skipped")
         ),
-        Effect.forkScoped,
+        Effect.forkScoped
       );
     }
 
@@ -97,17 +108,19 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
         stdout: "inherit",
         stderr: "inherit",
         forceKillAfter: "10 seconds",
-      },
+      }
     );
     return yield* spawner.exitCode(t3Serve).pipe(
-      Effect.flatMap((code) => out.warn(`t3 exited with ${code}, starting it again in 5s`)),
+      Effect.flatMap((code) =>
+        out.warn(`t3 exited with ${code}, starting it again in 5s`)
+      ),
       Effect.catch((error) => out.warn(`t3 did not start: ${error.message}`)),
       Effect.andThen(Effect.sleep("5 seconds")),
-      Effect.forever,
+      Effect.forever
     );
-  }).pipe(Effect.scoped),
+  }).pipe(Effect.scoped)
 ).pipe(
   Command.withDescription(
-    "Run T3 Code in the foreground, behind a Host-rewriting proxy when --public-url is set. `devbox up` keeps this running.",
-  ),
+    "Run T3 Code in the foreground, behind a Host-rewriting proxy when --public-url is set. `devbox up` keeps this running."
+  )
 );

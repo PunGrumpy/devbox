@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,7 +13,11 @@ const INSTALL = join(import.meta.dir, "..", "..", "..", "install.sh");
 
 // Runs install.sh with only stub commands on PATH. The stub bash fails, so the script stops
 // right after it would have run bun's installer.
-const run = (stubs: { present: ReadonlyArray<string>; sudo?: boolean; uid?: string }) => {
+const run = (stubs: {
+  present: ReadonlyArray<string>;
+  sudo?: boolean;
+  uid?: string;
+}) => {
   const dir = mkdtempSync(join(tmpdir(), "devbox-install-"));
   const bin = join(dir, "bin");
   const log = join(dir, "calls.log");
