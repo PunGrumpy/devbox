@@ -225,7 +225,7 @@ bun install --frozen-lockfile --filter hub && bun run --cwd apps/hub build
 
 `devbox hub` then serves `apps/hub/out` from this checkout. `--ui <dir>` serves another build, which a compiled `devbox` binary needs. Without a build, `/` answers 404 with this command and the JSON still works.
 
-To work on the page, run `bun run dev` at the root of this checkout and open `http://localhost:3790`. It starts two things: the hub from source on port 3780, restarted whenever the CLI's code changes, and Next, which serves the page on port 3790 and forwards everything under `/api/` to the hub at `DEVBOX_HUB_URL` (default `http://127.0.0.1:3780`). Sign in with the token that `bun apps/cli/src/cli.ts hub token` prints. When a hub already listens on port 3780, the page talks to that one. The page is checked with [Ultracite](https://www.ultracite.dev) and [tsrs](https://github.com/oxc-project/tsrs). See [Develop](#develop).
+To work on the page, run `bun run dev` at the root of this checkout and open `http://localhost:3790`. It starts two things: the hub from source on port 3780, restarted whenever the CLI's code changes, and Next, which serves the page on port 3790 and forwards everything under `/api/` to the hub at `DEVBOX_HUB_URL` (default `http://127.0.0.1:3780`). Sign in with the token that `bun apps/cli/src/cli.ts hub token` prints. When a hub already listens on port 3780, the page talks to that one. The whole repo is linted and formatted with [Ultracite](https://www.ultracite.dev) from one config at the root, and typechecked with [tsrs](https://github.com/oxc-project/tsrs). See [Develop](#develop).
 
 The page's line icons come from [Hugeicons](https://hugeicons.com) (MIT) and its Linux mark from [Unicons](https://github.com/Iconscout/unicons) (Apache 2.0).
 
@@ -427,12 +427,12 @@ This repo is a [Turborepo](https://turborepo.dev) workspace on Bun, with one loc
 ```sh
 bun install          # every package
 bun run dev          # the hub on port 3780 and its page on port 3790, both restarting on a change
-bun run check        # lint and format, in each package
+bun run check        # lint and format, for the whole repo
 bun run typecheck    # tsrs --noEmit
 bun run test         # the commands in-process against fixture databases, and the page's helpers
 bun run build        # apps/cli/dist/devbox and apps/hub/out
 ```
 
-Each command runs through `turbo`, which skips a package whose inputs have not changed. Add `--filter devbox` or `--filter hub` after `--` to run one package: `bun run test -- --filter devbox`. `turbo` hides `CLAUDE_CONFIG_DIR` from the tests, which must not see it. To run them without `turbo`, use `env -u CLAUDE_CONFIG_DIR bun test` in `apps/cli`.
+`typecheck`, `test` and `build` run through `turbo`, which skips a package whose inputs have not changed. `check` runs Ultracite once for the repo, and `bun run fix` formats and fixes what a tool can. Add `--filter devbox` or `--filter hub` after `--` to run one package: `bun run test -- --filter devbox`. `turbo` hides `CLAUDE_CONFIG_DIR` from the tests, which must not see it. To run them without `turbo`, use `env -u CLAUDE_CONFIG_DIR bun test` in `apps/cli`.
 
 `install.sh` installs only what the CLI needs (`bun install --production --filter devbox`), so a machine does not download the page's dependencies unless `devbox up --hub` builds the page.
