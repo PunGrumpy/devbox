@@ -112,6 +112,8 @@ describe("devbox machines --json", () => {
           latencyMs: 12,
           link: null,
         },
+        vitals: null,
+        spoke: null,
       },
       {
         name: "edge-8",
@@ -138,6 +140,8 @@ describe("devbox machines --json", () => {
             urls: ["http://edge-8.tail1234.ts.net:3773/"],
           },
         },
+        vitals: null,
+        spoke: null,
       },
       {
         name: "laptop-3",
@@ -158,6 +162,8 @@ describe("devbox machines --json", () => {
             urls: ["http://laptop-3.tail1234.ts.net:3773/"],
           },
         },
+        vitals: null,
+        spoke: null,
       },
       {
         name: "EDGE-9",
@@ -184,6 +190,8 @@ describe("devbox machines --json", () => {
             urls: ["http://edge-9.tail1234.ts.net:3773/"],
           },
         },
+        vitals: null,
+        spoke: null,
       },
     ]);
     expect(m.calls).toContainEqual(["t3", "environment", "list", "--json"]);
@@ -249,7 +257,8 @@ describe("devbox machines --json", () => {
     );
     expect(seen).toEqual({ "edge-7": null, "edge-8": "2026-11-26T08:15:00Z", "edge-9": null });
     expect(json.machines[1].state).toBe("offline");
-    expect(m.fetches).toEqual([page("100.64.0.21")]);
+    expect(m.fetches.filter((url) => !url.endsWith("/api/spoke"))).toEqual([page("100.64.0.21")]);
+    expect(m.fetches.some((url) => url.includes("100.64.0.22"))).toBe(false);
   });
 
   test("drops phones and TVs, which cannot run T3 Code", async () => {
@@ -299,6 +308,8 @@ describe("devbox machines --json", () => {
           latencyMs: 12,
           link: null,
         },
+        vitals: null,
+        spoke: null,
       },
     ]);
   });

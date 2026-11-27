@@ -9,7 +9,7 @@ import { restore, serialize } from "../src/hub/saved.ts";
 import { nextWatch, sentence, type Watch, webhookBody } from "../src/hub/watch.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { makeMachine } from "./support/host.ts";
-import { start } from "./support/run.ts";
+import { asOwner, start } from "./support/run.ts";
 
 const T0 = "2026-11-27T00:00:00.000Z";
 
@@ -23,6 +23,8 @@ const sample = (states: Record<string, MachineState>): Snapshot => ({
     state,
     tailscale: null,
     t3: null,
+    vitals: null,
+    spoke: null,
   })),
 });
 
@@ -99,7 +101,12 @@ describe("what a hub takes over when it starts again", () => {
   const saved = (savedAt: string) =>
     serialize(
       {
-        history: { sampleSeconds: 60, startedAt: T0, states: { a: "2222", gone: "1   " } },
+        history: {
+          sampleSeconds: 60,
+          startedAt: T0,
+          states: { a: "2222", gone: "1   " },
+          latency: {},
+        },
         watch: { announced: { a: "t3" }, pending: {} },
       },
       savedAt,
@@ -160,7 +167,10 @@ const running = async (m: ReturnType<typeof makeMachine>, env: Record<string, st
     host: m.host,
   });
   for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) await Bun.sleep(20);
-  const json = (await (await fetch(`http://127.0.0.1:${port}/api/machines`)).json()) as HubSnapshot;
+  const answered = await fetch(`http://127.0.0.1:${port}/api/machines`, {
+    headers: asOwner(m.home),
+  });
+  const json = (await answered.json()) as HubSnapshot;
   return { hub, json };
 };
 
@@ -182,7 +192,7 @@ describe("devbox hub over a restart", () => {
       stateFile(m.home),
       serialize(
         {
-          history: { sampleSeconds: 60, startedAt: T0, states: { "edge-7": "000" } },
+          history: { sampleSeconds: 60, startedAt: T0, states: { "edge-7": "000" }, latency: {} },
           watch: {
             announced: { "edge-7": "offline" },
             pending: { "edge-7": { state: "online", samples: 1 } },
@@ -211,7 +221,7 @@ describe("devbox hub over a restart", () => {
       stateFile(m.home),
       serialize(
         {
-          history: { sampleSeconds: 60, startedAt: T0, states: {} },
+          history: { sampleSeconds: 60, startedAt: T0, states: {}, latency: {} },
           watch: {
             announced: { "edge-7": "offline" },
             pending: { "edge-7": { state: "online", samples: 1 } },

@@ -3,10 +3,12 @@
 import { useState, useSyncExternalStore } from "react";
 
 import { CommandTabs } from "@/components/command";
-import { OsIcon } from "@/components/icons";
+import { HubLogo, OsIcon } from "@/components/icons";
+import { LoginGate } from "@/components/login";
 import { MachineCard } from "@/components/machine-card";
 import { Menu } from "@/components/menu";
 import { Sidebar } from "@/components/sidebar";
+import { latencyBuckets, latencyPercentiles } from "@/lib/latency";
 import {
   ago,
   bars,
@@ -24,8 +26,10 @@ import {
   getServerHubState,
   getServerNow,
   refresh,
+  signOut,
   subscribe,
 } from "@/lib/store";
+import type { HubStatus } from "@/lib/store";
 
 const FALLBACK_ORIGIN = "http://127.0.0.1:3780";
 const getOrigin = () => window.location.origin;
@@ -36,18 +40,12 @@ const getShortcut = () =>
 
 const getServerShortcut = () => "Ctrl K";
 
-const statusText = (
-  snapshot: Snapshot | null,
-  failing: boolean,
-  now: number
-) => {
-  if (!snapshot) {
-    return failing ? "Not answering" : "Checking";
-  }
-
+const statusText = (snapshot: Snapshot, status: HubStatus, now: number) => {
   const checked = ago(snapshot.generatedAt, now);
 
-  return failing ? `Not answering, checked ${checked}` : `Checked ${checked}`;
+  return status === "not-answering"
+    ? `Not answering, checked ${checked}`
+    : `Checked ${checked}`;
 };
 
 const matching = (machines: readonly Machine[], filter: FilterKey) => {
@@ -71,20 +69,22 @@ const Agents = () => {
       <CommandTabs
         items={[
           { label: "devbox", text: "devbox machines --json" },
-          { label: "curl", text: `curl -s ${origin}/api/machines` },
+          {
+            label: "curl",
+            text: `curl -s -H "authorization: Bearer $(devbox hub token)" ${origin}/api/machines`,
+          },
         ]}
       />
     </section>
   );
 };
 
-export const Hub = () => {
-  const { failing, snapshot } = useSyncExternalStore(
-    subscribe,
-    getHubState,
-    getServerHubState
-  );
+interface HubContentProps {
+  snapshot: Snapshot;
+  status: HubStatus;
+}
 
+const HubContent = ({ snapshot, status }: HubContentProps) => {
   const now = useSyncExternalStore(subscribe, getNow, getServerNow);
 
   const shortcut = useSyncExternalStore(
@@ -94,9 +94,10 @@ export const Hub = () => {
   );
 
   const [filter, setFilter] = useState<FilterKey>("all");
-  const machines = snapshot?.machines ?? [];
+  const { machines } = snapshot;
   const groups = groupByOs(matching(machines, filter));
   const { linked, ready } = summarize(machines);
+  const failing = status === "not-answering";
 
   const jump = (name: string) => {
     setFilter("all");
@@ -114,8 +115,11 @@ export const Hub = () => {
     onRefresh: () => {
       void refresh();
     },
+    onSignOut: () => {
+      void signOut();
+    },
     sections: groups,
-    status: statusText(snapshot, failing, now),
+    status: statusText(snapshot, status, now),
   };
 
   return (
@@ -128,22 +132,20 @@ export const Hub = () => {
         </h1>
         <p className="text-soft mt-4">
           <strong className="text-ink font-normal">
-            {lead(snapshot?.machines ?? null, failing)}
-            {snapshot
-              ? ` T3 Code answers on ${ready}, and ${linked} ${linked === 1 ? "is" : "are"} linked for agents.`
-              : ""}
+            {lead(machines, failing)}
+            {` T3 Code answers on ${ready}, and ${linked} ${linked === 1 ? "is" : "are"} linked for agents.`}
           </strong>
         </p>
         <p className="text-soft mt-4">
-          The hub checks every {snapshot?.history.sampleSeconds ?? 60} seconds
-          and keeps the last 24 hours. Each bar under a machine is 30 minutes.
+          The hub checks every {snapshot.history.sampleSeconds} seconds and
+          keeps the last 24 hours. Each bar under a machine is 30 minutes.
         </p>
-        {snapshot && !snapshot.tailscale ? (
+        {snapshot.tailscale ? null : (
           <p className="border-rule rounded-panel text-nav text-soft mt-4 border p-4">
             Tailscale did not answer on the hub machine, so this list holds only
             that machine and its links.
           </p>
-        ) : null}
+        )}
 
         {groups.map(({ key, label, machines: members }, position) => (
           <section key={key}>
@@ -161,26 +163,33 @@ export const Hub = () => {
               </span>
             </h2>
             <ul>
-              {members.map((machine) => (
-                <MachineCard
-                  bars={bars(
-                    snapshot?.history.states[machine.name] ?? "",
-                    snapshot?.history.sampleSeconds ?? 60
-                  )}
-                  day={daySentences(
-                    machine,
-                    snapshot?.history.states[machine.name] ?? "",
-                    snapshot?.latest.t3 ?? null
-                  )}
-                  key={machine.name}
-                  machine={machine}
-                  now={now}
-                />
-              ))}
+              {members.map((machine) => {
+                const { history } = snapshot;
+                const states = history.states[machine.name] ?? "";
+                const samples = history.latency[machine.name] ?? [];
+
+                return (
+                  <MachineCard
+                    bars={bars(states, history.sampleSeconds)}
+                    cloudflare={snapshot.cloudflare}
+                    day={daySentences(machine, states, snapshot.latest.t3)}
+                    hubKey={snapshot.key}
+                    key={machine.name}
+                    latency={{
+                      buckets: latencyBuckets(samples, history.sampleSeconds),
+                      generatedAt: snapshot.generatedAt,
+                      percentiles: latencyPercentiles(samples),
+                    }}
+                    latest={snapshot.latest.t3}
+                    machine={machine}
+                    now={now}
+                  />
+                );
+              })}
             </ul>
           </section>
         ))}
-        {snapshot && groups.length === 0 ? (
+        {groups.length === 0 ? (
           <p className="border-rule rounded-panel text-nav text-soft mt-10 border p-4">
             No machine matches this filter.
           </p>
@@ -190,4 +199,42 @@ export const Hub = () => {
       </main>
     </div>
   );
+};
+
+const PendingGate = ({ failing }: { failing: boolean }) => (
+  <main className="mx-auto flex min-h-screen max-w-[26rem] flex-col justify-center px-6 py-16">
+    <HubLogo className="size-12" />
+    <p className="text-nav text-soft mt-6">{lead(null, failing)}</p>
+    {failing ? (
+      <div className="mt-4">
+        <button
+          className="edge text-nav text-soft hover:text-ink cursor-pointer rounded-full px-4 py-1.5 transition-colors duration-100 [--fill:var(--surface)]"
+          onClick={() => {
+            void refresh();
+          }}
+          type="button"
+        >
+          Try again
+        </button>
+      </div>
+    ) : null}
+  </main>
+);
+
+export const Hub = () => {
+  const { snapshot, status } = useSyncExternalStore(
+    subscribe,
+    getHubState,
+    getServerHubState
+  );
+
+  if (status === "signed-out") {
+    return <LoginGate />;
+  }
+
+  if (snapshot === null) {
+    return <PendingGate failing={status === "not-answering"} />;
+  }
+
+  return <HubContent snapshot={snapshot} status={status} />;
 };

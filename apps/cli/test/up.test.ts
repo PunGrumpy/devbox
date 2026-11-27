@@ -43,6 +43,22 @@ describe("flags become one machine config", () => {
       data: m.home,
       baseDir: `${m.home}/.t3`,
       t3: `${m.home}/.local/bin/t3`,
+      up: [
+        "--data",
+        m.home,
+        "--port",
+        "3773",
+        "--base-dir",
+        `${m.home}/.t3`,
+        "--workspace",
+        m.home,
+        "--name",
+        "box-1.example.internal",
+        "--channel",
+        "nightly",
+        "--supervisor",
+        "detached",
+      ],
     });
   });
 
@@ -253,29 +269,37 @@ describe("--host", () => {
     expect(m.probes.at(-1)!.address).toBe(address);
   });
 
-  test.each([
-    [["--host", "two words"]],
-    [["--host", "http://x"]],
-    [["--host", "100.64.0.7", "--public-url", "https://edge-7.example.com"]],
-  ])("rejects %p with exit 2 before touching the machine", async (args) => {
-    const m = makeMachine();
-    const r = await up(m, ...args);
-    expect(r.code).toBe(2);
-    expect(r.err).toContain("--host");
-    expect(m.calls).toEqual([]);
-  });
+  test.each([[["--host", "two words"]], [["--host", "http://x"]]])(
+    "rejects %p with exit 2 before touching the machine",
+    async (args) => {
+      const m = makeMachine();
+      const r = await up(m, ...args);
+      expect(r.code).toBe(2);
+      expect(r.err).toContain("--host");
+      expect(m.calls).toEqual([]);
+    },
+  );
 
-  test("serve rejects it with --public-url too, and names why", async () => {
+  test("with --public-url the proxy listens on it, so a tunnel can reach T3 at the Tailscale address", async () => {
     const m = makeMachine();
-    const r = await devbox(
-      { HOME: m.home },
-      ["serve", "--host", TAILNET, "--public-url", "https://edge-7.example.com"],
-      { host: m.host },
+    const r = await up(
+      m,
+      "--supervisor",
+      "detached",
+      "--host",
+      TAILNET,
+      "--public-url",
+      "https://t3-edge-7.example.com",
     );
-    expect(r.code).toBe(2);
-    expect(r.err).toContain("--host and --public-url cannot be used together");
-    expect(r.err).toContain("T3 listens on 127.0.0.1");
-    expect(m.calls).toEqual([]);
+    expect(r.code).toBe(0);
+    expect(m.processes[0]!.argv.slice(-4)).toEqual([
+      "--host",
+      TAILNET,
+      "--public-url",
+      "https://t3-edge-7.example.com",
+    ]);
+    expect(m.probes.at(-1)).toEqual({ address: TAILNET, port: 3773 });
+    expect(r.err).toContain("T3 Code answers on https://t3-edge-7.example.com");
   });
 
   test("T3 listens on --host, or on loopback behind the proxy", () => {

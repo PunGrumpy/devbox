@@ -28,11 +28,14 @@ devbox up --name edge-7 --data /persist --public-url https://edge-7.example.com
 | `--data`       | `$HOME`      | The directory that survives a rebuild. T3 Code, mise, Rust, Claude Code and agent skills keep their data here.                            |
 | `--public-url` | none         | The origin an edge proxy serves the machine on. T3 then runs behind a proxy that gives it this host, so OAuth and pairing URLs use it.    |
 | `--port`       | `3773`       | The port T3 Code answers on, directly or through the proxy.                                                                               |
-| `--host`       | `0.0.0.0`    | The address T3 Code listens on, so every interface. Not with `--public-url`, where T3 listens on `127.0.0.1` behind the proxy.            |
+| `--host`       | `0.0.0.0`    | The address T3 Code listens on, so every interface. With `--public-url`, the proxy listens there and T3 on `127.0.0.1` behind it.         |
 | `--base-dir`   | `<data>/.t3` | T3 Code's data directory.                                                                                                                 |
 | `--workspace`  | `<data>`     | The working directory for agent sessions.                                                                                                 |
 | `--channel`    | `nightly`    | The npm dist-tag T3 Code installs and updates from.                                                                                       |
 | `--hub`        | off          | Also keeps [`devbox hub`](#see-your-machines) running, on `--host` when that is one address and on `127.0.0.1` otherwise.                 |
+| `--spoke`      | off          | Also keeps [`devbox spoke`](#vitals-and-updates) running on port 3782, where the hub reads load, memory and disk.                         |
+| `--trust`      | none         | With `--spoke`, a hub key that `devbox hub key` prints. That hub may update T3 Code here. Repeatable.                                     |
+| `--tunnel`     | off          | Also keeps a [Cloudflare Tunnel](#reach-t3-without-tailscale) running with the token in `~/.config/cloudflared/token`.                    |
 | `--supervisor` | `auto`       | What keeps T3 running: a systemd system unit when systemd and passwordless sudo exist, else a systemd user unit, else a detached process. |
 | `--agents`     | ask once     | The agent CLIs to install: `pick`, `none`, or a list like `claude,codex`. Saved in `<data>`, so later runs ask nothing.                   |
 | `--no-setup`   | setup runs   | Skips the slow setup that runs after T3 starts.                                                                                           |
@@ -97,6 +100,12 @@ devbox up --host "$(tailscale ip -4)"
 ### Reach T3 without Tailscale
 
 A phone without Tailscale can reach T3 through your own [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/). T3 keeps listening on the Tailscale address, and Tailscale keeps working. You need a domain on Cloudflare. The T3 sign-in page becomes public, so do not do this on a machine that must stay private.
+
+With a [hub](#see-your-machines) that holds a Cloudflare login, press **Publish** on the machine's card. The machine's spoke must trust the hub. The hub makes the WAF rule below, a tunnel named `devbox-<name>`, its route to the machine's Tailscale address, and a DNS record for `t3-<name>.<your domain>`, then signs a `tunnel` request to the spoke with the tunnel's token and that address. The spoke saves the token to `~/.config/cloudflared/token`, readable by you alone, and runs `devbox up` again with the flags the machine was set up with, plus `--tunnel` and `--public-url https://t3-<name>.<your domain>`. **Unpublish** sends `untunnel`, which deletes the token and runs `devbox up` without either flag, and then the hub deletes what it made at Cloudflare.
+
+`devbox up --tunnel` puts `cloudflared` at `~/.local/bin/cloudflared` with mise, and keeps the `cloudflared-t3.service` unit below running. It fails when `~/.config/cloudflared/token` is missing. It only checks that the token is there, and never reads or prints it. `devbox up` records the flag, so the tunnel stays on through updates, and a later `devbox up` without `--tunnel` removes the unit. With `--host` and `--public-url` together, the proxy that gives T3 its public host listens on `--host`, so the tunnel and Tailscale reach T3 at the same address.
+
+On a machine without a hub, set it up by hand. `devbox up --tunnel` does steps 2, 4 and 6 for you.
 
 1. Create a tunnel in the Cloudflare dashboard, and copy its token. Do not add a route yet.
 2. Put `cloudflared` at `~/.local/bin/cloudflared`: run `mise use -g cloudflared`, then `ln -sfn "$(mise which cloudflared)" ~/.local/bin/cloudflared`.
@@ -188,7 +197,13 @@ Each machine has a `kind`: `mac`, `windows`, `wsl`, `vm`, `computer` or `remote`
 devbox hub --host "$(tailscale ip -4)"
 ```
 
-The page has no login. Keep it on `127.0.0.1` or a Tailscale address.
+Everything under `/api/` needs a login, and the page's static files, which hold no data, do not. `devbox hub token` prints the hub token, which is made on first start. The page posts it once to `POST /api/login`, which answers with a cookie good for 30 days: `HttpOnly`, `SameSite=Strict`, and signed with the token, so the hub keeps no list of sessions and a restart logs nobody out. `POST /api/logout` clears it. A script sends the token as a bearer instead:
+
+```sh
+curl -s -H "authorization: Bearer $(devbox hub token)" http://127.0.0.1:3780/api/machines
+```
+
+The hub refuses any request but a GET that comes from a page on another site. To log every browser out, move `~/.local/state/devbox/hub-token` aside and start the hub again, which makes a new token. Keep the hub on `127.0.0.1` or a Tailscale address all the same.
 
 To keep the hub running without a terminal, pass `--hub` to `devbox up`:
 
@@ -196,7 +211,7 @@ To keep the hub running without a terminal, pass `--hub` to `devbox up`:
 devbox up --host "$(tailscale ip -4)" --hub
 ```
 
-It writes a `devbox-hub.service` unit beside the one for T3, builds the page in `apps/hub` when it has changed since the last build, and listens on port 3780. The page has no login, so the hub listens on `--host` only when that names one address, and on `127.0.0.1` otherwise. A later `devbox up` without `--hub` stops the hub and removes the unit. The unit reads `~/.config/devbox/hub/env` when it exists, which is where `DEVBOX_HUB_NOTIFY` goes. Without systemd, run `devbox hub` yourself.
+It writes a `devbox-hub.service` unit beside the one for T3, builds the page in `apps/hub` when it has changed since the last build, and listens on port 3780. The hub listens on `--host` only when that names one address, and on `127.0.0.1` otherwise. A later `devbox up` without `--hub` stops the hub and removes the unit. The unit reads `~/.config/devbox/hub/env` when it exists, which is where `DEVBOX_HUB_NOTIFY` goes. Without systemd, run `devbox hub` yourself.
 
 The hub saves its history to `~/.local/state/devbox/hub.json` after every check and takes it up again when it starts. The time it was down shows as unknown. Under each machine the page says how much of the last 24 hours it was online, and names a newer T3 Code when the nightly channel has one. Ctrl K, Command K on a Mac, or a slash opens a search over machine names, addresses, systems and states.
 
@@ -213,6 +228,63 @@ bun install --frozen-lockfile --filter devbox-hub && bun run --cwd apps/hub buil
 To work on the page, run `devbox hub` and then `bun run dev` in `apps/hub`. Next serves the page on port 3790 and forwards `/api/machines` to the hub at `DEVBOX_HUB_URL` (default `http://127.0.0.1:3780`). It is checked with [Ultracite](https://www.ultracite.dev) and [tsrs](https://github.com/oxc-project/tsrs). See [Develop](#develop).
 
 The page's line icons come from [Hugeicons](https://hugeicons.com) (MIT) and its Linux mark from [Unicons](https://github.com/Iconscout/unicons) (Apache 2.0).
+
+### Vitals, updates and pairing
+
+`devbox spoke` runs on each machine and answers the hub at `/api/spoke` on port 3782: what the machine is (`vm`, `wsl`, `computer` or `mac`), its load per core, its memory and the disk that holds the home directory, and the fingerprints of the hub keys it trusts. It is the only way the hub learns a machine's vitals, its own included, and its `kind` replaces the hub's guess, so a virtual machine on another computer shows as one. The hub asks each online machine in the same pass as T3 Code, on the Tailscale address and, for its own machine, on `127.0.0.1` too. `devbox machines` reads the same answers.
+
+To keep it running, pass `--spoke` to `devbox up`. It listens where the hub does: on `--host` when that names one address, and on `127.0.0.1` otherwise. A later `devbox up` without `--spoke` removes the unit.
+
+The hub can update T3 Code on a machine whose spoke trusts it. On first start the hub makes an Ed25519 key in `~/.local/state/devbox/hub-key` and a login token in `~/.local/state/devbox/hub-token`, both readable by you alone. Neither is ever logged. On each machine, trust the hub's key:
+
+```sh
+devbox up --spoke --trust "$(ssh hub-machine devbox hub key)"
+```
+
+The page sends `POST /api/machines/<name>/update` or `POST /api/machines/<name>/pair` with its login. The hub refuses a request without a login, one from a page on another site, and one for a machine whose spoke does not trust it. It then asks the spoke for a challenge, a random nonce the spoke hands out at `GET /api/challenge` and keeps for a minute, and signs a request to `POST /api/do` that answers it with its key. The body names what it asks for, `{"at": ..., "nonce": ..., "do": "update"}`, so a signature for one action cannot be used for another. The spoke takes a request only when the key is one it trusts, the signature matches the exact body, the time in it is within a minute of its clock, its nonce is one this spoke handed out and has not used, and it knows the action. So a request is taken once, and only by the spoke it was signed for. There is no shared secret, so a machine that is broken into holds nothing that asks the others for anything.
+
+To update, the spoke runs `devbox up` again with the flags this machine was last set up with, which `devbox up` records in `~/.config/devbox/machine.json`. That installs the newest T3 Code and restarts it. The hub answers 202 once the spoke has taken the request.
+
+To pair, the spoke runs `devbox pair --json --label hub` on its machine and answers with the pairing link, which the hub hands to the page with `cache-control: no-store`. The link signs a device in to T3 Code on that machine for 15 minutes, so neither the hub nor the spoke logs it or keeps it.
+
+### Sign the hub in to Cloudflare
+
+The hub can publish a machine through a Cloudflare Tunnel. It needs a Cloudflare login for that, either an API token or "Login with Cloudflare" through an OAuth client of your own. Either way the login lands in `~/.local/state/devbox/cloudflare.json`, readable by you alone, and a new login replaces the one before it. No token is ever printed or logged. When the login sees more than one account or zone, devbox names them and asks for `--account <id>` or `--zone <domain>`.
+
+The API token is the proven way. Give the hub a token with Account › Cloudflare Tunnel › Edit, Zone › Zone › Read, Zone › DNS › Edit and Zone › Zone WAF › Edit, on stdin only:
+
+```sh
+devbox hub cloudflare token < cloudflare-token
+```
+
+It checks the token with Cloudflare before it saves it.
+
+The OAuth way follows Cloudflare's documentation and has not been run against a real Cloudflare account yet. To use it, create a client once in the Cloudflare dashboard under **Manage Account** > **OAuth clients**:
+
+- Grant types: `authorization_code` and `refresh_token`.
+- Token authentication method: `none`. The hub uses PKCE, so the client has no secret.
+- Redirect URL: `http://127.0.0.1:3783/callback`, exactly.
+- Scopes: `zone.read`, `dns.write`, `argotunnel.write`, `zone-waf.write` and `offline_access`.
+
+A new client is private, which is all the hub needs, since only members of your account sign in with it. Then, on the hub machine:
+
+```sh
+devbox hub cloudflare login --client-id <client id>
+```
+
+It prints an address. Open it in a browser on the hub machine and select **Authorize**. From another computer, forward the port first with `ssh -L 3783:127.0.0.1:3783 <hub machine>` and open the address there. The command listens on `127.0.0.1:3783` only, takes the one answer Cloudflare sends back, checks that its `state` matches, and trades the code for tokens with a PKCE verifier that never leaves the hub. It waits five minutes.
+
+The hub renews an OAuth login with its refresh token when it needs Cloudflare and the access token has less than five minutes left, and saves the new tokens. Two requests that need it at once renew it once. If Cloudflare refuses a renewal, for example after you revoke the hub under **Manage OAuth authorizations** in your profile, the publish fails with a 502 that says to sign in again.
+
+`devbox hub cloudflare status` says `token` or `oauth`, the zone and the account, and never a token. `devbox hub cloudflare logout` deletes the file.
+
+### Publish a machine from the hub
+
+The hub can do the steps of [Reach T3 without Tailscale](#reach-t3-without-tailscale) for you, once it is [signed in to Cloudflare](#sign-the-hub-in-to-cloudflare).
+
+Each machine gets one tunnel and one hostname, `t3-<name>.<zone>`, the name in lower case with anything but letters and digits turned into `-`. `POST /api/machines/<name>/tunnel` publishes a machine whose spoke trusts the hub, and answers 202 with `{"url": "https://t3-edge-7.example.com"}`. In this order, it adds the WAF rule that blocks `/mcp` and `/oauth/mcp` on the hostname, so the hostname never answers without it. Then it makes a tunnel named `devbox-<name>`, routes the hostname to `http://<Tailscale IP>:3773`, and adds a proxied CNAME. Last, it hands the tunnel's token to the spoke in a signed `do: "tunnel"` request. The spoke runs `devbox up --tunnel` again. Each step first looks for what an earlier run made, so a publish that stopped half way is asked again. A 502 names the step that failed and what Cloudflare said.
+
+`DELETE /api/machines/<name>/tunnel` asks the spoke to stop the tunnel. Then it deletes the CNAME, the tunnel and the WAF rule, and answers 204. The hub records what it made in `~/.local/state/devbox/tunnels.json`, which holds no token. It changes or deletes only what it made: a WAF rule whose `ref` is `devbox-t3-<name>`, a remotely managed tunnel named `devbox-<name>`, and a DNS record with its comment or one pointing at that tunnel. If the hostname already has a record that devbox did not make, it refuses with 409 and makes nothing. It also refuses two machines whose names give the same hostname. One publish or unpublish runs at a time.
 
 ## Back up agent memory
 

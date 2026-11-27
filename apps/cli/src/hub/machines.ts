@@ -4,6 +4,9 @@ import { Port } from "../machine/config.ts";
 import { Host } from "../machine/host.ts";
 import { LINUX_T3_SERVER } from "../migrate/t3-process.ts";
 import { type Column, Output, type Tone } from "../output.ts";
+import { SPOKE_PORT, SpokeAnswer, type Vitals } from "../spoke/vitals.ts";
+
+export type { Vitals } from "../spoke/vitals.ts";
 
 export type MachineState = "t3" | "online" | "offline";
 
@@ -41,6 +44,10 @@ export type Machine = {
   readonly state: MachineState;
   readonly tailscale: Tailnet | null;
   readonly t3: T3 | null;
+  /** Null when no spoke answered. */
+  readonly vitals: Vitals | null;
+  /** Whether the machine's spoke takes signed requests from this hub, or null when no spoke answered. */
+  readonly spoke: "trusted" | "untrusted" | null;
 };
 
 export type Snapshot = {
@@ -97,6 +104,8 @@ export type Seen = {
   readonly t3: (Omit<T3, "link" | "latencyMs"> & { readonly latencyMs: number }) | null;
   /** The system T3 Code says it runs on, which under WSL is not the one Tailscale reports. */
   readonly platform: string | null;
+  /** What the machine's `devbox spoke` answered. */
+  readonly spoke: SpokeAnswer | null;
 };
 
 /** `systemd-detect-virt` when this machine is not virtual, or has no such command. */
@@ -151,10 +160,14 @@ export const merge = (
   seen: ReadonlyArray<Seen>,
   links: ReadonlyArray<T3Link>,
   virt: string = BARE_METAL,
+  hubKey?: string,
 ): ReadonlyArray<Machine> => {
   const drafts: Array<
-    { -readonly [K in keyof Omit<Machine, "state" | "kind">]: Machine[K] } & {
+    {
+      -readonly [K in keyof Omit<Machine, "state" | "kind" | "vitals" | "spoke">]: Machine[K];
+    } & {
       readonly platform: string | null;
+      readonly spoke: SpokeAnswer | null;
     }
   > = seen.map((s) => ({ ...s, t3: s.t3 === null ? null : { ...s.t3, link: null } }));
   const unmatched: Array<T3Link> = [];
@@ -176,17 +189,26 @@ export const merge = (
       (d) => d.tailscale !== null && d.t3 === null && compareNames(d.name, link.label) === 0,
     );
     if (node === undefined)
-      drafts.push({ name: link.label, here: false, tailscale: null, t3, platform: null });
+      drafts.push({
+        name: link.label,
+        here: false,
+        tailscale: null,
+        t3,
+        platform: null,
+        spoke: null,
+      });
     else node.t3 = t3;
   }
   return drafts
     .map((d): Machine => ({
       name: d.name,
       here: d.here,
-      kind: kindOf(d, d.platform, virt),
+      kind: d.spoke?.kind ?? kindOf(d, d.platform, virt),
       state: stateOf(d),
       tailscale: d.tailscale,
       t3: d.t3,
+      vitals: d.spoke?.vitals ?? null,
+      spoke: trustOf(d.spoke, hubKey),
     }))
     .toSorted(
       (a, b) =>
@@ -194,6 +216,11 @@ export const merge = (
         RANK[a.state] - RANK[b.state] ||
         compareNames(a.name, b.name),
     );
+};
+
+const trustOf = (spoke: SpokeAnswer | null, hubKey: string | undefined): Machine["spoke"] => {
+  if (spoke === null || hubKey === undefined) return null;
+  return spoke.trusts.includes(hubKey) ? "trusted" : "untrusted";
 };
 
 const tailnetOf = (node: TailscaleNode, here: boolean): Seen => {
@@ -204,6 +231,7 @@ const tailnetOf = (node: TailscaleNode, here: boolean): Seen => {
     here,
     t3: null,
     platform: null,
+    spoke: null,
     tailscale: {
       ip: ips.find((ip) => ip.includes(".")) ?? ips[0] ?? "",
       dns: node.DNSName.replace(/\.$/, ""),
@@ -248,24 +276,58 @@ const tailnet = Effect.gen(function* () {
 export const origin = (address: string, port: number) =>
   `http://${address.includes(":") ? `[${address}]` : address}:${port}`;
 
-const probe = (seen: Seen, port: number) =>
+const LOOPBACK = "127.0.0.1";
+
+/**
+ * Where a machine's spoke may listen, in the order to ask. This machine's may listen on loopback
+ * only, which no other machine can reach.
+ */
+export const spokeAddresses = (
+  machine: Pick<Machine, "here" | "tailscale">,
+): ReadonlyArray<string> => {
+  const { tailscale } = machine;
+  if (tailscale === null) return [LOOPBACK];
+  if (!tailscale.online || tailscale.ip === "") return [];
+  return machine.here ? [tailscale.ip, LOOPBACK] : [tailscale.ip];
+};
+
+const PROBE_MS = 2000;
+
+const askSpoke = (seen: Seen, port: number) =>
+  Effect.gen(function* () {
+    const host = yield* Host;
+    for (const address of spokeAddresses(seen)) {
+      const fetched = yield* host.fetchText(`${origin(address, port)}/api/spoke`, PROBE_MS);
+      const answer = Option.flatMap(fetched, ({ body }) =>
+        Schema.decodeUnknownOption(SpokeAnswer)(body),
+      );
+      if (Option.isSome(answer)) return answer.value;
+    }
+    return null;
+  });
+
+const probe = (seen: Seen, port: number, spokePort: number) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const { tailscale } = seen;
-    const address = tailscale === null ? "127.0.0.1" : tailscale.ip;
+    const address = tailscale === null ? LOOPBACK : tailscale.ip;
     if (tailscale !== null && (!tailscale.online || address === "")) return seen;
-    const fetched = yield* host.fetchText(
-      `${origin(address, port)}/.well-known/t3/environment`,
-      2000,
+    const [fetched, spoke] = yield* Effect.all(
+      [
+        host.fetchText(`${origin(address, port)}/.well-known/t3/environment`, PROBE_MS),
+        askSpoke(seen, spokePort),
+      ],
+      { concurrency: 2 },
     );
     return Option.match(
       Option.flatMap(fetched, ({ body, ms }) =>
         Option.map(Schema.decodeUnknownOption(Descriptor)(body), (d) => ({ ...d, ms })),
       ),
       {
-        onNone: () => seen,
+        onNone: (): Seen => ({ ...seen, spoke }),
         onSome: (d): Seen => ({
           ...seen,
+          spoke,
           platform: d.platform?.os ?? null,
           t3: {
             environmentId: d.environmentId,
@@ -305,18 +367,26 @@ const linksOf = (flag: Option.Option<string>) =>
     );
   });
 
-export type SnapshotOptions = { readonly t3: Option.Option<string>; readonly t3Port: number };
+export type SnapshotOptions = {
+  readonly t3: Option.Option<string>;
+  readonly t3Port: number;
+  readonly spokePort: number;
+  /** The fingerprint of the hub's key, which tells which spokes trust this hub. */
+  readonly hubKey?: string;
+};
 
-export const takeSnapshot = ({ t3, t3Port }: SnapshotOptions) =>
+export const takeSnapshot = ({ t3, t3Port, spokePort, hubKey }: SnapshotOptions) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const nodes = yield* tailnet;
     const listed = Option.getOrElse(nodes, (): ReadonlyArray<Seen> => [
-      { name: host.hostname, here: true, tailscale: null, t3: null, platform: null },
+      { name: host.hostname, here: true, tailscale: null, t3: null, platform: null, spoke: null },
     ]);
     const [seen, links, virt] = yield* Effect.all(
       [
-        Effect.forEach(listed, (node) => probe(node, t3Port), { concurrency: "unbounded" }),
+        Effect.forEach(listed, (node) => probe(node, t3Port, spokePort), {
+          concurrency: "unbounded",
+        }),
         linksOf(t3),
         Effect.map(host.run(["systemd-detect-virt"], { timeoutMs: 3000 }), (ran) =>
           ran.code === 0 ? ran.stdout.trim() || BARE_METAL : BARE_METAL,
@@ -327,7 +397,7 @@ export const takeSnapshot = ({ t3, t3Port }: SnapshotOptions) =>
     const snapshot: Snapshot = {
       generatedAt: DateTime.formatIso(yield* DateTime.now),
       tailscale: Option.isSome(nodes),
-      machines: merge(seen, links, virt),
+      machines: merge(seen, links, virt, hubKey),
     };
     return snapshot;
   });
@@ -343,6 +413,11 @@ export const snapshotFlags = {
     Flag.withDescription("port T3 Code answers on (default 3773)"),
     Flag.withSchema(Port),
     Flag.withDefault(3773),
+  ),
+  spokePort: Flag.Int("spoke-port").pipe(
+    Flag.withDescription(`port each machine's devbox spoke answers on (default ${SPOKE_PORT})`),
+    Flag.withSchema(Port),
+    Flag.withDefault(SPOKE_PORT),
   ),
 };
 
@@ -386,10 +461,10 @@ export const machines = Command.make(
     ),
     ...snapshotFlags,
   },
-  ({ json, t3, t3Port }) =>
+  ({ json, t3, t3Port, spokePort }) =>
     Effect.gen(function* () {
       const out = yield* Output;
-      const snapshot = yield* takeSnapshot({ t3, t3Port });
+      const snapshot = yield* takeSnapshot({ t3, t3Port, spokePort });
       if (json) return yield* out.json(snapshot);
       if (!snapshot.tailscale)
         yield* out.note("Tailscale did not answer, so this lists only this machine and its links");

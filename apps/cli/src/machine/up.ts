@@ -39,6 +39,7 @@ import {
   plan,
   profilePath,
   ServeState,
+  SPOKE_UNIT,
   Supervisor,
   UNIT,
   t3SettingsPath,
@@ -47,6 +48,7 @@ import {
 import { answering } from "./serve.ts";
 import { ensureMise } from "./setup.ts";
 import { gitEntries, processEnv, settingsFor } from "./settings.ts";
+import { cloudflaredPath, TUNNEL_UNIT, tunnelTokenFile } from "./tunnel.ts";
 
 export class UpFailed extends Schema.TaggedError<UpFailed>()("UpFailed", {
   message: Schema.String,
@@ -134,6 +136,8 @@ const gather = (
           unitPath(scope, ctx, BACKUP_SERVICE),
           unitPath(scope, ctx, BACKUP_TIMER),
           unitPath(scope, ctx, HUB_UNIT),
+          unitPath(scope, ctx, SPOKE_UNIT),
+          unitPath(scope, ctx, TUNNEL_UNIT),
         ],
         Detached: () => [],
       }),
@@ -238,18 +242,20 @@ const gather = (
       ctx.self.length === 2
         ? Option.some(resolve(dirname(ctx.self[1]!), "../../.."))
         : Option.none<string>();
-    const hubRunning = Supervisor.$match(supervisor, {
-      Systemd: ({ scope }) =>
-        Effect.map(
-          Effect.all([
-            host.run(systemctl(scope, ["is-active", HUB_UNIT])),
-            host.run(systemctl(scope, ["is-enabled", HUB_UNIT])),
-          ]),
-          ([active, enabled]) =>
-            active.stdout.trim() === "active" && enabled.stdout.trim() === "enabled",
-        ),
-      Detached: () => Effect.succeed(false),
-    });
+    const running = (unit: string) =>
+      Supervisor.$match(supervisor, {
+        Systemd: ({ scope }) =>
+          Effect.map(
+            Effect.all([
+              host.run(systemctl(scope, ["is-active", unit])),
+              host.run(systemctl(scope, ["is-enabled", unit])),
+            ]),
+            ([active, enabled]) =>
+              active.stdout.trim() === "active" && enabled.stdout.trim() === "enabled",
+          ),
+        Detached: () => Effect.succeed(false),
+      });
+    const hubRunning = running(HUB_UNIT);
     const hubBuilt = Option.match(checkout, {
       onNone: () => Effect.succeed(false),
       onSome: (dir) =>
@@ -276,6 +282,15 @@ const gather = (
       linger: yield* linger,
       backup,
       hub,
+      spoke: { running: config.spoke ? yield* running(SPOKE_UNIT) : false },
+      tunnel: config.tunnel
+        ? {
+            running: yield* running(TUNNEL_UNIT),
+            cloudflared: yield* fs
+              .exists(cloudflaredPath(ctx.home))
+              .pipe(Effect.orElseSucceed(() => false)),
+          }
+        : { running: false, cloudflared: false },
       agents: { saved, present: yield* presentAgents(config.data) },
     } satisfies Facts;
   });
@@ -306,6 +321,11 @@ const describe = (change: Change): string =>
     BuildHub: () => "built the hub page",
     EnableHub: ({ address }) => `enabled ${HUB_UNIT} on ${address}`,
     RemoveHub: () => `removed ${HUB_UNIT}, because --hub is off`,
+    EnableSpoke: ({ address }) => `enabled ${SPOKE_UNIT} on ${address}`,
+    RemoveSpoke: () => `removed ${SPOKE_UNIT}, because --spoke is off`,
+    InstallCloudflared: ({ path }) => `installed cloudflared at ${path} with mise`,
+    EnableTunnel: () => `enabled ${TUNNEL_UNIT}`,
+    RemoveTunnel: () => `removed ${TUNNEL_UNIT}, because --tunnel is off`,
   });
 
 const fsFailed = (error: { readonly message: string }) => new UpFailed({ message: error.message });
@@ -335,6 +355,31 @@ const apply = (
               }),
             ),
       );
+    const enable = (unit: string) =>
+      Supervisor.$match(supervisor, {
+        Systemd: ({ scope }) =>
+          Effect.all(
+            [
+              must(systemctl(scope, ["daemon-reload"])),
+              must(systemctl(scope, ["enable", unit])),
+              must(systemctl(scope, ["restart", unit])),
+            ],
+            { discard: true },
+          ),
+        Detached: () => Effect.void,
+      });
+    const remove = (unit: string, path: string, privileged: boolean) =>
+      Supervisor.$match(supervisor, {
+        Systemd: ({ scope }) =>
+          Effect.gen(function* () {
+            yield* host.run(systemctl(scope, ["disable", "--now", unit]));
+            yield* privileged
+              ? must(["sudo", "-n", "rm", "-f", path])
+              : fs.remove(path).pipe(Effect.ignore);
+            yield* must(systemctl(scope, ["daemon-reload"]));
+          }),
+        Detached: () => Effect.void,
+      });
     yield* Change.$match(change, {
       Write: ({ path, content, privileged, mode }) =>
         privileged
@@ -481,31 +526,24 @@ const apply = (
               }),
             ),
         }),
-      EnableHub: () =>
-        Supervisor.$match(supervisor, {
-          Systemd: ({ scope }) =>
-            Effect.all(
-              [
-                must(systemctl(scope, ["daemon-reload"])),
-                must(systemctl(scope, ["enable", HUB_UNIT])),
-                must(systemctl(scope, ["restart", HUB_UNIT])),
-              ],
-              { discard: true },
-            ),
-          Detached: () => Effect.void,
-        }),
-      RemoveHub: ({ path, privileged }) =>
-        Supervisor.$match(supervisor, {
-          Systemd: ({ scope }) =>
-            Effect.gen(function* () {
-              yield* host.run(systemctl(scope, ["disable", "--now", HUB_UNIT]));
-              yield* privileged
-                ? must(["sudo", "-n", "rm", "-f", path])
-                : fs.remove(path).pipe(Effect.ignore);
-              yield* must(systemctl(scope, ["daemon-reload"]));
-            }),
-          Detached: () => Effect.void,
-        }),
+      EnableHub: () => enable(HUB_UNIT),
+      RemoveHub: ({ path, privileged }) => remove(HUB_UNIT, path, privileged),
+      EnableSpoke: () => enable(SPOKE_UNIT),
+      RemoveSpoke: ({ path, privileged }) => remove(SPOKE_UNIT, path, privileged),
+      InstallCloudflared: ({ path }) =>
+        Effect.gen(function* () {
+          const env = processEnv(settingsFor(config.data), process.env.PATH ?? "");
+          if (!(yield* ensureMise(config.data, env)))
+            return yield* new UpFailed({ message: "cannot download mise to install cloudflared" });
+          const { mise } = pathsOf(config.data);
+          yield* must([mise, "use", "--global", "--yes", "cloudflared"], { env });
+          const which = yield* must([mise, "which", "cloudflared"], { env });
+          yield* fs.makeDirectory(dirname(path), { recursive: true });
+          yield* fs.remove(path, { force: true });
+          yield* fs.symlink(which.stdout.trim(), path);
+        }).pipe(Effect.catchTag("PlatformError", (error) => Effect.fail(fsFailed(error)))),
+      EnableTunnel: () => enable(TUNNEL_UNIT),
+      RemoveTunnel: ({ path, privileged }) => remove(TUNNEL_UNIT, path, privileged),
       BuildHub: ({ checkout }) =>
         Effect.gen(function* () {
           const cwd = join(checkout, HUB_DIR);
@@ -535,6 +573,7 @@ export const up = Command.make("up", upFlags, (flags) =>
     const { home } = yield* Locations;
     const host = yield* Host;
     const out = yield* Output;
+    const fs = yield* FileSystem.FileSystem;
     const served = yield* serveConfig(flags, home);
     const saved = yield* readSavedAgents(served.data);
     const agents = yield* chooseAgents(flags.agents, saved);
@@ -563,6 +602,12 @@ export const up = Command.make("up", upFlags, (flags) =>
       yield* out.note(
         `no terminal to ask which agent CLIs to install, so using the defaults. Run \`devbox up${config.data === home ? "" : ` --data ${config.data}`} --agents pick\` on a terminal to choose`,
       );
+    const token = tunnelTokenFile(home);
+    if (config.tunnel && !(yield* fs.exists(token).pipe(Effect.orElseSucceed(() => false))))
+      return yield* new UpFailed({
+        message: `--tunnel needs the tunnel's token in ${token}, and there is none`,
+        hint: "the hub saves it when it publishes this machine. Without a hub, see Reach T3 without Tailscale in the README",
+      });
     const npm = yield* resolveNpm(config);
     const facts = yield* gather(config, ctx, npm, saved);
     if (Option.isNone(facts.t3.installed) && Option.isNone(facts.t3.latest))

@@ -1,6 +1,8 @@
 import { BunServices } from "@effect/platform-bun";
 import { ConfigProvider, Effect, Fiber, Layer, Option } from "effect";
+import { readFileSync } from "node:fs";
 import { runCli } from "../../src/cli.ts";
+import { tokenFile } from "../../src/hub/secrets.ts";
 import { Host } from "../../src/machine/host.ts";
 import { Locations } from "../../src/migrate/locations.ts";
 import { type RunningServer, T3Process } from "../../src/migrate/t3-process.ts";
@@ -104,3 +106,8 @@ export const runWith = async <A, E>(
   );
   return { value, err: err.join("") };
 };
+
+/** The header that logs a request in to the hub that runs with this HOME, once it has started. */
+export const asOwner = (home: string) => ({
+  authorization: `Bearer ${readFileSync(tokenFile(home), "utf8").trim()}`,
+});

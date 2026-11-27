@@ -67,6 +67,7 @@ interface SidebarProps extends NavProps {
   now: number;
   onJump: (name: string) => void;
   onRefresh: () => void;
+  onSignOut: () => void;
   shortcut: string;
   status: string;
 }
@@ -75,6 +76,7 @@ export const Sidebar = ({
   now,
   onJump,
   onRefresh,
+  onSignOut,
   shortcut,
   status,
   ...nav
@@ -92,13 +94,20 @@ export const Sidebar = ({
     <nav aria-label="Machines" className="text-nav flex flex-col gap-7 pt-7">
       <Nav {...nav} />
     </nav>
-    <div className="bg-paper before:to-paper sticky bottom-0 mt-6 pt-2 pb-8 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-b before:from-transparent">
+    <div className="bg-paper before:to-paper sticky bottom-0 mt-6 flex flex-col items-start gap-2 pt-2 pb-8 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-b before:from-transparent">
       <button
         className="text-nav text-soft hover:text-ink cursor-pointer text-left tabular-nums transition-colors duration-100"
         onClick={onRefresh}
         type="button"
       >
         {status}
+      </button>
+      <button
+        className="text-nav text-muted hover:text-ink cursor-pointer text-left transition-colors duration-100"
+        onClick={onSignOut}
+        type="button"
+      >
+        Sign out
       </button>
     </div>
   </aside>

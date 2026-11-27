@@ -13,16 +13,19 @@ import {
   type MachineConfig,
   machineFile,
   pathsOf,
-  probeHost,
   serveArgs,
+  upArgs,
 } from "./config.ts";
+import { SPOKE_PORT } from "../spoke/vitals.ts";
 import { gitEntries, processEnv, profileScript, type Setting, settingsFor } from "./settings.ts";
+import { cloudflaredPath, TUNNEL_UNIT } from "./tunnel.ts";
 
 export const UNIT = "devbox.service";
 export const BACKUP_SERVICE = "devbox-backup.service";
 export const BACKUP_TIMER = "devbox-backup.timer";
 export const HUB_UNIT = "devbox-hub.service";
 export const HUB_PORT = 3780;
+export const SPOKE_UNIT = "devbox-spoke.service";
 
 export type Supervisor = Data.TaggedEnum<{
   Systemd: { readonly scope: "system" | "user" };
@@ -79,6 +82,14 @@ export type Facts = {
     /** The checkout that holds `apps/hub`. A compiled devbox has none. */
     readonly checkout: Option.Option<string>;
   };
+  /** The spoke's unit is enabled and active. */
+  readonly spoke: { readonly running: boolean };
+  readonly tunnel: {
+    /** Its unit is enabled and active. */
+    readonly running: boolean;
+    /** `~/.local/bin/cloudflared` is there, and a link to it leads somewhere. */
+    readonly cloudflared: boolean;
+  };
   readonly agents: {
     readonly saved: Option.Option<AgentIds>;
     readonly present: ReadonlyMap<AgentId, boolean>;
@@ -104,6 +115,11 @@ export type Change = Data.TaggedEnum<{
   BuildHub: { readonly checkout: string };
   EnableHub: { readonly address: string };
   RemoveHub: { readonly path: string; readonly privileged: boolean };
+  EnableSpoke: { readonly address: string };
+  RemoveSpoke: { readonly path: string; readonly privileged: boolean };
+  InstallCloudflared: { readonly path: string };
+  EnableTunnel: {};
+  RemoveTunnel: { readonly path: string; readonly privileged: boolean };
 }>;
 export const Change = Data.taggedEnum<Change>();
 
@@ -203,8 +219,10 @@ export const backupServiceFile = (
 
 export const hubEnvPath = (home: string) => join(home, ".config", "devbox", "hub", "env");
 
-// The page has no login, so the hub never listens on every interface.
-export const hubHost = (config: MachineConfig): string => probeHost(config.host);
+const neverAllInterfaces = (bind: string): string =>
+  bind === ALL_INTERFACES || bind === "::" ? "127.0.0.1" : bind;
+
+export const hubHost = (config: MachineConfig): string => neverAllInterfaces(config.host);
 
 export const hubArgs = (config: MachineConfig): ReadonlyArray<string> => [
   "hub",
@@ -240,6 +258,63 @@ export const hubUnitFile = (
     "",
   ].join("\n");
 
+export const spokeArgs = (config: MachineConfig): ReadonlyArray<string> => [
+  "spoke",
+  "--host",
+  neverAllInterfaces(config.host),
+  "--port",
+  String(SPOKE_PORT),
+  ...config.trust.flatMap((key) => ["--trust", key]),
+];
+
+export const spokeUnitFile = (
+  scope: "system" | "user",
+  config: MachineConfig,
+  ctx: Context,
+): string =>
+  [
+    "[Unit]",
+    "Description=devbox spoke, which answers the hub, kept running by devbox",
+    "After=network-online.target",
+    "Wants=network-online.target",
+    "",
+    "[Service]",
+    ...(scope === "system" ? [`User=${ctx.user}`] : []),
+    pathLine(config),
+    `ExecStart=${[...ctx.self, ...spokeArgs(config)].map(systemdQuote).join(" ")}`,
+    // The `devbox up` it starts for an update must outlive a restart of the spoke itself.
+    "KillMode=process",
+    "Restart=always",
+    "RestartSec=5",
+    "",
+    "[Install]",
+    `WantedBy=${scope === "system" ? "multi-user.target" : "default.target"}`,
+    "",
+  ].join("\n");
+
+/**
+ * The unit the README gives. cloudflared reads the token from its file, so the token is never on a
+ * command line. A system unit runs as the user, and `%h` there would be root's home.
+ */
+export const tunnelUnitFile = (scope: "system" | "user", ctx: Context): string => {
+  const at = (path: string) =>
+    scope === "user" ? `%h/${path}` : systemdQuote(join(ctx.home, path));
+  return [
+    "[Unit]",
+    "Description=Cloudflare Tunnel for T3 Code",
+    "",
+    "[Service]",
+    ...(scope === "system" ? [`User=${ctx.user}`] : []),
+    `ExecStart=${at(".local/bin/cloudflared")} tunnel --no-autoupdate run --token-file ${at(".config/cloudflared/token")}`,
+    "Restart=always",
+    "RestartSec=5",
+    "",
+    "[Install]",
+    `WantedBy=${scope === "system" ? "multi-user.target" : "default.target"}`,
+    "",
+  ].join("\n");
+};
+
 export const backupTimerFile = (): string =>
   [
     "[Unit]",
@@ -265,6 +340,7 @@ export const machineJson = (config: MachineConfig): string =>
       data: config.data,
       baseDir: config.baseDir,
       t3: join(config.data, ".local", "bin", "t3"),
+      up: upArgs(config),
     },
     null,
     2,
@@ -438,6 +514,47 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
             }),
           onSome: (checkout) => changes.push(Change.BuildHub({ checkout })),
         });
+    },
+  });
+
+  Supervisor.$match(facts.supervisor, {
+    Detached: () => {
+      if (config.spoke)
+        skips.push({ what: "spoke", why: "no systemd here, run `devbox spoke` yourself" });
+    },
+    Systemd: ({ scope }) => {
+      const path = unitPath(scope, ctx, SPOKE_UNIT);
+      if (!config.spoke) {
+        if (Option.isSome(current(path)))
+          changes.push(Change.RemoveSpoke({ path, privileged: scope === "system" }));
+        return;
+      }
+      const wrote = write(path, spokeUnitFile(scope, config, ctx), scope === "system");
+      if (wrote || !facts.spoke.running)
+        changes.push(Change.EnableSpoke({ address: `${hubHost(config)}:${SPOKE_PORT}` }));
+    },
+  });
+
+  Supervisor.$match(facts.supervisor, {
+    Detached: () => {
+      if (config.tunnel)
+        skips.push({
+          what: "tunnel",
+          why: "no systemd here, run `cloudflared tunnel run --token-file ~/.config/cloudflared/token` yourself",
+        });
+    },
+    Systemd: ({ scope }) => {
+      const path = unitPath(scope, ctx, TUNNEL_UNIT);
+      if (!config.tunnel) {
+        if (Option.isSome(current(path)))
+          changes.push(Change.RemoveTunnel({ path, privileged: scope === "system" }));
+        return;
+      }
+      if (!facts.tunnel.cloudflared)
+        changes.push(Change.InstallCloudflared({ path: cloudflaredPath(ctx.home) }));
+      const wrote = write(path, tunnelUnitFile(scope, ctx), scope === "system");
+      if (wrote || !facts.tunnel.cloudflared || !facts.tunnel.running)
+        changes.push(Change.EnableTunnel());
     },
   });
 

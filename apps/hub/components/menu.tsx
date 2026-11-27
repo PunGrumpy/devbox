@@ -11,6 +11,7 @@ interface MenuProps extends NavProps {
   now: number;
   onJump: (name: string) => void;
   onRefresh: () => void;
+  onSignOut: () => void;
   status: string;
 }
 
@@ -18,7 +19,14 @@ interface MenuProps extends NavProps {
  * What a narrow screen gets in place of the sidebar, as in the Rex docs: the icon, a two-bar
  * button, and a sheet that slides over the page with the same navigation set large.
  */
-export const Menu = ({ now, onJump, onRefresh, status, ...nav }: MenuProps) => {
+export const Menu = ({
+  now,
+  onJump,
+  onRefresh,
+  onSignOut,
+  status,
+  ...nav
+}: MenuProps) => {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -92,13 +100,23 @@ export const Menu = ({ now, onJump, onRefresh, status, ...nav }: MenuProps) => {
                   }}
                 />
               </nav>
-              <div className="pt-8">
+              <div className="flex flex-col items-start gap-3 pt-8">
                 <button
                   className="text-menu text-soft hover:text-ink cursor-pointer text-left tabular-nums transition-colors duration-100"
                   onClick={onRefresh}
                   type="button"
                 >
                   {status}
+                </button>
+                <button
+                  className="text-menu text-muted hover:text-ink cursor-pointer text-left transition-colors duration-100"
+                  onClick={() => {
+                    setOpen(false);
+                    onSignOut();
+                  }}
+                  type="button"
+                >
+                  Sign out
                 </button>
               </div>
             </MenuSearch>

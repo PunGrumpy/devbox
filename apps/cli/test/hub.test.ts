@@ -3,12 +3,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { HISTORY_LIMIT, type HubSnapshot, nextHistory } from "../src/hub/hub.ts";
 import type { Machine, MachineState, Snapshot } from "../src/hub/machines.ts";
+import { restore, serialize } from "../src/hub/saved.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { makeMachine } from "./support/host.ts";
-import { devbox, start } from "./support/run.ts";
+import { asOwner, devbox, start } from "./support/run.ts";
 
 const SNEAKY = `</script><script>alert(1)</script>$&$'`;
 
@@ -95,7 +96,7 @@ describe("devbox hub", async () => {
   });
 
   test("/api/machines serves the snapshot with one sample of history", async () => {
-    const response = await fetch(`${base}/api/machines`);
+    const response = await fetch(`${base}/api/machines`, { headers: asOwner(m.home) });
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("content-type")).toContain("application/json");
@@ -109,6 +110,7 @@ describe("devbox hub", async () => {
       sampleSeconds: 60,
       startedAt: json.generatedAt,
       states: { "edge-7": "2", [SNEAKY]: "2" },
+      latency: { "edge-7": [12], [SNEAKY]: [null] },
     });
     expect(json.latest).toEqual({ t3: null });
   });
@@ -137,14 +139,15 @@ describe("devbox hub", async () => {
 
   test("any other path is 404 and any other method is 405", async () => {
     expect((await fetch(`${base}/nope`)).status).toBe(404);
-    expect((await fetch(`${base}/api/machines/x`)).status).toBe(404);
+    const headers = asOwner(m.home);
+    expect((await fetch(`${base}/api/machines/x`, { headers })).status).toBe(404);
     expect((await fetch(`${base}/`, { method: "POST" })).status).toBe(405);
-    expect((await fetch(`${base}/api/machines`, { method: "DELETE" })).status).toBe(405);
+    expect((await fetch(`${base}/api/machines`, { method: "DELETE", headers })).status).toBe(405);
   });
 
   test("requests read the last snapshot and never probe", async () => {
     const before = m.fetches.length;
-    await fetch(`${base}/api/machines`);
+    await fetch(`${base}/api/machines`, { headers: asOwner(m.home) });
     await fetch(`${base}/`);
     expect(m.fetches.length).toBe(before);
   });
@@ -153,13 +156,15 @@ describe("devbox hub", async () => {
 test("without a built page, / says how to build it and the JSON still answers", async () => {
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-empty-"));
-  const running = start({ HOME: freshHome() }, ["hub", "--port", String(port), "--ui", empty]);
+  const home = freshHome();
+  const running = start({ HOME: home }, ["hub", "--port", String(port), "--ui", empty]);
   for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
   try {
     const page = await fetch(`http://127.0.0.1:${port}/`);
     expect(page.status).toBe(404);
     expect(await page.text()).toContain("bun run build");
-    expect((await fetch(`http://127.0.0.1:${port}/api/machines`)).status).toBe(200);
+    const headers = asOwner(home);
+    expect((await fetch(`http://127.0.0.1:${port}/api/machines`, { headers })).status).toBe(200);
   } finally {
     await running.stop();
   }
@@ -167,9 +172,11 @@ test("without a built page, / says how to build it and the JSON still answers", 
 
 test("the hub closes its port when stopped", async () => {
   const port = await Effect.runPromise(freePort);
-  const running = start({ HOME: freshHome() }, ["hub", "--port", String(port)]);
+  const home = freshHome();
+  const running = start({ HOME: home }, ["hub", "--port", String(port)]);
   for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
-  expect((await fetch(`http://127.0.0.1:${port}/api/machines`)).status).toBe(200);
+  const headers = asOwner(home);
+  expect((await fetch(`http://127.0.0.1:${port}/api/machines`, { headers })).status).toBe(200);
   await running.stop();
   await expect(fetch(`http://127.0.0.1:${port}/api/machines`)).rejects.toThrow();
 });
@@ -186,7 +193,11 @@ test("a port in use fails with a hint", async () => {
   }
 });
 
-const sample = (generatedAt: string, states: Record<string, MachineState>): Snapshot => ({
+const sample = (
+  generatedAt: string,
+  states: Record<string, MachineState>,
+  latency: Record<string, number | null> = {},
+): Snapshot => ({
   generatedAt,
   tailscale: true,
   machines: Object.entries(states).map(([name, state]) => ({
@@ -195,45 +206,122 @@ const sample = (generatedAt: string, states: Record<string, MachineState>): Snap
     kind: "computer",
     state,
     tailscale: null,
-    t3: null,
+    t3:
+      latency[name] === undefined
+        ? null
+        : {
+            environmentId: `env-${name}`,
+            label: name,
+            version: "0.2.0",
+            url: `http://${name}.tail1234.ts.net:3773`,
+            latencyMs: latency[name],
+            link: null,
+          },
+    vitals: null,
+    spoke: null,
   })),
 });
 
 describe("history", () => {
   const T0 = "2026-11-27T00:00:00.000Z";
 
-  test("starts with one character per machine", () => {
-    expect(nextHistory(undefined, sample(T0, { a: "t3", b: "online", c: "offline" }))).toEqual({
+  test("starts with one character and rounded latency per machine", () => {
+    expect(
+      nextHistory(undefined, sample(T0, { a: "t3", b: "online", c: "offline" }, { a: 14.6 })),
+    ).toEqual({
       sampleSeconds: 60,
       startedAt: T0,
       states: { a: "2", b: "1", c: "0" },
+      latency: { a: [15], b: [null], c: [null] },
     });
   });
 
-  test("pads a machine seen late, and blanks one missing from a sample", () => {
-    let history = nextHistory(undefined, sample(T0, { a: "t3", b: "online" }));
+  test("pads a machine seen late with null, and sets null when one is missing from a sample", () => {
+    let history = nextHistory(undefined, sample(T0, { a: "t3", b: "online" }, { a: 10 }));
     history = nextHistory(history, sample("2026-11-27T00:01:00.000Z", { a: "online" }));
-    history = nextHistory(history, sample("2026-11-27T00:02:00.000Z", { a: "t3", c: "offline" }));
+    history = nextHistory(
+      history,
+      sample("2026-11-27T00:02:00.000Z", { a: "t3", c: "t3" }, { a: 22, c: 38.2 }),
+    );
     expect(history).toEqual({
       sampleSeconds: 60,
       startedAt: T0,
-      states: { a: "212", b: "1  ", c: "  0" },
+      states: { a: "212", b: "1  ", c: "  2" },
+      latency: { a: [10, null, 22], b: [null, null, null], c: [null, null, 38] },
     });
   });
 
-  test("keeps the newest 1440 samples", () => {
-    const full = { sampleSeconds: 60, startedAt: T0, states: { a: "0".repeat(HISTORY_LIMIT) } };
-    const next = nextHistory(full, sample("2026-11-28T00:00:00.000Z", { a: "t3" }));
+  test("keeps the newest 1440 samples for both states and latency", () => {
+    const full = {
+      sampleSeconds: 60,
+      startedAt: T0,
+      states: { a: "0".repeat(HISTORY_LIMIT) },
+      latency: { a: Array<number | null>(HISTORY_LIMIT).fill(5) },
+    };
+    const next = nextHistory(full, sample("2026-11-28T00:00:00.000Z", { a: "t3" }, { a: 42 }));
     expect(HISTORY_LIMIT).toBe(1440);
     expect(next.states.a).toBe(`${"0".repeat(1439)}2`);
+    expect(next.latency.a).toHaveLength(HISTORY_LIMIT);
+    expect(next.latency.a?.[0]).toBe(5);
+    expect(next.latency.a?.at(-1)).toBe(42);
   });
 
-  test("forgets a machine once the whole window is blank", () => {
+  test("forgets a machine from states and latency once the whole window is blank", () => {
     const old = {
       sampleSeconds: 60,
       startedAt: T0,
       states: { a: "2".repeat(HISTORY_LIMIT), gone: `1${" ".repeat(HISTORY_LIMIT - 1)}` },
+      latency: {
+        a: Array<number | null>(HISTORY_LIMIT).fill(12),
+        gone: [18, ...Array<null>(HISTORY_LIMIT - 1).fill(null)],
+      },
     };
-    expect(Object.keys(nextHistory(old, sample(T0, { a: "t3" })).states)).toEqual(["a"]);
+    const next = nextHistory(old, sample(T0, { a: "t3" }, { a: 14 }));
+    expect(Object.keys(next.states)).toEqual(["a"]);
+    expect(Object.keys(next.latency)).toEqual(["a"]);
+  });
+
+  test("fills a restart gap with null and trims to the limit", () => {
+    const text = serialize(
+      {
+        history: {
+          sampleSeconds: 60,
+          startedAt: T0,
+          states: { a: "2222", gone: "1   " },
+          latency: { a: [10, 20, 30, 40], gone: [12, null, null, null] },
+        },
+        watch: { announced: { a: "t3" }, pending: {} },
+      },
+      T0,
+    );
+    const full = Option.getOrThrow(
+      restore(text, Date.parse("2026-11-27T00:03:10.000Z"), HISTORY_LIMIT),
+    );
+    expect(full.history.latency).toEqual({
+      a: [10, 20, 30, 40, null, null, null],
+      gone: [12, null, null, null, null, null, null],
+    });
+    const trimmed = Option.getOrThrow(restore(text, Date.parse("2026-11-27T00:03:00.000Z"), 5));
+    expect(trimmed.history.states).toEqual({ a: "22   " });
+    expect(trimmed.history.latency).toEqual({ a: [30, 40, null, null, null] });
+  });
+
+  test("restores an older state file without latency and aligns on the next sample", () => {
+    const legacy = JSON.stringify({
+      savedAt: T0,
+      history: { sampleSeconds: 60, startedAt: T0, states: { a: "22" } },
+      watch: { announced: { a: "t3" }, pending: {} },
+    });
+    const resumed = Option.getOrThrow(
+      restore(legacy, Date.parse("2026-11-27T00:02:00.000Z"), HISTORY_LIMIT),
+    );
+    expect(resumed.history.states).toEqual({ a: "22  " });
+    expect(resumed.history.latency).toEqual({});
+    const next = nextHistory(
+      resumed.history,
+      sample("2026-11-27T00:02:00.000Z", { a: "t3" }, { a: 27 }),
+    );
+    expect(next.states).toEqual({ a: "22  2" });
+    expect(next.latency).toEqual({ a: [null, null, null, null, 27] });
   });
 });
