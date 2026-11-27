@@ -11,7 +11,6 @@ export interface NavProps {
   sections: readonly { key: string; label: string }[];
 }
 
-/** The two groups of the docs navigation: which machines to show, and where they are on the page. */
 export const Nav = ({
   filter,
   machines,

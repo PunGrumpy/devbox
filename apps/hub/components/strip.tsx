@@ -14,7 +14,6 @@ interface StripProps {
   bars: readonly BarState[];
 }
 
-/** The last 24 hours of one machine, one bar per half hour, newest on the right. */
 export const Strip = ({ bars }: StripProps) => (
   <div aria-hidden="true" className="mt-4">
     <div className="grid h-2 grid-cols-[repeat(48,minmax(0,1fr))] gap-0.5">

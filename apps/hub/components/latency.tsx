@@ -6,17 +6,12 @@ import type { latencyPercentiles } from "@/lib/latency";
 const WIDTH = 480;
 const HEIGHT = 36;
 
-/** The day of T3 Code answer times a machine card draws. */
 export interface LatencyProps {
   buckets: readonly (number | null)[];
   generatedAt: string;
   percentiles: ReturnType<typeof latencyPercentiles>;
 }
 
-/**
- * The last 24 hours of T3 Code's answer time as an area chart, one median per half hour, newest on
- * the right, with its scale at the right and the day's p50, p95 and p99 under it.
- */
 export const Latency = ({
   buckets,
   generatedAt,

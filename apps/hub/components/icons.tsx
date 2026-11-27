@@ -39,7 +39,6 @@ interface CopyIconProps extends IconProps {
   copied: boolean;
 }
 
-/** The copy mark of the Rex docs: two sheets, or a tick once the text is on the clipboard. */
 export const CopyIcon = ({ copied, ...props }: CopyIconProps) => (
   <svg
     aria-hidden="true"
@@ -111,10 +110,7 @@ const LinuxIcon = (props: IconProps) => (
   </svg>
 );
 
-/**
- * The mark of a system, from the icon sets the Rex docs use: Finder and the plain computer from
- * Hugeicons (MIT), and Tux from Unicons (Apache 2.0).
- */
+/** Finder and the plain computer from Hugeicons (MIT), and Tux from Unicons (Apache 2.0). */
 export const OsIcon = ({ os, ...props }: IconProps & { os: string }) => {
   if (os === "macos") {
     return <FinderIcon {...props} />;
@@ -212,10 +208,7 @@ interface KindIconProps {
   state: MachineState;
 }
 
-/**
- * The kind of a machine as a plain glyph on a quiet tile, the way Rex draws every icon that is
- * not an app. Hugeicons, at the 1.5 stroke the docs use.
- */
+/** Glyphs from Hugeicons (MIT). */
 export const KindIcon = ({ kind, state }: KindIconProps) => (
   <span
     className={`squircle grid size-14 shrink-0 place-items-center rounded-(--radius-icon) ${TILE_CLASS[state]}`}
@@ -232,11 +225,6 @@ export const KindIcon = ({ kind, state }: KindIconProps) => (
   </span>
 );
 
-/**
- * The hub's app icon, drawn like the Rex one: a glass plate, a figure that runs from yellow through
- * orange and pink to blue, and a name on a pill. Where Rex has a dinosaur, the hub has a mouse of
- * its own. The file follows the reader's color scheme by itself.
- */
 export const HubLogo = ({ className = "" }: { className?: string }) => (
   <Image
     alt=""

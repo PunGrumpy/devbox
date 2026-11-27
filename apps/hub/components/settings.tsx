@@ -354,7 +354,6 @@ interface SettingsProps {
   machines: readonly Machine[];
 }
 
-/** The last section of the page: the hub's Cloudflare login, and how to add a machine. */
 export const Settings = ({ cloudflare, hubKey, machines }: SettingsProps) => (
   <section>
     <h2 className="text-heading pt-16" id="settings">

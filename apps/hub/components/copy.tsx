@@ -33,7 +33,6 @@ interface CopyProps {
   text: string;
 }
 
-/** A value that copies itself when pressed, drawn as the docs draw a link in the text. */
 export const CopyLink = ({ text }: CopyProps) => {
   const { copied, copy } = useCopied(text);
 

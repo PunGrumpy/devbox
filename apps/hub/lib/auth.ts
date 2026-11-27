@@ -17,7 +17,6 @@ export interface LoginOutcome {
   readonly ok: boolean;
 }
 
-/** Turns a hub login reply status, or null on a network failure, into what the page says. */
 export const describeLoginReply = (status: number | null) => {
   if (status === null) {
     return {
@@ -80,7 +79,6 @@ export const describeLoginReply = (status: number | null) => {
   }
 };
 
-/** Posts the hub token once to establish a session cookie. The token is not kept by the page. */
 export const requestLogin = async (token: string, post: FetchLike = fetch) => {
   try {
     const response = await post("/api/login", {
@@ -98,7 +96,6 @@ export const requestLogin = async (token: string, post: FetchLike = fetch) => {
   }
 };
 
-/** Asks the hub to clear the session cookie. */
 export const requestLogout = async (post: FetchLike = fetch) => {
   try {
     await post("/api/logout", {

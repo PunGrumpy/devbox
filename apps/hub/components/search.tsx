@@ -216,11 +216,6 @@ interface SearchProps {
   onJump: (name: string) => void;
 }
 
-/**
- * The search of the Rex docs, over machines instead of pages: a button in the sidebar and the
- * palette it grows into. Ctrl K, Command K or a slash opens it, the arrows move through what it
- * found, and Enter goes to that machine's card.
- */
 export const Search = ({
   machines,
   now,
@@ -377,10 +372,6 @@ export const Search = ({
   );
 };
 
-/**
- * The same search as a field at the top of the menu, the way the docs set it on a narrow screen:
- * what it finds takes the place of the navigation below it.
- */
 export const MenuSearch = ({
   children,
   machines,

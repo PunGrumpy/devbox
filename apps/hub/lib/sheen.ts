@@ -1,15 +1,7 @@
-/**
- * The light that crosses a command once it is copied, the way the Rex docs show it. The block
- * lifts a little while a soft band sweeps over it and its edges catch the light. The sizes and
- * timings are the ones measured on the docs, so a block here moves like a block there.
- */
-
 export interface Block {
   height: number;
-  /** A light fill has no room to get lighter, so the band tints its flanks instead. */
-  light: boolean;
-  /** The height of one line of text, which sets the smallest band. */
-  line: number;
+  lightFill: boolean;
+  lineHeight: number;
   width: number;
 }
 
@@ -19,7 +11,7 @@ const STEPS = 12;
 const SMALL_LINES = 10;
 const LARGE_LINES = 70;
 const BASE_MS = 391;
-const DEFAULT_LINE = 22.5;
+const DEFAULT_LINE_HEIGHT = 22.5;
 
 const smoothstep = (from: number, to: number, value: number) => {
   const along = Math.min(Math.max((value - from) / (to - from), 0), 1);
@@ -57,10 +49,23 @@ const strip = (
   width: extent * 2,
 });
 
-export const sheenOf = ({ height, light, line, width }: Block) => {
+const glow = (calm: number, core: number, bloom: number) => (offset: number) =>
+  calm * (0.3 * bell(offset, core) + 0.175 * bell(offset, bloom));
+
+const flanks =
+  (calm: number, core: number, bloom: number) => (offset: number) =>
+    calm * 0.513 * (bell(offset, bloom) - bell(offset, core));
+
+export const sheenOf = ({ height, lightFill, lineHeight, width }: Block) => {
   const span = width + height * SLANT;
-  const size = smoothstep(SMALL_LINES, LARGE_LINES, (span + height * 2) / line);
-  const unit = Math.max(line, span * 0.054);
+
+  const size = smoothstep(
+    SMALL_LINES,
+    LARGE_LINES,
+    (span + height * 2) / lineHeight
+  );
+
+  const unit = Math.max(lineHeight, span * 0.054);
   const core = unit * 1.595;
   const bloom = unit * 5.573;
   const rim = unit * 10.133;
@@ -73,15 +78,15 @@ export const sheenOf = ({ height, light, line, width }: Block) => {
     duration,
     amplitude: Math.min(
       0.016,
-      (line * 0.1) / Math.max(Math.max(width, height) / 2, 1)
+      (lineHeight * 0.1) / Math.max(Math.max(width, height) / 2, 1)
     ),
     band: strip(
       bloom * 2.6,
       travel,
-      gradient(bloom * 2.6, "var(--sheen)", (offset) =>
-        light
-          ? calm * 0.513 * (bell(offset, bloom) - bell(offset, core))
-          : calm * (0.3 * bell(offset, core) + 0.175 * bell(offset, bloom))
+      gradient(
+        bloom * 2.6,
+        "var(--sheen)",
+        lightFill ? flanks(calm, core, bloom) : glow(calm, core, bloom)
       )
     ),
     edge: strip(
@@ -101,14 +106,10 @@ export const sheenOf = ({ height, light, line, width }: Block) => {
 const ID = "sheen";
 const SINE = "cubic-bezier(0.37, 0, 0.63, 1)";
 
-/**
- * Plays the light once over the block that holds `overlay`. The overlay is the `.sheen` element,
- * with its band first and its edge second.
- */
 export const shine = (overlay: HTMLElement) => {
   const block = overlay.parentElement;
-  const band = overlay.firstElementChild;
-  const edge = overlay.lastElementChild;
+  const band = overlay.querySelector(".sheen-band");
+  const edge = overlay.querySelector(".sheen-edge");
 
   if (
     !block ||
@@ -127,10 +128,10 @@ export const shine = (overlay: HTMLElement) => {
 
   const plan = sheenOf({
     height: block.offsetHeight,
-    light: matchMedia("(prefers-color-scheme: light)").matches,
-    line:
+    lightFill: matchMedia("(prefers-color-scheme: light)").matches,
+    lineHeight:
       Number(getComputedStyle(overlay).lineHeight.replace("px", "")) ||
-      DEFAULT_LINE,
+      DEFAULT_LINE_HEIGHT,
     width: block.offsetWidth,
   });
 

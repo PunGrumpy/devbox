@@ -45,7 +45,6 @@
 
   --animate-rise: rise 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
 
-  /* The docs move the tab pill on a spring. This is that spring, frame by frame. */
   --ease-spring: linear(
     0,
     0.2,
@@ -213,7 +212,6 @@
   }
 }
 
-/* The search palette grows out of the sidebar button and shrinks back into it. */
 ::view-transition-group(search) {
   overflow: clip;
   border-radius: 1.5rem;
@@ -258,7 +256,6 @@
     transition: box-shadow 220ms ease-out;
   }
 
-  /* While the palette grows out of its button it has no shadow. The shadow fades in once it lands. */
   .search[data-landing] {
     box-shadow: none;
     transition: none;

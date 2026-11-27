@@ -37,10 +37,6 @@ const quantileOf = (sorted: readonly number[], quantile: number) => {
 const sortedAnswers = (samples: readonly (number | null)[]) =>
   samples.filter(isFiniteNumber).toSorted((a, b) => a - b);
 
-/**
- * Splits a machine's latency samples into 48 half-hour medians aligned with the 48 bars of Strip,
- * returning null where T3 Code did not answer in that half hour.
- */
 export const latencyBuckets = (
   samples: readonly (number | null)[],
   sampleSeconds: number
@@ -56,10 +52,6 @@ export const latencyBuckets = (
   });
 };
 
-/**
- * The p50, p95 and p99 answer times over the day's samples in whole milliseconds, or null when
- * fewer than 30 samples answered.
- */
 export const latencyPercentiles = (samples: readonly (number | null)[]) => {
   const sorted = sortedAnswers(samples);
 
@@ -73,12 +65,6 @@ export const latencyPercentiles = (samples: readonly (number | null)[]) => {
   return { p50: at(MEDIAN), p95: at(P95), p99: at(P99) };
 };
 
-/**
- * The SVG paths of the latency area chart: a line through the 48 buckets and the fill under it
- * down to the bottom edge, both broken where a bucket is null. The bottom is 0 ms and the top is
- * the slowest half hour, which `max` gives in whole milliseconds. Returns null when every bucket
- * is null.
- */
 export const latencyChart = (
   buckets: readonly (number | null)[],
   width: number,
@@ -128,10 +114,6 @@ export const latencyChart = (
 
 const twoDigits = (value: number) => String(value).padStart(TIME_DIGITS, "0");
 
-/**
- * One tooltip per bucket: the start of that half hour in the reader's local time and its median,
- * such as `14:30, 42 ms` or `14:30, no answer`. The last bucket ends at `generatedAt`.
- */
 export const latencyLabels = (
   buckets: readonly (number | null)[],
   generatedAt: string

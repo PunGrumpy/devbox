@@ -137,17 +137,10 @@ const tabAfter = (key: string, at: number, count: number) => {
 
 export interface CommandTab {
   label: string;
-  /** A sentence above the tabs that changes with the selected one. */
   lead?: string;
   text: string;
 }
 
-/**
- * The same command in more than one form, as the Rex docs offer it: a row of tabs with a pill that
- * travels to the selected one, over a panel with the program and its flags in colour and a button
- * that copies. A change of tab fades one command out and the next in. A command too long for the
- * panel scrolls sideways and fades at the right edge.
- */
 export const CommandTabs = ({ items }: { items: readonly CommandTab[] }) => {
   const id = useId();
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);

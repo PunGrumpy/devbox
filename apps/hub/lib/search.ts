@@ -16,7 +16,6 @@ const wordsOf = (query: string) =>
 const literal = (word: string) =>
   word.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
 
-/** Text as the stretches a query matched and the stretches between them, in order. */
 export const mark = (text: string, query: string) => {
   const words = wordsOf(query).toSorted((a, b) => b.length - a.length);
 
@@ -39,7 +38,6 @@ export const mark = (text: string, query: string) => {
   return parts;
 };
 
-/** The id of a machine's card, so a search result can link to it. */
 export const anchorOf = (name: string) => `machine-${name}`;
 
 const describe = (machine: Machine, now: number) => {
@@ -65,11 +63,6 @@ const holds = (machine: Machine, excerpt: string, words: readonly string[]) => {
   return words.every((word) => text.includes(word));
 };
 
-/**
- * The machines that hold every word of a query in their name, address, system or state, under
- * the system they run. Each hit carries its place in the whole list, so the palette can move a
- * selection through it. An empty query finds nothing.
- */
 export const search = (
   machines: readonly Machine[],
   query: string,

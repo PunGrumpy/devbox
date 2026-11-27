@@ -41,7 +41,6 @@ const fetchSnapshot = async (request: FetchLike) => {
     : ({ kind: "failed" } satisfies FetchResult);
 };
 
-/** Creates a hub store that holds the login status beside the latest snapshot. */
 export const createHubStore = (request: FetchLike = fetch) => {
   const listeners = new Set<() => void>();
   let state: HubState = { snapshot: null, status: "loading" };
@@ -150,20 +149,16 @@ export const createHubStore = (request: FetchLike = fetch) => {
 
 const defaultStore = createHubStore();
 
-/** Asks the hub for its latest snapshot. A failure keeps the snapshot already shown; 401 signs out. */
 export const { refresh } = defaultStore;
 
-/** Moves the store back to the signed-out state and drops the snapshot. */
 export const { markSignedOut } = defaultStore;
 
-/** Posts to `/api/logout` and returns the store to the signed-out state. */
 export const { signOut } = defaultStore;
 
 export const { subscribe } = defaultStore;
 
 export const { getHubState } = defaultStore;
 
-/** The time of the last tick, so every "ago" label on the page moves together. */
 export const { getNow } = defaultStore;
 
 const SERVER_STATE: HubState = { snapshot: null, status: "loading" };

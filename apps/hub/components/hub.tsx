@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 
 import { CommandTabs } from "@/components/command";
 import { HubLogo, OsIcon } from "@/components/icons";
@@ -55,6 +55,27 @@ const matching = (machines: readonly Machine[], filter: FilterKey) => {
   return machines.filter((machine) => test?.(machine) ?? true);
 };
 
+const daysOf = ({ generatedAt, history, latest, machines }: Snapshot) =>
+  new Map(
+    machines.map((machine) => {
+      const states = history.states[machine.name] ?? "";
+      const samples = history.latency[machine.name] ?? [];
+
+      return [
+        machine.name,
+        {
+          bars: bars(states, history.sampleSeconds),
+          day: daySentences(machine, states, latest.t3),
+          latency: {
+            generatedAt,
+            buckets: latencyBuckets(samples, history.sampleSeconds),
+            percentiles: latencyPercentiles(samples),
+          },
+        },
+      ];
+    })
+  );
+
 const Agents = () => {
   const origin = useSyncExternalStore(subscribe, getOrigin, getServerOrigin);
 
@@ -96,6 +117,7 @@ const HubContent = ({ snapshot, status }: HubContentProps) => {
 
   const [filter, setFilter] = useState<FilterKey>("all");
   const { machines } = snapshot;
+  const days = useMemo(() => daysOf(snapshot), [snapshot]);
   const groups = groupByOs(matching(machines, filter));
   const { linked, ready } = summarize(machines);
   const failing = status === "not-answering";
@@ -165,22 +187,14 @@ const HubContent = ({ snapshot, status }: HubContentProps) => {
             </h2>
             <ul>
               {members.map((machine) => {
-                const { history } = snapshot;
-                const states = history.states[machine.name] ?? "";
-                const samples = history.latency[machine.name] ?? [];
+                const day = days.get(machine.name);
 
-                return (
+                return day === undefined ? null : (
                   <MachineCard
-                    bars={bars(states, history.sampleSeconds)}
+                    {...day}
                     cloudflare={snapshot.cloudflare}
-                    day={daySentences(machine, states, snapshot.latest.t3)}
                     hubKey={snapshot.key}
                     key={machine.name}
-                    latency={{
-                      buckets: latencyBuckets(samples, history.sampleSeconds),
-                      generatedAt: snapshot.generatedAt,
-                      percentiles: latencyPercentiles(samples),
-                    }}
                     latest={snapshot.latest.t3}
                     machine={machine}
                     now={now}

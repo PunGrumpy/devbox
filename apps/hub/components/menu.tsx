@@ -15,10 +15,6 @@ interface MenuProps extends NavProps {
   status: string;
 }
 
-/**
- * What a narrow screen gets in place of the sidebar, as in the Rex docs: the icon, a two-bar
- * button, and a sheet that slides over the page with the same navigation set large.
- */
 export const Menu = ({
   now,
   onJump,
