@@ -24,7 +24,9 @@ import type { TunnelJob } from "./tunnel.ts";
 
 const Paired = Schema.fromJsonString(
   Schema.Struct({
-    url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/))),
+    url: Schema.String.pipe(
+      Schema.check(Schema.isPattern(/^https?:\/\/\S+$/u))
+    ),
   })
 );
 
@@ -45,53 +47,53 @@ type Run = (
   context: AskContext
 ) => Effect.Effect<Reply, never, Host | FileSystem.FileSystem>;
 
-const spokeAnswers =
-  (
-    action: "update" | "pair",
-    timeoutMs: number,
-    took: (body: string) => Option.Option<Reply>,
-    failed: (name: string) => string
-  ): Run =>
-  (machine, { secrets, spokePort }) =>
+const spokeAnswers = (
+  action: "update" | "pair",
+  timeoutMs: number,
+  took: (body: string) => Option.Option<Reply>,
+  failed: (name: string) => string
+) =>
+  ((machine, { secrets, spokePort }) =>
     Effect.map(
       tellSpoke(machine, action, {}, secrets, spokePort, timeoutMs),
       (answered) =>
         Option.getOrElse(Option.flatMap(answered, took), () =>
           refuse(502, failed(machine.name))
         )
-    );
+    )) satisfies Run;
 
-const tunnelJob = (machine: Machine, context: AskContext): TunnelJob => ({
-  home: context.home,
-  machine,
-  others: context.names.filter((name) => name !== machine.name),
-  t3Port: context.t3Port,
-  cloudflare: (account) =>
-    Effect.map(
-      bearerOf(context.home, account).pipe(
-        Effect.mapError(
-          (error) =>
-            new StepFailed({
-              step: "sign in to Cloudflare",
-              said: error.message,
-            })
-        )
+const tunnelJob = (machine: Machine, context: AskContext) =>
+  ({
+    machine,
+    home: context.home,
+    others: context.names.filter((name) => name !== machine.name),
+    t3Port: context.t3Port,
+    cloudflare: (account) =>
+      Effect.map(
+        bearerOf(context.home, account).pipe(
+          Effect.mapError(
+            (error) =>
+              new StepFailed({
+                step: "sign in to Cloudflare",
+                said: error.message,
+              })
+          )
+        ),
+        cloudflareApi
       ),
-      cloudflareApi
-    ),
-  tell: (action, fields) =>
-    Effect.map(
-      tellSpoke(
-        machine,
-        action,
-        fields,
-        context.secrets,
-        context.spokePort,
-        TUNNEL_MS
+    tell: (action, fields) =>
+      Effect.map(
+        tellSpoke(
+          machine,
+          action,
+          fields,
+          context.secrets,
+          context.spokePort,
+          TUNNEL_MS
+        ),
+        Option.isSome
       ),
-      Option.isSome
-    ),
-});
+  }) satisfies TunnelJob;
 
 const ACTIONS: Readonly<Record<Do, Run>> = {
   update: spokeAnswers(
@@ -117,44 +119,45 @@ const ACTIONS: Readonly<Record<Do, Run>> = {
 
 export type Action = Do;
 
-const PATHS: Readonly<Record<string, Readonly<Record<string, Action>>>> = {
+interface Methods {
+  readonly [method: string]: Action;
+}
+
+interface MethodsByPath {
+  readonly [last: string]: Methods;
+}
+
+const PATHS: MethodsByPath = {
   update: { POST: "update" },
   pair: { POST: "pair" },
   tunnel: { POST: "tunnel", DELETE: "untunnel" },
 };
 
 const MACHINE_PATH =
-  /^\/api\/machines\/(?<name>[^/]+)\/(?<last>update|pair|tunnel)$/;
+  /^\/api\/machines\/(?<name>[^/]+)\/(?<last>update|pair|tunnel)$/u;
+
+const decoded = Option.liftThrowable(decodeURIComponent);
 
 /**
  * The machine a path names, the action its method asks for (undefined for a method the path does
  * not take), and the methods it takes. Undefined when the path names no machine.
  */
-export const machineAction = (
-  pathname: string,
-  method: string
-):
-  | {
-      readonly name: string | undefined;
-      readonly action: Action | undefined;
-      readonly allow: string;
-    }
-  | undefined => {
+export const machineAction = (pathname: string, method: string) => {
   const groups = MACHINE_PATH.exec(pathname)?.groups;
   const methods = groups?.last === undefined ? undefined : PATHS[groups.last];
 
   if (groups?.name === undefined || methods === undefined) {
-    return undefined;
+    return;
   }
 
   const action = Object.hasOwn(methods, method) ? methods[method] : undefined;
   const allow = Object.keys(methods).join(", ");
 
-  try {
-    return { name: decodeURIComponent(groups.name), action, allow };
-  } catch {
-    return { name: undefined, action, allow };
-  }
+  return {
+    name: Option.getOrUndefined(decoded(groups.name)),
+    action,
+    allow,
+  };
 };
 
 /**
@@ -189,9 +192,9 @@ const Connect = Schema.fromJsonString(
  * it. The caller is already logged in. The reply when the request is not one of those, or what
  * to ask.
  */
-export const cloudflareAsk = (request: HubRequest): Reply | Ask => {
+export const cloudflareAsk = (request: HubRequest) => {
   if (request.method === "DELETE") {
-    return { ask: "disconnect" };
+    return { ask: "disconnect" } satisfies Ask;
   }
 
   if (request.method !== "PUT") {
@@ -218,11 +221,11 @@ export const cloudflareAsk = (request: HubRequest): Reply | Ask => {
   const { token, account, zone } = sent.value;
 
   return {
-    ask: "connect",
     token,
+    ask: "connect",
     account: Option.fromUndefinedOr(account),
     zone: Option.fromUndefinedOr(zone),
-  };
+  } satisfies Ask;
 };
 
 const pickSentence = ({ what, choices, named }: PickOne) => {
@@ -283,7 +286,7 @@ export const admit = (
   },
   token: string,
   now: number
-): Reply | Ask => {
+) => {
   if (!loggedIn(request, token, now)) {
     return LOGGED_OUT;
   }
@@ -320,24 +323,20 @@ export const admit = (
     }
   }
 
-  return { ask: wanted.action, machine };
+  return { ask: wanted.action, machine } satisfies Ask;
 };
 
 /** Runs what an admitted request asks for. */
 export const answer = (asked: Ask, context: AskContext) => {
-  switch (asked.ask) {
-    case "connect": {
-      return connect(asked, context.home);
-    }
-
-    case "disconnect": {
-      return disconnect(context.home);
-    }
-
-    default: {
-      return ACTIONS[asked.ask](asked.machine, context);
-    }
+  if (asked.ask === "connect") {
+    return connect(asked, context.home);
   }
+
+  if (asked.ask === "disconnect") {
+    return disconnect(context.home);
+  }
+
+  return ACTIONS[asked.ask](asked.machine, context);
 };
 
 const Challenge = Schema.fromJsonString(Schema.Struct({ nonce: Nonce }));
