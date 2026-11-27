@@ -16,52 +16,53 @@ const FILES = [
   { source: "starship.toml", target: path.join(".config", "starship.toml") },
 ] as const;
 
-const linkFiles = (home: string, dir: string) =>
+const linkFile = (home: string, dir: string, file: (typeof FILES)[number]) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
+    const linkPath = path.join(home, file.target);
+    const sourcePath = path.join(dir, file.source);
+    const text = yield* fs.readFileString(sourcePath).pipe(Effect.option);
 
-    for (const file of FILES) {
-      const linkPath = path.join(home, file.target);
-      const sourcePath = path.join(dir, file.source);
-      const text = yield* fs.readFileString(sourcePath).pipe(Effect.option);
-
-      if (Option.isNone(text)) {
-        yield* out.warn(`shell: no ${sourcePath}`);
-        continue;
-      }
-
-      const now = {
-        target: yield* fs.readLink(linkPath).pipe(Effect.option),
-        text: yield* fs.readFileString(linkPath).pipe(Effect.option),
-      };
-
-      const link = instructionsLink(now, {
-        path: sourcePath,
-        text: text.value,
-      });
-
-      if (link._tag === "NotOurs") {
-        yield* out.warn(`shell: left ${linkPath} alone, it is not ours`);
-      }
-
-      if (link._tag !== "Link") {
-        continue;
-      }
-
-      const linked = yield* fs
-        .makeDirectory(path.dirname(linkPath), { recursive: true })
-        .pipe(
-          Effect.andThen(fs.remove(linkPath, { force: true })),
-          Effect.andThen(fs.symlink(sourcePath, linkPath)),
-          Effect.as(true),
-          Effect.orElseSucceed(() => false)
-        );
-
-      yield* linked
-        ? out.log(`shell: linked ${linkPath}`)
-        : out.warn(`shell: cannot link ${linkPath}`);
+    if (Option.isNone(text)) {
+      return yield* out.warn(`shell: no ${sourcePath}`);
     }
+
+    const now = {
+      target: yield* fs.readLink(linkPath).pipe(Effect.option),
+      text: yield* fs.readFileString(linkPath).pipe(Effect.option),
+    };
+
+    const link = instructionsLink(now, {
+      path: sourcePath,
+      text: text.value,
+    });
+
+    if (link._tag === "NotOurs") {
+      yield* out.warn(`shell: left ${linkPath} alone, it is not ours`);
+    }
+
+    if (link._tag !== "Link") {
+      return;
+    }
+
+    const linked = yield* fs
+      .makeDirectory(path.dirname(linkPath), { recursive: true })
+      .pipe(
+        Effect.andThen(fs.remove(linkPath, { force: true })),
+        Effect.andThen(fs.symlink(sourcePath, linkPath)),
+        Effect.as(true),
+        Effect.orElseSucceed(() => false)
+      );
+
+    yield* linked
+      ? out.log(`shell: linked ${linkPath}`)
+      : out.warn(`shell: cannot link ${linkPath}`);
+  });
+
+const linkFiles = (home: string, dir: string) =>
+  Effect.forEach(FILES, (file) => linkFile(home, dir, file), {
+    discard: true,
   });
 
 const installZsh = Effect.gen(function* () {
@@ -122,7 +123,7 @@ const loginShell = Effect.gen(function* () {
     : out.warn(`shell: an admin can run: sudo chsh -s ${ZSH} ${host.user}`);
 });
 
-// The files come first, so zsh never starts without the PATH that zprofile sets.
+/** The files come first, so zsh never starts without the PATH that zprofile sets. */
 export const setupShell = (home: string, dir: string = SHELL_DIR) =>
   Effect.gen(function* () {
     yield* linkFiles(home, dir);

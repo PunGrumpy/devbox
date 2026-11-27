@@ -24,7 +24,7 @@ export class LinkFailed extends Schema.TaggedError<LinkFailed>()("LinkFailed", {
 export const appLink = (url: string) =>
   `t3code://pair?pairingUrl=${encodeURIComponent(url)}`;
 
-const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 type AppRoute = Data.TaggedEnum<{
   Clipboard: {};

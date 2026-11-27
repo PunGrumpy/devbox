@@ -23,8 +23,6 @@ const TailscaleSelf = Schema.fromJsonString(
   Schema.Struct({ Self: Schema.Struct({ DNSName: Schema.String }) })
 );
 
-// `t3 environment link` refuses plain http unless the host is a Tailscale address, and the bare
-// hostname is not one. The MagicDNS name is, and it stays reachable only from the tailnet.
 const tailscaleName = Effect.gen(function* () {
   const host = yield* Host;
 
@@ -47,6 +45,11 @@ export class PairFailed extends Schema.TaggedError<PairFailed>()("PairFailed", {
   hint: Schema.optional(Schema.String),
 }) {}
 
+/**
+ * With no --url and no public URL, the link names this machine by its Tailscale MagicDNS name.
+ * `t3 environment link` refuses plain http unless the host is a Tailscale address, and the bare
+ * hostname is not one. The MagicDNS name is, and it stays reachable only from the tailnet.
+ */
 export const pair = Command.make(
   "pair",
   {

@@ -12,6 +12,7 @@ import { Host } from "./host.ts";
 import {
   claudeHomes,
   INSTRUCTIONS_FILE,
+  InstructionsLink,
   instructionsLink,
 } from "./instructions.ts";
 import { t3SettingsPath } from "./plan.ts";
@@ -251,28 +252,22 @@ export const linkInstructions = (
             text: yield* fs.readFileString(linkPath).pipe(Effect.option),
           };
 
-          switch (instructionsLink(now, source)._tag) {
-            case "Linked": {
-              return false;
-            }
-
-            case "NotOurs": {
-              yield* out.warn(
-                `instructions: left ${linkPath} alone, it is not a copy of ${sourcePath}`
-              );
-
-              return false;
-            }
-
-            case "Link": {
-              return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
+          return yield* InstructionsLink.$match(instructionsLink(now, source), {
+            Linked: () => Effect.succeed(false),
+            NotOurs: () =>
+              out
+                .warn(
+                  `instructions: left ${linkPath} alone, it is not a copy of ${sourcePath}`
+                )
+                .pipe(Effect.as(false)),
+            Link: () =>
+              fs.makeDirectory(dir, { recursive: true }).pipe(
                 Effect.andThen(fs.remove(linkPath, { force: true })),
                 Effect.andThen(fs.symlink(sourcePath, linkPath)),
                 Effect.as(true),
                 Effect.orElseSucceed(() => false)
-              );
-            }
-          }
+              ),
+          });
         })
     );
 
