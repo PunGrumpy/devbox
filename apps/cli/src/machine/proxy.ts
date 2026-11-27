@@ -1,15 +1,14 @@
 import http from "node:http";
 import type { IncomingHttpHeaders } from "node:http";
 import net from "node:net";
-import type { AddressInfo } from "node:net";
 
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 
-// T3 Code builds its OAuth issuer from Host and honours X-Forwarded-Proto but not X-Forwarded-Host.
+/** T3 Code builds its OAuth issuer from Host and honours X-Forwarded-Proto but not X-Forwarded-Host. */
 export const rewriteHeaders = (
   headers: IncomingHttpHeaders,
   publicUrl: string
-): IncomingHttpHeaders => {
+) => {
   if (
     headers["x-forwarded-host"] === undefined &&
     headers["x-forwarded-proto"] === undefined
@@ -26,16 +25,26 @@ export const rewriteHeaders = (
 
   return {
     ...headers,
-    host: forwarded || url.host,
+    host: forwarded === undefined || forwarded === "" ? url.host : forwarded,
     "x-forwarded-proto": url.protocol.replace(":", ""),
-  };
+  } satisfies IncomingHttpHeaders;
 };
+
+const ListeningAt = Schema.decodeUnknownOption(
+  Schema.Struct({ port: Schema.Number })
+);
 
 export const freePort = Effect.callback<number>((resume) => {
   const server = net.createServer();
   server.listen(0, "127.0.0.1", () => {
-    const { port } = server.address() as AddressInfo;
-    server.close(() => resume(Effect.succeed(port)));
+    const port = Option.match(ListeningAt(server.address()), {
+      onNone: () => 0,
+      onSome: (address) => address.port,
+    });
+
+    server.close(() => {
+      resume(Effect.succeed(port));
+    });
   });
 });
 
@@ -71,7 +80,9 @@ export const proxy = (options: {
 
           res.end();
         });
-        req.on("error", () => forward.destroy());
+        req.on("error", () => {
+          forward.destroy();
+        });
         req.pipe(forward);
       });
 
@@ -99,16 +110,22 @@ export const proxy = (options: {
             socket.destroy();
           }
         });
-        socket.on("error", () => forward.destroy());
+        socket.on("error", () => {
+          forward.destroy();
+        });
       });
-      server.once("error", (error) => resume(Effect.die(error)));
-      server.listen(options.port, options.host, () =>
-        resume(Effect.succeed(server))
-      );
+      server.once("error", (error) => {
+        resume(Effect.die(error));
+      });
+      server.listen(options.port, options.host, () => {
+        resume(Effect.succeed(server));
+      });
     }),
     (server) =>
-      Effect.callback<void>((resume) => {
+      Effect.callback((resume) => {
         server.closeAllConnections();
-        server.close(() => resume(Effect.void));
+        server.close(() => {
+          resume(Effect.void);
+        });
       })
   );

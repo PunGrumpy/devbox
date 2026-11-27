@@ -12,13 +12,13 @@ export const cloudflaredPath = (home: string) =>
   path.join(home, ".local", "bin", "cloudflared");
 
 /** A tunnel run token, as Cloudflare hands it out: base64 and nothing a shell or a file would split. */
-export const isTunnelToken = (token: string): boolean =>
+export const isTunnelToken = (token: string) =>
   /^[A-Za-z0-9+/_=-]{1,2048}$/u.test(token);
 
 const LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
 
 /** An https origin with a host name and nothing else: no port, path, query or credentials. */
-export const isTunnelUrl = (url: string): boolean =>
+export const isTunnelUrl = (url: string) =>
   new RegExp(`^https://${LABEL}(?:\\.${LABEL})+$`, "u").test(url);
 
 /**
@@ -28,7 +28,7 @@ export const isTunnelUrl = (url: string): boolean =>
 export const withTunnel = (
   up: readonly string[],
   url: Option.Option<string>
-): readonly string[] => {
+) => {
   const kept = up.filter(
     (arg, i) =>
       arg !== "--tunnel" &&
