@@ -21,19 +21,28 @@ export const COOKIE = "devbox_hub";
 export const SESSION_SECONDS = 30 * 24 * 60 * 60;
 export const MAX_LOGIN_BYTES = 1024;
 
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly Json[]
+  | { readonly [key: string]: Json };
+
 export const json = (
   status: number,
-  body: object,
+  body: { readonly [key: string]: Json },
   headers: Record<string, string> = {}
-): Reply => ({
-  status,
-  headers: {
-    "cache-control": "no-store",
-    "content-type": "application/json; charset=utf-8",
-    ...headers,
-  },
-  body: `${JSON.stringify(body)}\n`,
-});
+) =>
+  ({
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+      ...headers,
+    },
+    body: `${JSON.stringify(body)}\n`,
+  }) satisfies Reply;
 
 export const refuse = (
   status: number,
@@ -43,19 +52,19 @@ export const refuse = (
 
 const digest = (text: string) => createHash("sha256").update(text).digest();
 
-const hashedConstantTimeEqual = (sent: string, secret: string): boolean =>
+const hashedConstantTimeEqual = (sent: string, secret: string) =>
   timingSafeEqual(digest(sent), digest(secret));
 
 const macOf = (expiry: string, token: string) =>
   createHmac("sha256", token).update(expiry).digest("base64url");
 
 /** The cookie value for a session that ends at `expiry`, in Unix seconds. */
-export const sessionValue = (expiry: number, token: string): string =>
+export const sessionValue = (expiry: number, token: string) =>
   `${expiry}.${macOf(String(expiry), token)}`;
 
-const SESSION = /^(?<expiry>[1-9]\d{0,11})\.(?<mac>[A-Za-z0-9_-]{43})$/;
+const SESSION = /^(?<expiry>[1-9]\d{0,11})\.(?<mac>[A-Za-z0-9_-]{43})$/u;
 
-const sessions = (cookie: string | undefined): readonly string[] =>
+const sessions = (cookie: string | undefined) =>
   (cookie ?? "").split(";").flatMap((pair) => {
     const at = pair.indexOf("=");
 
@@ -64,7 +73,7 @@ const sessions = (cookie: string | undefined): readonly string[] =>
       : [];
   });
 
-const validSession = (value: string, token: string, now: number): boolean => {
+const validSession = (value: string, token: string, now: number) => {
   const parts = SESSION.exec(value)?.groups;
 
   if (parts?.expiry === undefined || parts.mac === undefined) {
@@ -77,14 +86,10 @@ const validSession = (value: string, token: string, now: number): boolean => {
   );
 };
 
-const BEARER = /^Bearer (?<token>\S+)$/;
+const BEARER = /^Bearer (?<token>\S+)$/u;
 
 /** Whether the request carries the hub token as a bearer, or a session cookie the hub made. */
-export const loggedIn = (
-  request: HubRequest,
-  token: string,
-  now: number
-): boolean => {
+export const loggedIn = (request: HubRequest, token: string, now: number) => {
   const sent = BEARER.exec(request.headers.authorization ?? "")?.groups?.token;
 
   if (sent !== undefined && hashedConstantTimeEqual(sent, token)) {
@@ -112,12 +117,14 @@ export const LOGGED_OUT = refuse(
  * and puts the name the browser asked in `X-Forwarded-Host`. A page on another site cannot set that
  * header, because the browser would first ask the hub's leave, which this check refuses.
  */
-export const crossSite = (request: HubRequest): boolean => {
+export const crossSite = (request: HubRequest) => {
   const { origin } = request.headers;
+  const forwarded = request.headers["x-forwarded-host"]?.split(",")[0]?.trim();
 
   const host =
-    request.headers["x-forwarded-host"]?.split(",")[0]?.trim() ||
-    request.headers.host;
+    forwarded === undefined || forwarded === ""
+      ? request.headers.host
+      : forwarded;
 
   if (request.method === "GET" || origin === undefined) {
     return false;
@@ -136,11 +143,7 @@ const cookie = (value: string, maxAge: number) =>
 const Login = Schema.fromJsonString(Schema.Struct({ token: Schema.String }));
 
 /** `POST /api/login`: a session cookie for the hub token, which the hub does not keep. */
-export const login = (
-  request: HubRequest,
-  token: string,
-  now: number
-): Reply => {
+export const login = (request: HubRequest, token: string, now: number) => {
   if (request.body === null) {
     return refuse(413, "A login is not that long.", { connection: "close" });
   }
@@ -166,7 +169,7 @@ export const login = (
       "set-cookie": cookie(sessionValue(expiry, token), SESSION_SECONDS),
     },
     body: "",
-  };
+  } satisfies Reply;
 };
 
 /** `POST /api/logout`: the browser forgets its cookie. */
