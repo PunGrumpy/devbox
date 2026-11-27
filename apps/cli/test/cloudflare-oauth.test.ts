@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import http from "node:http";
 import { networkInterfaces } from "node:os";
 
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Exit, Layer, Option } from "effect";
+import type { Schema } from "effect";
 import { Command } from "effect/cli";
 
 import { hintOf } from "../src/errors.ts";
@@ -33,6 +35,7 @@ import type {
 } from "../src/hub/cloudflare-oauth.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { Output } from "../src/output.ts";
+import { poll, statusOf } from "./support/run.ts";
 
 const ACCESS = "made-up-access-token-0123456789";
 const REFRESH = "made-up-refresh-token-0123456789";
@@ -41,15 +44,23 @@ const CODE = "made-up-code-0123456789";
 const CLIENT = "made-up-client-id";
 const NOW = Date.parse("2026-11-27T12:00:00.000Z");
 
-const tokenBody = (fields: Record<string, unknown> = {}) =>
-  JSON.stringify({
-    access_token: ACCESS,
-    token_type: "bearer",
-    expires_in: 3600,
-    refresh_token: REFRESH,
-    scope: SCOPES.join(" "),
-    ...fields,
-  });
+const TOKEN_FIELDS = {
+  access_token: ACCESS,
+  token_type: "bearer",
+  expires_in: 3600,
+  refresh_token: REFRESH,
+  scope: SCOPES.join(" "),
+};
+
+const tokenBody = (fields: Record<string, Schema.Json> = {}) =>
+  JSON.stringify({ ...TOKEN_FIELDS, ...fields });
+
+const tokenBodyWithout = (field: keyof typeof TOKEN_FIELDS) =>
+  JSON.stringify(
+    Object.fromEntries(
+      Object.entries(TOKEN_FIELDS).filter(([key]) => key !== field)
+    )
+  );
 
 const fakePost = (answer: Answer) => {
   const sent: { url: string; form: Readonly<Record<string, string>> }[] = [];
@@ -92,7 +103,7 @@ describe("PKCE", () => {
   test("every login gets a new 43 character verifier and its challenge", () => {
     const one = makePkce();
     const two = makePkce();
-    expect(one.verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(one.verifier).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(one.challenge).toBe(challengeOf(one.verifier));
     expect(two.verifier).not.toBe(one.verifier);
     expect(makeState()).not.toBe(makeState());
@@ -214,7 +225,7 @@ describe("a token answer", () => {
   test("with no lifetime it is taken to end in five minutes", () => {
     expect(
       Option.map(
-        parseTokens(tokenBody({ expires_in: undefined }), NOW),
+        parseTokens(tokenBodyWithout("expires_in"), NOW),
         (t) => t.expiresAt
       )
     ).toEqual(Option.some("2026-11-27T12:05:00.000Z"));
@@ -223,7 +234,7 @@ describe("a token answer", () => {
   test("a renewal with no new refresh token keeps the old one", () => {
     expect(
       Option.map(
-        parseTokens(tokenBody({ refresh_token: undefined }), NOW, "kept"),
+        parseTokens(tokenBodyWithout("refresh_token"), NOW, "kept"),
         (t) => t.refreshToken
       )
     ).toEqual(Option.some("kept"));
@@ -235,14 +246,14 @@ describe("a token answer", () => {
       "not json",
       "null",
       "[]",
-      tokenBody({ access_token: undefined }),
+      tokenBodyWithout("access_token"),
       tokenBody({ access_token: "" }),
       tokenBody({ access_token: 7 }),
       tokenBody({ token_type: "mac" }),
-      tokenBody({ token_type: undefined }),
+      tokenBodyWithout("token_type"),
       tokenBody({ expires_in: -1 }),
       tokenBody({ expires_in: "3600" }),
-      tokenBody({ refresh_token: undefined }),
+      tokenBodyWithout("refresh_token"),
     ]) {
       expect(parseTokens(body, NOW)).toEqual(Option.none());
     }
@@ -361,7 +372,8 @@ describe("renew", () => {
 
   test("a refusal that is not JSON still reads as one", async () => {
     const { post } = fakePost({ status: 503, body: "<html>down</html>" });
-    expect((await fails(renew(post, login))).message).toBe(
+    const error = await fails(renew(post, login));
+    expect(error.message).toBe(
       "Cloudflare refused to renew the hub's login (503, an unnamed error)"
     );
   });
@@ -370,11 +382,8 @@ describe("renew", () => {
 const fakeCloudflare = async (options: { error?: string } = {}) => {
   const port = await Effect.runPromise(freePort);
 
-  const seen = {
-    challenge: "",
-    verifier: "",
-    forms: [] as Record<string, string>[],
-  };
+  const forms: Record<string, string>[] = [];
+  const seen = { forms, challenge: "", verifier: "" };
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
@@ -419,9 +428,8 @@ const fakeCloudflare = async (options: { error?: string } = {}) => {
     });
   });
 
-  await new Promise<void>((resolve) =>
-    server.listen(port, "127.0.0.1", resolve)
-  );
+  server.listen(port, "127.0.0.1");
+  await once(server, "listening");
 
   return {
     seen,
@@ -429,7 +437,10 @@ const fakeCloudflare = async (options: { error?: string } = {}) => {
       authorize: `http://127.0.0.1:${port}/oauth2/auth`,
       token: `http://127.0.0.1:${port}/oauth2/token`,
     },
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: async () => {
+      server.close();
+      await once(server, "close");
+    },
   };
 };
 
@@ -438,8 +449,12 @@ const capture = () => {
   const err: string[] = [];
 
   const output = Output.make({
-    stdout: (text) => out.push(text),
-    stderr: (text) => err.push(text),
+    stdout: (text) => {
+      out.push(text);
+    },
+    stderr: (text) => {
+      err.push(text);
+    },
     paint: (_, text) => text,
     stdoutColor: false,
     interactive: false,
@@ -486,17 +501,17 @@ const runLogin = (
 };
 
 const printedAddress = async (printed: ReturnType<typeof capture>) => {
-  for (let tries = 0; tries < 200; tries += 1) {
-    const found = /^ {2}(http\S+)$/m.exec(printed.err())?.[1];
+  const found = await poll(
+    () => /^ {2}(?<address>http\S+)$/mu.exec(printed.err())?.groups?.address,
+    200,
+    10
+  );
 
-    if (found !== undefined) {
-      return found;
-    }
-
-    await Bun.sleep(10);
+  if (found === undefined) {
+    throw new Error(`no address printed: ${printed.err()}`);
   }
 
-  throw new Error(`no address printed: ${printed.err()}`);
+  return found;
 };
 
 const browse = async (address: string) => {
@@ -512,21 +527,23 @@ const browse = async (address: string) => {
   };
 };
 
-const refused = async (port: number) =>
-  fetch(`http://127.0.0.1:${port}/callback`).then(
-    () => false,
-    () => true
-  );
+const refused = async (port: number) => {
+  try {
+    await fetch(`http://127.0.0.1:${port}/callback`);
 
-const flowFor = async (
-  endpoints: Flow["endpoints"],
-  waitMs = 10_000
-): Promise<Flow> => ({
-  ...CLOUDFLARE_FLOW,
-  endpoints,
-  port: await Effect.runPromise(freePort),
-  waitMs,
-});
+    return false;
+  } catch {
+    return true;
+  }
+};
+
+const flowFor = async (endpoints: Flow["endpoints"], waitMs = 10_000) =>
+  ({
+    ...CLOUDFLARE_FLOW,
+    endpoints,
+    waitMs,
+    port: await Effect.runPromise(freePort),
+  }) satisfies Flow;
 
 describe("devbox hub cloudflare login", () => {
   test("signs in through the browser against a fake Cloudflare, saves the tokens and prints none", async () => {
@@ -561,7 +578,7 @@ describe("devbox hub cloudflare login", () => {
     });
     expect(saved[0]?.zone).toEqual(Option.some("example.com"));
     expect(saved[0]?.account).toEqual(Option.none());
-    expect(cloudflare.seen.verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(cloudflare.seen.verifier).toMatch(/^[A-Za-z0-9_-]{43}$/u);
 
     const all = printed.all();
     expect(all).toContain("the hub is signed in to Cloudflare");
@@ -618,7 +635,7 @@ describe("devbox hub cloudflare login", () => {
     const address = await printedAddress(printed);
     const favicon = await fetch(`http://127.0.0.1:${flow.port}/favicon.ico`);
     expect(favicon.status).toBe(404);
-    expect((await browse(address)).status).toBe(200);
+    expect(await statusOf(browse(address))).toBe(200);
     expect(await done).toBe(0);
     await cloudflare.close();
     expect(await refused(flow.port)).toBe(true);
@@ -640,10 +657,9 @@ describe("devbox hub cloudflare login", () => {
       expect(
         await fetch(`http://${outside}:${flow.port}/callback`, {
           signal: AbortSignal.timeout(2000),
-        }).then(
-          () => "answered",
-          () => "refused"
-        )
+        })
+          .then(() => "answered")
+          .catch(() => "refused")
       ).toBe("refused");
     }
 
@@ -669,9 +685,8 @@ describe("devbox hub cloudflare login", () => {
     const cloudflare = await fakeCloudflare();
     const flow = await flowFor(cloudflare.endpoints);
     const busy = http.createServer();
-    await new Promise<void>((resolve) =>
-      busy.listen(flow.port, "127.0.0.1", resolve)
-    );
+    busy.listen(flow.port, "127.0.0.1");
+    await once(busy, "listening");
     const { printed, done } = runLogin(flow);
     expect(await done).toBe(1);
     busy.close();
