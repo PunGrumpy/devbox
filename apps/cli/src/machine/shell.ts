@@ -44,9 +44,11 @@ const linkFiles = (home: string, dir: string) =>
       if (link._tag === "NotOurs") {
         yield* out.warn(`shell: left ${path} alone, it is not ours`);
       }
+
       if (link._tag !== "Link") {
         continue;
       }
+
       const linked = yield* fs
         .makeDirectory(dirname(path), { recursive: true })
         .pipe(
@@ -69,6 +71,7 @@ const installZsh = Effect.gen(function* () {
   if (yield* host.which("zsh")) {
     return true;
   }
+
   const apt = [
     "apt-get",
     "install",
@@ -96,6 +99,7 @@ const installZsh = Effect.gen(function* () {
       "shell: no zsh, an admin can run: sudo apt-get install -y zsh"
     );
   }
+
   return installed;
 });
 
@@ -107,9 +111,11 @@ const loginShell = Effect.gen(function* () {
   if (entry.code !== 0) {
     return yield* out.warn(`shell: no passwd entry for ${host.user}`);
   }
+
   if (entry.stdout.trim().split(":").at(-1) === ZSH) {
     return yield* out.log("shell: zsh ready");
   }
+
   const changed = yield* host.run(["sudo", "-n", "chsh", "-s", ZSH, host.user]);
   yield* changed.code === 0
     ? out.log("shell: login shell is now zsh")

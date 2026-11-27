@@ -54,7 +54,8 @@ export const readBody = (req: http.IncomingMessage, limit: number) =>
     if (Number(header(req, "content-length") ?? 0) > limit) {
       return resolve(null);
     }
-    const chunks: Array<Buffer> = [];
+
+    const chunks: Buffer[] = [];
     let size = 0;
     req.on("data", (chunk: Buffer) => {
       size += chunk.byteLength;

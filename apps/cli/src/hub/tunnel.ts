@@ -132,7 +132,7 @@ export type TunnelJob = {
   readonly home: string;
   readonly machine: Pick<Machine, "name" | "tailscale">;
   /** The names of the hub's other machines, none of which may make the same hostname. */
-  readonly others: ReadonlyArray<string>;
+  readonly others: readonly string[];
   readonly t3Port: number;
   readonly cloudflare: (
     account: CloudflareAccount
@@ -158,9 +158,9 @@ const asReply = (name: string, doing: string) => (error: StepFailed) =>
 const tunnelsNamed = <
   T extends { readonly name: string; readonly config_src?: string | null },
 >(
-  found: ReadonlyArray<T>,
+  found: readonly T[],
   name: string
-): ReadonlyArray<T> =>
+): readonly T[] =>
   found.filter(
     (t) => t.name === name && (t.config_src ?? "cloudflare") === "cloudflare"
   );
@@ -168,7 +168,7 @@ const tunnelsNamed = <
 const foreign = (hostname: string) =>
   refuse(409, `${hostname} already has a DNS record that devbox did not make.`);
 
-const ours = (record: DnsRecord, targets: ReadonlyArray<string>) =>
+const ours = (record: DnsRecord, targets: readonly string[]) =>
   record.comment === RECORD_COMMENT ||
   (record.type === "CNAME" && targets.includes(record.content ?? ""));
 
@@ -186,6 +186,7 @@ export const publish = (job: TunnelJob) =>
     if (Option.isNone(saved)) {
       return NO_LOGIN;
     }
+
     const account = saved.value;
     const ip = machine.tailscale?.ip ?? "";
 
@@ -195,12 +196,14 @@ export const publish = (job: TunnelJob) =>
         `${name} has no Tailscale address to send the tunnel to.`
       );
     }
+
     if (!hostable(name, account.zone)) {
       return refuse(
         409,
         `devbox cannot make a hostname in ${account.zone} from the name ${name}.`
       );
     }
+
     const hostname = hostnameOf(name, account.zone);
     const tunnels = yield* loadTunnels(home);
 
@@ -219,6 +222,7 @@ export const publish = (job: TunnelJob) =>
         `${name} and ${sharing} would share ${hostname}. Rename one of them.`
       );
     }
+
     const before = Object.hasOwn(tunnels, name) ? tunnels[name] : undefined;
 
     if (before !== undefined && before.zoneId !== account.zoneId) {
@@ -227,6 +231,7 @@ export const publish = (job: TunnelJob) =>
         `${name} is published in another zone. Unpublish it first.`
       );
     }
+
     const api = yield* job.cloudflare(account);
     const { accountId, zoneId } = account;
 
@@ -255,6 +260,7 @@ export const publish = (job: TunnelJob) =>
     if (existing.some((r) => !ours(r, targets))) {
       return foreign(hostname);
     }
+
     yield* remember(home, name, made);
 
     const rule: NewRule = {
@@ -270,9 +276,11 @@ export const publish = (job: TunnelJob) =>
         if (Option.isNone(firewall)) {
           return yield* api.createFirewall(zoneId, rule);
         }
+
         if ((firewall.value.rules ?? []).some((r) => r.ref === rule.ref)) {
           return firewall.value;
         }
+
         return yield* api.addRule(zoneId, firewall.value.id, rule);
       })
     );
@@ -296,6 +304,7 @@ export const publish = (job: TunnelJob) =>
     if (records.some((r) => !ours(r, [target]))) {
       return foreign(hostname);
     }
+
     const [record] = records;
 
     if (record === undefined) {
@@ -322,6 +331,7 @@ export const publish = (job: TunnelJob) =>
         said: `${name} did not take it`,
       });
     }
+
     yield* remember(home, name, { ...made, published: true });
 
     return json(202, { url });
@@ -344,12 +354,14 @@ export const unpublish = (job: TunnelJob) =>
     if (Option.isNone(saved)) {
       return NO_LOGIN;
     }
+
     if ((machine.tailscale?.ip ?? "") === "") {
       return refuse(
         409,
         `${name} has no Tailscale address to take the tunnel from.`
       );
     }
+
     const tunnels = yield* loadTunnels(home);
     const before = Object.hasOwn(tunnels, name) ? tunnels[name] : undefined;
     const account = saved.value;
@@ -364,6 +376,7 @@ export const unpublish = (job: TunnelJob) =>
         said: `${name} did not take it`,
       });
     }
+
     if (before !== undefined) {
       yield* remember(home, name, { ...before, published: false });
     }
@@ -400,6 +413,7 @@ export const unpublish = (job: TunnelJob) =>
         if (Option.isNone(firewall)) {
           return;
         }
+
         const rules = (firewall.value.rules ?? []).filter(
           (r) => r.ref === ruleRef(name)
         );

@@ -21,7 +21,7 @@ const node = (
   ...extra,
 });
 
-const status = (self: object, peers: ReadonlyArray<object>) =>
+const status = (self: object, peers: readonly object[]) =>
   JSON.stringify({
     BackendState: "Running",
     Self: self,
@@ -60,7 +60,7 @@ const computer = (
   options: {
     tailscale?: string;
     tailscaleBin?: string;
-    links?: ReadonlyArray<object>;
+    links?: readonly object[];
     pages?: Record<string, string>;
   } = {}
 ) => {
@@ -70,6 +70,7 @@ const computer = (
   if (tailscale !== undefined) {
     m.binaries.add(tailscaleBin);
   }
+
   m.binaries.add("t3");
   m.pages = new Map(Object.entries(options.pages ?? {}));
   m.respond = (argv) => {
@@ -80,9 +81,11 @@ const computer = (
     ) {
       return ok(tailscale);
     }
+
     if (argv[1] === "environment" && argv[2] === "list") {
       return ok(JSON.stringify(links));
     }
+
     return undefined;
   };
 
@@ -91,7 +94,7 @@ const computer = (
 
 const machinesJson = async (
   m: ReturnType<typeof makeMachine>,
-  ...args: Array<string>
+  ...args: string[]
 ) => {
   const r = await devbox({ HOME: m.home }, ["machines", "--json", ...args], {
     host: m.host,
@@ -408,7 +411,7 @@ const LINKS = JSON.stringify([t3Link("env-8", "edge-8")]);
 
 const linkedNames = async (
   m: ReturnType<typeof makeMachine>,
-  ...args: Array<string>
+  ...args: string[]
 ) =>
   (await machinesJson(m, ...args)).json.machines.map(
     (x: { name: string }) => x.name

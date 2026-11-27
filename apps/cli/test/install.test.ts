@@ -14,7 +14,7 @@ const INSTALL = join(import.meta.dir, "..", "..", "..", "install.sh");
 // Runs install.sh with only stub commands on PATH. The stub bash fails, so the script stops
 // right after it would have run bun's installer.
 const run = (stubs: {
-  present: ReadonlyArray<string>;
+  present: readonly string[];
   sudo?: boolean;
   uid?: string;
 }) => {
@@ -33,6 +33,7 @@ const run = (stubs: {
   for (const name of stubs.present) {
     stub(name, record(name));
   }
+
   stub("id", `echo ${stubs.uid ?? "1000"}`);
   stub("env", record("env"));
   stub("curl", record("curl"));
@@ -41,6 +42,7 @@ const run = (stubs: {
   if (stubs.sudo !== undefined) {
     stub("sudo", `${record("sudo")}\n${stubs.sudo ? "exit 0" : "exit 1"}`);
   }
+
   const ran = Bun.spawnSync(["/bin/sh", INSTALL], {
     env: { PATH: bin, HOME: dir },
     stdout: "pipe",

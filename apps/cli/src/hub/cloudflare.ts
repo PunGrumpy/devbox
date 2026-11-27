@@ -50,6 +50,7 @@ const urlOf = ({ path, query = {} }: CloudflareRequest): string => {
   for (const [name, value] of Object.entries(query)) {
     url.searchParams.set(name, value);
   }
+
   return url.href;
 };
 
@@ -84,6 +85,7 @@ export const call = (bearer: string, request: CloudflareRequest) =>
         said: "Cloudflare did not answer, or its answer was too large",
       });
     }
+
     const { status, body } = answered.value;
     const envelope = Schema.decodeUnknownOption(Envelope)(body);
 
@@ -93,6 +95,7 @@ export const call = (bearer: string, request: CloudflareRequest) =>
         said: `Cloudflare answered ${status} with something that is not its JSON`,
       });
     }
+
     if (!envelope.value.success || status < 200 || status > 299) {
       const messages = (envelope.value.errors ?? []).flatMap((e) =>
         e.message === undefined ? [] : [e.message]
@@ -343,7 +346,7 @@ export class PickOne extends Schema.TaggedError<PickOne>()("PickOne", {
 
 const choose = <A extends Named>(
   what: PickOne["what"],
-  choices: ReadonlyArray<A>,
+  choices: readonly A[],
   wanted: Option.Option<string>,
   matches: (choice: A, wanted: string) => boolean
 ) => {
@@ -429,6 +432,7 @@ export const saveToken = (
         hint: "make a new one in the Cloudflare dashboard",
       });
     }
+
     const account: CloudflareAccount = {
       login: { kind: "token", token },
       ...place,

@@ -26,10 +26,10 @@ const HOLD_SAMPLES = 2;
 export const nextWatch = (
   previous: Watch | undefined,
   snapshot: Snapshot
-): { readonly watch: Watch; readonly notices: ReadonlyArray<Notice> } => {
+): { readonly watch: Watch; readonly notices: readonly Notice[] } => {
   const announced: Record<string, MachineState> = { ...previous?.announced };
   const pending: Record<string, { state: MachineState; samples: number }> = {};
-  const notices: Array<Notice> = [];
+  const notices: Notice[] = [];
 
   for (const { name, state } of snapshot.machines) {
     const said = announced[name];
@@ -37,9 +37,11 @@ export const nextWatch = (
     if (said === undefined) {
       announced[name] = state;
     }
+
     if (said === undefined || said === state) {
       continue;
     }
+
     const before = previous?.pending[name];
     const samples = before?.state === state ? before.samples + 1 : 1;
 

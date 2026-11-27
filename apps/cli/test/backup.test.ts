@@ -36,7 +36,7 @@ import {
 import { makeMachine } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
-const backup = (m: ReturnType<typeof makeMachine>, ...args: Array<string>) =>
+const backup = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
   devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["backup", ...args], {
     host: m.host,
   });
@@ -107,6 +107,7 @@ const onRestore = (m: ReturnType<typeof makeMachine>, also: () => void) => {
     if (argv[0] === "restic" && argv[1] === "restore") {
       also();
     }
+
     return ran;
   };
 };
@@ -291,6 +292,7 @@ describe("devbox backup run", () => {
     ]) {
       expect(existsSync(join(stage, staged))).toBe(true);
     }
+
     for (const absent of [
       "codex/notes.sqlite",
       "gemini/cache.db",
@@ -301,6 +303,7 @@ describe("devbox backup run", () => {
     ]) {
       expect(existsSync(join(stage, absent))).toBe(false);
     }
+
     expect(existsSync(`${stage}.tmp`)).toBe(false);
     expect(r.err).toContain(`skip grok: ${m.home}/.grok not found`);
     expect(r.err).toContain("sqlite snapshots: 3");
@@ -778,6 +781,7 @@ describe("devbox backup restore", () => {
     ] as const) {
       expect(rows(restoredAt(m, target, rel))).toEqual({ n });
     }
+
     expect(existsSync(join(target, stateDir(m), "sqlite"))).toBe(false);
     expect(r.err).toContain(`${target}${m.home}/.codex`);
     expect(r.err).toContain(`-> ${m.home}/.codex`);
@@ -950,7 +954,7 @@ describe("devbox backup restore", () => {
 describe("exclude patterns", () => {
   const vars = { HOME: "/home/a", DEVBOX_DATA: "/data" };
 
-  const excluded = (text: string, ...paths: Array<string>) =>
+  const excluded = (text: string, ...paths: string[]) =>
     paths.map(excludedBy(text, vars));
 
   test("$VAR, ${VAR} and $$ expand like restic, and an unset variable is empty", () => {
@@ -1042,7 +1046,7 @@ describe("what goes into the exclude file and the sqlite shell", () => {
 
 describe("the real host", () => {
   test("reports a command that outlives timeoutMs as exit 124, and a quick failure as its own code", async () => {
-    const run = (argv: ReadonlyArray<string>, timeoutMs: number) =>
+    const run = (argv: readonly string[], timeoutMs: number) =>
       Effect.runPromise(
         Effect.gen(function* () {
           const host = yield* Host;

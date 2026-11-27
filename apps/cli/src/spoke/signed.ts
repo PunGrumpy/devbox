@@ -155,7 +155,7 @@ export const verifyRequest = (
     readonly key: string | undefined;
     readonly signature: string | undefined;
   },
-  trusted: ReadonlyArray<string>,
+  trusted: readonly string[],
   now: number,
   challenges: Challenges
 ): Verdict => {
@@ -164,30 +164,36 @@ export const verifyRequest = (
   if (publicKey === undefined) {
     return refuse("this spoke does not trust that key");
   }
+
   if (
     request.signature === undefined ||
     !verifies(publicKey, request.body, request.signature)
   ) {
     return refuse("the signature does not match");
   }
+
   const body = Schema.decodeUnknownOption(Body)(request.body);
 
   if (Option.isNone(body)) {
     return refuse("the body is not a signed request");
   }
+
   const at = Date.parse(body.value.at);
 
   if (!(Math.abs(now - at) <= WINDOW_MS)) {
     return refuse("the request is too old or too new");
   }
+
   const handedOut = challenges.get(body.value.nonce);
 
   if (handedOut === undefined) {
     return refuse("this spoke did not hand out that nonce, or already took it");
   }
+
   if (handedOut < now - WINDOW_MS) {
     return refuse("the challenge is too old");
   }
+
   return {
     ok: true,
     challenges: new Map(

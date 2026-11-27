@@ -13,24 +13,24 @@ import { makeMachine } from "./host.ts";
 
 export type Asked = {
   readonly question: string;
-  readonly choices: ReadonlyArray<{
+  readonly choices: readonly {
     readonly title: string;
     readonly selected: boolean;
-  }>;
+  }[];
 };
 
 export type Result = {
   code: number;
   out: string;
   err: string;
-  asked: ReadonlyArray<Asked>;
+  asked: readonly Asked[];
 };
 
 /** `pick` is a terminal: it lists the titles to tick, and each run of the picker consumes the next list. */
-const capture = (pick?: ReadonlyArray<ReadonlyArray<string>>) => {
-  const out: Array<string> = [];
-  const err: Array<string> = [];
-  const asked: Array<Asked> = [];
+const capture = (pick?: readonly ReadonlyArray<string>[]) => {
+  const out: string[] = [];
+  const err: string[] = [];
+  const asked: Asked[] = [];
   const scripted = [...(pick ?? [])];
 
   const output = Output.make({
@@ -59,11 +59,11 @@ const capture = (pick?: ReadonlyArray<ReadonlyArray<string>>) => {
 
 export const devbox = async (
   env: Record<string, string>,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   options: {
     t3?: RunningServer;
     host?: Host["Service"];
-    pick?: ReadonlyArray<ReadonlyArray<string>>;
+    pick?: readonly ReadonlyArray<string>[];
   } = {}
 ): Promise<Result> => {
   const { out, err, asked, output } = capture(options.pick);
@@ -95,7 +95,7 @@ const layerFor = (
 /** Starts a command that runs until stopped, such as `hub`. */
 export const start = (
   env: Record<string, string>,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   options: { host?: Host["Service"] } = {}
 ) => {
   const { out, err, output } = capture();
@@ -111,7 +111,7 @@ export const start = (
   };
 };
 
-export const migrate = (env: Record<string, string>, ...args: Array<string>) =>
+export const migrate = (env: Record<string, string>, ...args: string[]) =>
   devbox(env, ["migrate", ...args]);
 
 export const runWith = async <A, E>(

@@ -10,7 +10,7 @@ import { devbox } from "./support/run.ts";
 const KEY_A = publicKeyOf(generateKeyPairSync("ed25519").privateKey);
 const KEY_B = publicKeyOf(generateKeyPairSync("ed25519").privateKey);
 
-const up = (m: ReturnType<typeof makeMachine>, ...args: Array<string>) =>
+const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
   devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });

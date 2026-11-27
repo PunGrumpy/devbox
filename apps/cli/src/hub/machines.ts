@@ -23,7 +23,7 @@ export type LinkSummary = {
   readonly status: string;
   readonly access: string;
   readonly expiresAt: string;
-  readonly urls: ReadonlyArray<string>;
+  readonly urls: readonly string[];
 };
 
 export type T3 = {
@@ -60,7 +60,7 @@ export type Machine = {
 export type Snapshot = {
   readonly generatedAt: string;
   readonly tailscale: boolean;
-  readonly machines: ReadonlyArray<Machine>;
+  readonly machines: readonly Machine[];
 };
 
 // The three sources, parsed where they enter.
@@ -140,15 +140,19 @@ const kindOf = (
   if (machine.here && virt === "wsl") {
     return "wsl";
   }
+
   if (os === "windows") {
     return platform === "linux" ? "wsl" : "windows";
   }
+
   if (os === "macos") {
     return "mac";
   }
+
   if (machine.here) {
     return virt === BARE_METAL ? "computer" : "vm";
   }
+
   return machine.tailscale === null ? "remote" : "computer";
 };
 
@@ -176,6 +180,7 @@ const stateOf = (
   ) {
     return "t3";
   }
+
   return machine.here || machine.tailscale?.online === true
     ? "online"
     : "offline";
@@ -186,26 +191,24 @@ const stateOf = (
  * like its label that has no T3 yet, else it stands alone.
  */
 export const merge = (
-  seen: ReadonlyArray<Seen>,
-  links: ReadonlyArray<T3Link>,
+  seen: readonly Seen[],
+  links: readonly T3Link[],
   virt: string = BARE_METAL,
   hubKey?: string
-): ReadonlyArray<Machine> => {
-  const drafts: Array<
-    {
-      -readonly [
-        K in keyof Omit<Machine, "state" | "kind" | "vitals" | "spoke">
-      ]: Machine[K];
-    } & {
-      readonly platform: string | null;
-      readonly spoke: SpokeAnswer | null;
-    }
-  > = seen.map((s) => ({
+): readonly Machine[] => {
+  const drafts: ({
+    -readonly [
+      K in keyof Omit<Machine, "state" | "kind" | "vitals" | "spoke">
+    ]: Machine[K];
+  } & {
+    readonly platform: string | null;
+    readonly spoke: SpokeAnswer | null;
+  })[] = seen.map((s) => ({
     ...s,
     t3: s.t3 === null ? null : { ...s.t3, link: null },
   }));
 
-  const unmatched: Array<T3Link> = [];
+  const unmatched: T3Link[] = [];
 
   for (const link of links) {
     const owner = drafts.find(
@@ -276,6 +279,7 @@ const trustOf = (
   if (spoke === null || hubKey === undefined) {
     return null;
   }
+
   return spoke.trusts.includes(hubKey) ? "trusted" : "untrusted";
 };
 
@@ -313,13 +317,15 @@ const tailnet = Effect.gen(function* () {
       : undefined;
 
   if (bin === undefined) {
-    return Option.none<ReadonlyArray<Seen>>();
+    return Option.none<readonly Seen[]>();
   }
+
   const ran = yield* host.run([bin, "status", "--json"], { timeoutMs: 5000 });
 
   if (ran.code !== 0) {
-    return Option.none<ReadonlyArray<Seen>>();
+    return Option.none<readonly Seen[]>();
   }
+
   return Schema.decodeUnknownOption(TailscaleStatus)(ran.stdout).pipe(
     Option.map((status) =>
       [
@@ -348,15 +354,17 @@ const LOOPBACK = "127.0.0.1";
  */
 export const spokeAddresses = (
   machine: Pick<Machine, "here" | "tailscale">
-): ReadonlyArray<string> => {
+): readonly string[] => {
   const { tailscale } = machine;
 
   if (tailscale === null) {
     return [LOOPBACK];
   }
+
   if (!tailscale.online || tailscale.ip === "") {
     return [];
   }
+
   return machine.here ? [tailscale.ip, LOOPBACK] : [tailscale.ip];
 };
 
@@ -393,6 +401,7 @@ const probe = (seen: Seen, port: number, spokePort: number) =>
     if (tailscale !== null && (!tailscale.online || address === "")) {
       return seen;
     }
+
     const [fetched, spoke] = yield* Effect.all(
       [
         host.fetchText(
@@ -439,11 +448,13 @@ const t3Binary = (flag: Option.Option<string>) =>
     if (Option.isSome(flag)) {
       return flag;
     }
+
     const host = yield* Host;
 
     if (yield* host.which("t3")) {
       return Option.some("t3");
     }
+
     const running = (yield* host.processes).find((p) =>
       SERVER.test(p.argv.join(" "))
     );
@@ -459,6 +470,7 @@ const linksOf = (flag: Option.Option<string>) =>
     if (Option.isNone(bin)) {
       return [];
     }
+
     const ran = yield* host.run([bin.value, "environment", "list", "--json"], {
       timeoutMs: 10_000,
     });
@@ -466,9 +478,10 @@ const linksOf = (flag: Option.Option<string>) =>
     if (ran.code !== 0) {
       return [];
     }
+
     return Option.getOrElse(
       Schema.decodeUnknownOption(T3Links)(ran.stdout),
-      (): ReadonlyArray<T3Link> => []
+      (): readonly T3Link[] => []
     );
   });
 
@@ -490,7 +503,7 @@ export const takeSnapshot = ({
     const host = yield* Host;
     const nodes = yield* tailnet;
 
-    const listed = Option.getOrElse(nodes, (): ReadonlyArray<Seen> => [
+    const listed = Option.getOrElse(nodes, (): readonly Seen[] => [
       {
         name: host.hostname,
         here: true,
@@ -554,7 +567,7 @@ const TONE: Record<MachineState, Tone> = {
 
 const NONE = { text: "-", tone: "dim" } as const;
 
-const COLUMNS: ReadonlyArray<Column<Machine>> = [
+const COLUMNS: readonly Column<Machine>[] = [
   {
     header: "machine",
     cell: (m) => (m.here ? [m.name, { text: " (here)", tone: "dim" }] : m.name),
@@ -570,6 +583,7 @@ const COLUMNS: ReadonlyArray<Column<Machine>> = [
           { text: ` ${m.tailscale.ip}`, tone: "dim" },
         ];
       }
+
       return m.t3?.link?.urls[0] ?? NONE;
     },
   },
@@ -604,11 +618,13 @@ export const machines = Command.make(
       if (json) {
         return yield* out.json(snapshot);
       }
+
       if (!snapshot.tailscale) {
         yield* out.note(
           "Tailscale did not answer, so this lists only this machine and its links"
         );
       }
+
       yield* out.table(COLUMNS, snapshot.machines);
     })
 ).pipe(

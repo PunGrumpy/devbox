@@ -13,7 +13,7 @@ import { SHELL_DIR, setupShell } from "../src/machine/shell.ts";
 import { type FakeMachine, makeMachine } from "./support/host.ts";
 import { runWith } from "./support/run.ts";
 
-const passwd = (shell: string) => (argv: ReadonlyArray<string>) =>
+const passwd = (shell: string) => (argv: readonly string[]) =>
   argv[0] === "getent"
     ? { code: 0, stdout: `me:x:1:1::/home/me:${shell}\n`, stderr: "" }
     : argv[0] === "sudo" && argv[2] === "chsh"

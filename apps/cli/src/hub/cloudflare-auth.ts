@@ -115,6 +115,7 @@ export const forgetCloudflare = (home: string) =>
     if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)))) {
       return false;
     }
+
     yield* fs
       .remove(path)
       .pipe(
@@ -148,9 +149,11 @@ export const bearerOf = (
     if (login.kind === "token") {
       return login.token;
     }
+
     if (fresh(login, yield* Clock.currentTimeMillis)) {
       return login.accessToken;
     }
+
     return yield* renewing.withPermits(1)(
       Effect.gen(function* () {
         const saved = Option.getOrElse(
@@ -163,9 +166,11 @@ export const bearerOf = (
         if (current.kind === "token") {
           return current.token;
         }
+
         if (fresh(current, yield* Clock.currentTimeMillis)) {
           return current.accessToken;
         }
+
         const tokens = yield* renew(post, current).pipe(
           Effect.mapError(
             (error) =>

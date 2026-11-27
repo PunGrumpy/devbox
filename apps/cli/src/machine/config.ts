@@ -187,7 +187,7 @@ export type MachineConfig = ServeConfig & {
   readonly hub: boolean;
   readonly spoke: boolean;
   /** Hub keys the spoke takes updates from. */
-  readonly trust: ReadonlyArray<string>;
+  readonly trust: readonly string[];
   /** Keep `cloudflared-t3.service` running. */
   readonly tunnel: boolean;
 };
@@ -209,7 +209,7 @@ type UpFlags = ServeFlags & {
   readonly agents: Option.Option<AgentsFlag>;
   readonly hub: boolean;
   readonly spoke: boolean;
-  readonly trust: ReadonlyArray<string>;
+  readonly trust: readonly string[];
   readonly tunnel: boolean;
 };
 
@@ -247,6 +247,7 @@ export const machineConfig = (
         hint: "the spoke is what takes updates from a hub",
       });
     }
+
     const config = yield* serveConfig(flags, home);
 
     return {
@@ -262,7 +263,7 @@ export const machineConfig = (
     } satisfies MachineConfig;
   });
 
-export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [
+export const serveArgs = (config: ServeConfig): readonly string[] => [
   "serve",
   "--data",
   config.data,
@@ -285,7 +286,7 @@ export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [
  * an update. Paths are absolute, so it does not matter where it runs from. The agents are left
  * out: a later run reads the ones saved in <data>.
  */
-export const upArgs = (config: MachineConfig): ReadonlyArray<string> => [
+export const upArgs = (config: MachineConfig): readonly string[] => [
   ...serveArgs(config).slice(1),
   "--name",
   config.name,

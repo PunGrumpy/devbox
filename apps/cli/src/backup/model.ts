@@ -53,15 +53,15 @@ export type SqliteSnapshot = ManifestEntry & {
 
 export type BackupPlan = {
   readonly stage: AbsolutePath;
-  readonly sources: ReadonlyArray<Source>;
-  readonly snapshots: ReadonlyArray<SqliteSnapshot>;
+  readonly sources: readonly Source[];
+  readonly snapshots: readonly SqliteSnapshot[];
 };
 
 export type SourceIssue = { readonly line: number; readonly why: string };
 
 export type ParsedSources = {
-  readonly sources: ReadonlyArray<Source>;
-  readonly issues: ReadonlyArray<SourceIssue>;
+  readonly sources: readonly Source[];
+  readonly issues: readonly SourceIssue[];
 };
 
 const expand = (location: string, home: string, data: string) => {
@@ -72,6 +72,7 @@ const expand = (location: string, home: string, data: string) => {
     if (location === token) {
       return dir;
     }
+
     if (location.startsWith(`${token}/`)) {
       return join(dir, location.slice(token.length + 1));
     }
@@ -85,14 +86,15 @@ export const parseSources = (
   home: AbsolutePath,
   data: string = home
 ): ParsedSources => {
-  const sources: Array<Source> = [];
-  const issues: Array<SourceIssue> = [];
+  const sources: Source[] = [];
+  const issues: SourceIssue[] = [];
   text.split("\n").forEach((raw, index) => {
     const line = raw.trim();
 
     if (line === "" || line.startsWith("#")) {
       return;
     }
+
     const tokens = /^(\S+)\s+(\S.*)$/.exec(line);
 
     const decoded = Schema.decodeUnknownResult(SourceLine)(
@@ -143,7 +145,7 @@ export const snapshotOf = (source: Source, live: string): SqliteSnapshot => {
   return { ...entry, live, entry: stagedEntry(entry) };
 };
 
-export const manifestOf = (plan: BackupPlan): ReadonlyArray<ManifestEntry> =>
+export const manifestOf = (plan: BackupPlan): readonly ManifestEntry[] =>
   plan.snapshots.map(({ source, path, relative }) => ({
     source,
     path,
@@ -151,14 +153,14 @@ export const manifestOf = (plan: BackupPlan): ReadonlyArray<ManifestEntry> =>
   }));
 
 export const entriesFromStage = (
-  staged: ReadonlyArray<string>,
-  sources: ReadonlyArray<Source>,
+  staged: readonly string[],
+  sources: readonly Source[],
   isDirectory: (source: Source) => boolean
 ): {
-  readonly entries: ReadonlyArray<ManifestEntry>;
-  readonly unknown: ReadonlyArray<string>;
+  readonly entries: readonly ManifestEntry[];
+  readonly unknown: readonly string[];
 } => {
-  const entries: Array<ManifestEntry> = [];
+  const entries: ManifestEntry[] = [];
   const unknown = new Set<string>();
 
   for (const file of staged) {
@@ -184,7 +186,7 @@ export const entriesFromStage = (
   return { entries, unknown: [...unknown] };
 };
 
-export const sidecars = (live: string): ReadonlyArray<string> => [
+export const sidecars = (live: string): readonly string[] => [
   live,
   `${live}-wal`,
   `${live}-shm`,
@@ -214,7 +216,7 @@ export const excludeFile = (plan: BackupPlan): string =>
 export const backupArgs = (
   plan: BackupPlan,
   files: { readonly generated: string; readonly user: string }
-): ReadonlyArray<string> => [
+): readonly string[] => [
   "restic",
   "backup",
   "--tag",
@@ -228,7 +230,7 @@ export const backupArgs = (
   plan.stage,
 ];
 
-export const forgetArgs = (host: string): ReadonlyArray<string> => [
+export const forgetArgs = (host: string): readonly string[] => [
   "restic",
   "forget",
   "--host",
@@ -250,7 +252,7 @@ export const restoreArgs = (
   snapshot: string,
   target: string,
   include?: string
-): ReadonlyArray<string> => [
+): readonly string[] => [
   "restic",
   "restore",
   snapshot,
@@ -268,7 +270,7 @@ export const BACKUP_TIMEOUT_MS = 120_000;
 export const sqliteBackupArgs = (
   live: string,
   dest: string
-): ReadonlyArray<string> => [
+): readonly string[] => [
   "sqlite3",
   "-cmd",
   ".timeout 30000",
@@ -279,7 +281,7 @@ export const sqliteBackupArgs = (
 export const vacuumIntoArgs = (
   live: string,
   dest: string
-): ReadonlyArray<string> => [
+): readonly string[] => [
   "sqlite3",
   "-cmd",
   ".timeout 30000",
@@ -287,7 +289,7 @@ export const vacuumIntoArgs = (
   `vacuum into '${dest.replaceAll("'", "''")}'`,
 ];
 
-export const quickCheckArgs = (db: string): ReadonlyArray<string> => [
+export const quickCheckArgs = (db: string): readonly string[] => [
   "sqlite3",
   db,
   "pragma quick_check",

@@ -3,14 +3,14 @@ import { join } from "node:path";
 import { Data } from "effect";
 
 export type Setting = Data.TaggedEnum<{
-  Git: { readonly key: string; readonly values: ReadonlyArray<string> };
+  Git: { readonly key: string; readonly values: readonly string[] };
   Env: { readonly name: string; readonly value: string };
-  Path: { readonly dirs: ReadonlyArray<string> };
+  Path: { readonly dirs: readonly string[] };
 }>;
 
 export const Setting = Data.taggedEnum<Setting>();
 
-export const settingsFor = (data: string): ReadonlyArray<Setting> => [
+export const settingsFor = (data: string): readonly Setting[] => [
   Setting.Git({ key: "user.name", values: ["PunGrumpy"] }),
   Setting.Git({
     key: "user.email",
@@ -37,11 +37,11 @@ export const settingsFor = (data: string): ReadonlyArray<Setting> => [
   }),
 ];
 
-export const gitEntries = (settings: ReadonlyArray<Setting>) =>
+export const gitEntries = (settings: readonly Setting[]) =>
   settings.flatMap((setting) => (setting._tag === "Git" ? [setting] : []));
 
 export const processEnv = (
-  settings: ReadonlyArray<Setting>,
+  settings: readonly Setting[],
   path: string
 ): Record<string, string> =>
   Object.fromEntries(
@@ -65,7 +65,7 @@ export const processEnv = (
 const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 export const profileScript = (
-  settings: ReadonlyArray<Setting>,
+  settings: readonly Setting[],
   user: string
 ): string =>
   `if [ "$(id -un)" = ${shellQuote(user)} ]; then\n${settings

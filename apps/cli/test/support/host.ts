@@ -30,16 +30,16 @@ export type FakeMachine = {
   userBus: boolean;
   linger: boolean;
   latest: string | undefined;
-  git: Map<string, Array<string>>;
+  git: Map<string, string[]>;
   units: Map<string, { active: boolean; enabled: boolean }>;
-  processes: Array<Proc>;
+  processes: Proc[];
   binaries: Set<string>;
-  calls: Array<ReadonlyArray<string>>;
-  probes: Array<{ readonly address: string; readonly port: number }>;
+  calls: ReadonlyArray<string>[];
+  probes: { readonly address: string; readonly port: number }[];
   /** URL to the body it answers with 200. Any other URL does not answer. */
   pages: Map<string, string>;
-  fetches: Array<string>;
-  posts: Array<Posted>;
+  fetches: string[];
+  posts: Posted[];
   /** Whether a webhook answers. */
   webhookUp: boolean;
   /**
@@ -50,20 +50,20 @@ export type FakeMachine = {
   /** Answers `host.request`, by default with nothing, as if no server answered. */
   answer: (url: string, request: Request) => Answer | undefined;
   /** Every `host.request`, in order. */
-  requests: Array<{ readonly url: string } & Request>;
+  requests: ({ readonly url: string } & Request)[];
   platform: string;
   vitals: Vitals;
   /** The directories vitals were asked for. */
-  vitalsAsked: Array<string>;
-  runs: Array<{
+  vitalsAsked: string[];
+  runs: {
     argv: ReadonlyArray<string>;
     env: Readonly<Record<string, string>> | undefined;
     timeoutMs: number | undefined;
-  }>;
+  }[];
   stdin: Map<string, string>;
   /** Agent binaries whose installer exits non-zero. */
   brokenInstallers: Set<string>;
-  respond: (argv: ReadonlyArray<string>) => Ran | undefined;
+  respond: (argv: readonly string[]) => Ran | undefined;
   nextPid: number;
   host: Host["Service"];
 };
@@ -127,7 +127,7 @@ export const makeMachine = (
   } as FakeMachine;
 
   const run = (
-    argv: ReadonlyArray<string>,
+    argv: readonly string[],
     stdin?: string,
     env: Readonly<Record<string, string>> = {}
   ): Ran => {
@@ -136,6 +136,7 @@ export const makeMachine = (
     if (custom) {
       return custom;
     }
+
     const [cmd, ...rest] = argv;
     const sudo = cmd === "sudo" && rest[0] === "-n";
     const bin = (sudo ? rest[1] : cmd)?.split("/").at(-1);
@@ -144,9 +145,11 @@ export const makeMachine = (
     if (sudo && !m.sudo) {
       return fail(1, "sudo: a password is required");
     }
+
     if (bin === "true") {
       return ok();
     }
+
     if (bin === "curl") {
       const url = args.at(-1);
 
@@ -162,15 +165,18 @@ export const makeMachine = (
     if (bin === "setsid") {
       return run(args, stdin, env);
     }
+
     if (bin === "bash") {
       const installs = /# installs (\S+)/.exec(stdin ?? "")?.[1];
 
       if (installs === undefined || env.HOME === undefined) {
         return fail(1, "fake host: bash");
       }
+
       if (m.brokenInstallers.has(installs)) {
         return fail(1, `${installs}: install failed`);
       }
+
       writeBin(join(env.HOME, ".local", "bin"), installs);
 
       return installs === "devin" ? fail(1, "Error: Login canceled") : ok();
@@ -192,9 +198,11 @@ export const makeMachine = (
           ? fail(1)
           : ok(values.map((v) => `${v}\n`).join(""));
       }
+
       if (op === "--unset-all") {
         return m.git.delete(key!) ? ok() : fail(5);
       }
+
       if (op === "--add") {
         return (m.git.set(key!, [...values, value!]), ok());
       }
@@ -203,6 +211,7 @@ export const makeMachine = (
     if (bin === "npm" && args[0] === "view") {
       return m.latest === undefined ? fail(1) : ok(`${m.latest}\n`);
     }
+
     if (bin === "npm" && args[0] === "install") {
       const prefix = args[args.indexOf("--prefix") + 1]!;
       const target = args.at(-1)!;
@@ -215,6 +224,7 @@ export const makeMachine = (
         if (m.brokenInstallers.has(agent.bin)) {
           return fail(1, `${agent.bin}: install failed`);
         }
+
         writeBin(join(prefix, "bin"), agent.bin);
 
         return ok();
@@ -235,24 +245,30 @@ export const makeMachine = (
       if (verb === "show-environment") {
         return m.userBus ? ok("PATH=/usr/bin\n") : fail(1);
       }
+
       const key = `${user ? "user" : "system"}:${unit}`;
       const state = m.units.get(key) ?? { active: false, enabled: false };
 
       if (verb === "is-active") {
         return ok(state.active ? "active\n" : "inactive\n");
       }
+
       if (verb === "is-enabled") {
         return ok(state.enabled ? "enabled\n" : "disabled\n");
       }
+
       if (verb === "daemon-reload") {
         return ok();
       }
+
       if (verb === "enable") {
         return (m.units.set(key, { ...state, enabled: true }), ok());
       }
+
       if (verb === "restart") {
         return (m.units.set(key, { ...state, active: true }), ok());
       }
+
       if (verb === "disable") {
         m.units.set(`${user ? "user" : "system"}:${args.at(-1)}`, {
           active: false,
@@ -266,9 +282,11 @@ export const makeMachine = (
     if (bin === "loginctl" && args[0] === "show-user") {
       return ok(`Linger=${m.linger ? "yes" : "no"}\n`);
     }
+
     if (bin === "loginctl" && args[0] === "enable-linger") {
       return ((m.linger = true), ok());
     }
+
     return fail(127, `fake host: no ${argv.join(" ")}`);
   };
 
@@ -288,6 +306,7 @@ export const makeMachine = (
         if (options.stdin !== undefined) {
           m.stdin.set(argv.join(" "), options.stdin);
         }
+
         return run(argv, options.stdin, options.env);
       }),
     which: (name) => Effect.sync(() => m.binaries.has(name)),
@@ -332,6 +351,7 @@ export const makeMachine = (
         if (answered === false) {
           return Option.none();
         }
+
         return Option.some(answered === true ? "" : answered);
       }),
     request: (url, request) =>

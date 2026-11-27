@@ -61,7 +61,7 @@ const tailnet = async () => {
         }
       : undefined;
 
-  const answer = (trusts: ReadonlyArray<string>, kind = "computer") =>
+  const answer = (trusts: readonly string[], kind = "computer") =>
     JSON.stringify({ kind, vitals: VITALS, trusts });
 
   m.pages.set(spokeUrl("100.64.0.22"), answer([fingerprint(key)]));
@@ -87,6 +87,7 @@ describe("devbox hub with spokes", async () => {
   for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
   }
+
   afterAll(() => hub.stop());
   const base = `http://127.0.0.1:${port}`;
 
@@ -250,7 +251,7 @@ describe("devbox hub with spokes", async () => {
     (JSON.parse(m.posts[index]?.body ?? "{}") as { nonce?: string }).nonce;
 
   test("when the spoke takes it: 202, sent signed to answer that spoke's challenge", async () => {
-    let fetchedBeforePost: ReadonlyArray<string> = [];
+    let fetchedBeforePost: readonly string[] = [];
     m.answerPost = () => {
       fetchedBeforePost = [...m.fetches];
 

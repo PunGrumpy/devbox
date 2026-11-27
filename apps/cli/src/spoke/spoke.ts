@@ -38,12 +38,14 @@ export const kindHere = Effect.gen(function* () {
   if (host.platform === "darwin") {
     return "mac" satisfies SelfKind;
   }
+
   const ran = yield* host.run(["systemd-detect-virt"], { timeoutMs: 3000 });
   const virt = ran.code === 0 ? ran.stdout.trim() || BARE_METAL : BARE_METAL;
 
   if (virt === "wsl") {
     return "wsl" satisfies SelfKind;
   }
+
   return (virt === BARE_METAL ? "computer" : "vm") satisfies SelfKind;
 });
 
@@ -111,6 +113,7 @@ const singleFlight = <A>(whileRunning: A) => {
       if (running) {
         return Effect.succeed(whileRunning);
       }
+
       running = true;
 
       return run.pipe(
@@ -163,7 +166,7 @@ export const spoke = Command.make(
 
       const start = (
         said: string,
-        flags: (up: ReadonlyArray<string>) => ReadonlyArray<string>,
+        flags: (up: readonly string[]) => readonly string[],
         prepare: Effect.Effect<
           Option.Option<Reply>,
           never,
@@ -179,6 +182,7 @@ export const spoke = Command.make(
           ) {
             return busy;
           }
+
           const setUp = yield* lastSetUp(home);
 
           if (Option.isNone(setUp)) {
@@ -187,11 +191,13 @@ export const spoke = Command.make(
               "devbox up has not recorded how it set this machine up"
             );
           }
+
           const failed = yield* prepare;
 
           if (Option.isSome(failed)) {
             return failed.value;
           }
+
           updating = yield* computer.spawnDetached(
             [...computer.self, "up", ...flags(setUp.value.up)],
             { env: {}, log: join(pathsOf(setUp.value.data).logs, "update.log") }
@@ -214,6 +220,7 @@ export const spoke = Command.make(
             refuse(400, "a tunnel request needs a tunnel token")
           );
         }
+
         if (url === undefined || !isTunnelUrl(url)) {
           return Effect.succeed(
             refuse(
@@ -222,6 +229,7 @@ export const spoke = Command.make(
             )
           );
         }
+
         return oneDevboxUpAtATime(
           start(
             `the hub asked to publish this machine at ${url}`,
@@ -266,6 +274,7 @@ export const spoke = Command.make(
           if (ran.code !== 0 || Option.isNone(pairing)) {
             return refuse(502, "devbox pair gave no pairing link");
           }
+
           yield* out.log("spoke: the hub asked for a pairing link");
 
           return reply(200, { url: pairingUrl(pairing.value) });
@@ -286,6 +295,7 @@ export const spoke = Command.make(
             if (req.method !== "GET") {
               return refuse(405, "use GET");
             }
+
             const vitals = yield* computer.vitals(home);
 
             return reply(200, { kind, vitals, trusts });
@@ -295,6 +305,7 @@ export const spoke = Command.make(
             if (req.method !== "GET") {
               return refuse(405, "use GET");
             }
+
             const nonce = newNonce();
             challenges = handOut(challenges, nonce, Date.now());
 
@@ -304,9 +315,11 @@ export const spoke = Command.make(
           if (pathname !== "/api/do") {
             return refuse(404, "not found");
           }
+
           if (req.method !== "POST") {
             return refuse(405, "use POST");
           }
+
           const body = yield* Effect.promise(() =>
             readBody(req, MAX_BODY_BYTES)
           );
@@ -314,6 +327,7 @@ export const spoke = Command.make(
           if (body === null) {
             return refuse(413, "a signed request is not that long");
           }
+
           const verdict = verifyRequest(
             {
               body,
@@ -328,12 +342,14 @@ export const spoke = Command.make(
           if (!verdict.ok) {
             return refuse(403, verdict.why);
           }
+
           challenges = verdict.challenges;
           const action = actions.get(verdict.do);
 
           if (action === undefined) {
             return refuse(400, "this spoke does not do that");
           }
+
           return yield* action(verdict.fields);
         });
 

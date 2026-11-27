@@ -68,11 +68,7 @@ const isSqlite = (path: string) =>
 const walk = (
   dir: string,
   excluded: Excluded = () => false
-): Effect.Effect<
-  ReadonlyArray<string>,
-  never,
-  FileSystem.FileSystem | Output
-> =>
+): Effect.Effect<readonly string[], never, FileSystem.FileSystem | Output> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
@@ -98,7 +94,7 @@ const walk = (
     return nested.flat();
   });
 
-const tools = (needed: ReadonlyArray<string>) =>
+const tools = (needed: readonly string[]) =>
   Effect.gen(function* () {
     const host = yield* Host;
 
@@ -123,6 +119,7 @@ const prepareConfig = Effect.gen(function* () {
   )) {
     yield* out.note(`created ${created}`);
   }
+
   return { home, paths: backupPaths(home) };
 });
 
@@ -146,7 +143,7 @@ const dataDir = (home: string) =>
     );
   });
 
-const session = (needed: ReadonlyArray<string>) =>
+const session = (needed: readonly string[]) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const machine = yield* Host;
@@ -163,12 +160,14 @@ const session = (needed: ReadonlyArray<string>) =>
         message: `${paths.env} line ${invalid.join(", ")} is not NAME=value`,
       });
     }
+
     if ((values.RESTIC_REPOSITORY ?? "") === "") {
       return yield* new BackupFailed({
         message: `RESTIC_REPOSITORY is not set in ${paths.env}`,
         hint: "fill in the restic and R2 variables there, then run again",
       });
     }
+
     yield* tools(needed);
     yield* fs
       .makeDirectory(paths.state, { recursive: true })
@@ -246,11 +245,11 @@ const withLock = <A, E, R>(path: string, work: Effect.Effect<A, E, R>) =>
     );
   });
 
-export const resolveSources = (sources: ReadonlyArray<Source>) =>
+export const resolveSources = (sources: readonly Source[]) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
-    const present: Array<Source> = [];
+    const present: Source[] = [];
 
     for (const source of sources) {
       const real = yield* fs.realPath(source.path).pipe(Effect.option);
@@ -287,6 +286,7 @@ const readSources = Effect.gen(function* () {
         .join("\n"),
     });
   }
+
   return sources;
 });
 
@@ -294,17 +294,18 @@ export const loadSources = Effect.flatMap(readSources, resolveSources);
 
 const discover = (
   stage: AbsolutePath,
-  sources: ReadonlyArray<Source>,
+  sources: readonly Source[],
   excluded: Excluded
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const snapshots: Array<SqliteSnapshot> = [];
+    const snapshots: SqliteSnapshot[] = [];
 
     for (const source of sources) {
       if (excluded(source.path)) {
         continue;
       }
+
       const info = yield* fs.stat(source.path).pipe(Effect.mapError(fsFailed));
 
       const files =
@@ -321,7 +322,7 @@ const discover = (
   });
 
 const must = (
-  argv: ReadonlyArray<string>,
+  argv: readonly string[],
   env: Readonly<Record<string, string>>,
   options: { readonly inherit?: boolean } = {}
 ) =>
@@ -335,6 +336,7 @@ const must = (
         hint: ran.stderr.trim() || undefined,
       });
     }
+
     return ran;
   });
 
@@ -389,6 +391,7 @@ const stageSnapshots = (
           hint: taken.stderr.trim() || undefined,
         });
       }
+
       const checked = yield* host.run(quickCheckArgs(dest), { env });
 
       if (checked.stdout.trim() !== "ok") {
@@ -422,6 +425,7 @@ const ensureRepository = (env: Readonly<Record<string, string>>) =>
     if (probe.code === 0) {
       return;
     }
+
     // restic 0.17 and later exit 10 for a missing repository. Older versions only print this question.
     if (probe.code !== 10 && !probe.stderr.includes(NO_REPOSITORY)) {
       return yield* new BackupFailed({
@@ -429,6 +433,7 @@ const ensureRepository = (env: Readonly<Record<string, string>>) =>
         hint: probe.stderr.trim() || undefined,
       });
     }
+
     yield* out.log("restic: creating the repository");
     yield* must(["restic", "init"], env, { inherit: true });
   });
@@ -454,6 +459,7 @@ export const runBackup = Effect.gen(function* () {
           message: `no source in ${paths.sources} exists`,
         });
       }
+
       const excludes = yield* fs
         .readFileString(paths.excludes)
         .pipe(Effect.mapError(fsFailed));
@@ -564,8 +570,9 @@ const readManifest = (stage: string) =>
       .pipe(Effect.option);
 
     if (Option.isNone(text)) {
-      return Option.none<ReadonlyArray<ManifestEntry>>();
+      return Option.none<readonly ManifestEntry[]>();
     }
+
     return Option.some(
       yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Manifest))(
         text.value
@@ -588,11 +595,13 @@ const entriesOf = (target: string, stage: string) =>
     if (!(yield* fs.exists(stage).pipe(Effect.mapError(fsFailed)))) {
       return { entries: [], unknown: [] };
     }
+
     const manifest = yield* readManifest(stage);
 
     if (Option.isSome(manifest)) {
       return { entries: manifest.value, unknown: [] };
     }
+
     yield* out.note(
       `${MANIFEST} is missing from the snapshot, so the sources file maps the names`
     );
@@ -620,13 +629,14 @@ const entriesOf = (target: string, stage: string) =>
         `no source named ${name} in the sources file, so its snapshots stay in ${stage}`
       );
     }
+
     return { entries, unknown };
   });
 
 const place = (
   target: AbsolutePath,
   stage: AbsolutePath,
-  entries: ReadonlyArray<ManifestEntry>
+  entries: readonly ManifestEntry[]
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -645,6 +655,7 @@ const place = (
           message: `${entry.source}: ${entry.path} ${entry.relative} points outside ${target}`,
         });
       }
+
       yield* fs
         .makeDirectory(dirname(to), { recursive: true })
         .pipe(Effect.mapError(fsFailed));
@@ -659,6 +670,7 @@ const place = (
           hint: "a symlink inside the restored files points elsewhere",
         });
       }
+
       yield* Effect.forEach(
         sidecars(to),
         (path) => fs.remove(path, { force: true }),
@@ -681,6 +693,7 @@ export const restoreBackup = (targetDir: string, snapshot: string) =>
         hint: "use an id from `restic snapshots`, or latest",
       });
     }
+
     const { paths, env, host } = yield* session(["restic"]);
     const target = absolutePath(targetDir);
 
@@ -694,6 +707,7 @@ export const restoreBackup = (targetDir: string, snapshot: string) =>
         hint: "restore into a new or empty folder, then move what you need into place",
       });
     }
+
     yield* fs
       .makeDirectory(target, { recursive: true })
       .pipe(Effect.mapError(fsFailed));
@@ -707,6 +721,7 @@ export const restoreBackup = (targetDir: string, snapshot: string) =>
         .remove(stage, { recursive: true, force: true })
         .pipe(Effect.mapError(fsFailed));
     }
+
     const sources = yield* readSources.pipe(Effect.orElseSucceed(() => []));
     const roots = new Set([...entries, ...sources].map((item) => item.path));
     yield* out.success(
@@ -722,6 +737,7 @@ export const restoreBackup = (targetDir: string, snapshot: string) =>
       )
         yield* out.log(`  ${join(target, root)} -> ${root}`);
     }
+
     yield* out.log(
       "Delete any -wal or -shm file next to a database you replace."
     );

@@ -83,7 +83,7 @@ const presenter = Layer.effect(
 const isHelp = (error: unknown): error is CliError.ShowHelp =>
   CliError.isCliError(error) && error._tag === "ShowHelp";
 
-export const runCli = (args: ReadonlyArray<string>) =>
+export const runCli = (args: readonly string[]) =>
   Command.runWith(devbox, { version: packageJson.version })(args).pipe(
     Effect.as(0),
     Effect.catch((error) =>
@@ -91,6 +91,7 @@ export const runCli = (args: ReadonlyArray<string>) =>
         if (isHelp(error)) {
           return error.errors.length === 0 ? 0 : 2;
         }
+
         yield* (yield* Output).error(error.message, hintOf(error));
 
         return Runtime.getErrorExitCode(error);

@@ -26,9 +26,9 @@ export const isTunnelUrl = (url: string): boolean =>
  * `--public-url` already there gives way, since the tunnel's address is where T3 is reached now.
  */
 export const withTunnel = (
-  up: ReadonlyArray<string>,
+  up: readonly string[],
   url: Option.Option<string>
-): ReadonlyArray<string> => {
+): readonly string[] => {
   const kept = up.filter(
     (arg, i) =>
       arg !== "--tunnel" &&

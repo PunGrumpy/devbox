@@ -18,7 +18,7 @@ export type Tone =
 export type Cell =
   | string
   | { readonly text: string; readonly tone: Tone }
-  | ReadonlyArray<Cell>;
+  | readonly Cell[];
 
 export type Column<Row> = {
   readonly header: string;
@@ -38,11 +38,11 @@ export type Streams = {
   /** Shows a multi-select and returns the indices ticked. Only called when `interactive`. */
   readonly pickMany: (
     question: string,
-    choices: ReadonlyArray<{
+    choices: readonly {
       readonly title: string;
       readonly selected: boolean;
-    }>
-  ) => Effect.Effect<ReadonlyArray<number>, Aborted>;
+    }[]
+  ) => Effect.Effect<readonly number[], Aborted>;
 };
 
 export class Output extends Context.Service<
@@ -66,11 +66,11 @@ export class Output extends Context.Service<
       detail?: string
     ) => Effect.Effect<void>;
     readonly table: <Row>(
-      columns: ReadonlyArray<Column<Row>>,
-      rows: ReadonlyArray<Row>
+      columns: readonly Column<Row>[],
+      rows: readonly Row[]
     ) => Effect.Effect<void>;
     readonly pairs: (
-      pairs: ReadonlyArray<readonly [string, string]>
+      pairs: readonly (readonly [string, string])[]
     ) => Effect.Effect<void>;
     readonly json: (value: unknown) => Effect.Effect<void>;
     readonly step: <A, E, R>(
@@ -82,12 +82,12 @@ export class Output extends Context.Service<
     ) => Effect.Effect<boolean, NotATerminal>;
     readonly pick: <A>(
       question: string,
-      choices: ReadonlyArray<{
+      choices: readonly {
         readonly title: string;
         readonly value: A;
         readonly selected: boolean;
-      }>
-    ) => Effect.Effect<ReadonlyArray<A>, NotATerminal | Aborted>;
+      }[]
+    ) => Effect.Effect<readonly A[], NotATerminal | Aborted>;
   }
 >()("devbox/Output") {
   static readonly make = (streams: Streams): Output["Service"] => {
@@ -97,9 +97,11 @@ export class Output extends Context.Service<
       if (typeof cell === "string") {
         return cell;
       }
+
       if ("tone" in cell) {
         return cell.text;
       }
+
       return cell.map(text).join("");
     };
 
@@ -107,9 +109,11 @@ export class Output extends Context.Service<
       if (typeof cell === "string") {
         return cell;
       }
+
       if ("tone" in cell) {
         return paint(cell.tone, cell.text);
       }
+
       return cell.map(render).join("");
     };
 
@@ -192,11 +196,13 @@ export class Output extends Context.Service<
               streams.stderr(`${paint("dim", ">")} ${message} …`)
             );
           }
+
           const [elapsed, result] = yield* Effect.timed(task);
 
           if (streams.interactive) {
             yield* Effect.sync(() => streams.stderr("\r\u001B[2K"));
           }
+
           yield* log(
             `${message} ${paint("dim", `[${formatElapsed(elapsed)}]`)}`
           );
@@ -208,6 +214,7 @@ export class Output extends Context.Service<
           if (!streams.interactive) {
             return yield* new NotATerminal();
           }
+
           yield* Effect.sync(() =>
             streams.stderr(
               `${paint("cyan", "?")} ${question} ${paint("dim", "(y/N)")} `
@@ -223,6 +230,7 @@ export class Output extends Context.Service<
           if (!streams.interactive) {
             return yield* new NotATerminal();
           }
+
           const indices = yield* streams.pickMany(question, choices);
 
           return indices.flatMap((i) =>
@@ -277,6 +285,7 @@ export const formatBytes = (bytes: number): string => {
   if (bytes < 1024) {
     return `${bytes} B`;
   }
+
   const units = ["KB", "MB", "GB", "TB"];
   let value = bytes / 1024;
   let unit = 0;

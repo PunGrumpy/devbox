@@ -33,8 +33,7 @@ import {
 } from "./support/fixture.ts";
 import { migrate } from "./support/run.ts";
 
-const runIn = (world: World, ...args: Array<string>) =>
-  migrate(world.env, ...args);
+const runIn = (world: World, ...args: string[]) => migrate(world.env, ...args);
 
 const OLD = new Date("2020-01-02T03:04:05Z");
 
@@ -138,6 +137,7 @@ describe("rename-root carries Claude files", () => {
     for (const [path, value] of Object.entries(before)) {
       expect(afterA[path]).toBe(value);
     }
+
     for (const [path, value] of Object.entries(beforeB)) {
       expect(snapshot(d.w.homes.b)[path]).toBe(value);
     }
@@ -509,6 +509,7 @@ describe("rename-root carries Claude files", () => {
     for (const home of [d.w.homes.a, d.w.homes.b]) {
       Bun.spawnSync(["rm", "-rf", d.from(home)]);
     }
+
     const r = await d.rename("--apply", "--yes");
     expect(r.code).toBe(0);
     expect(r.err).toContain("the slug format may have changed");

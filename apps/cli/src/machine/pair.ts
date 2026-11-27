@@ -33,6 +33,7 @@ const tailscaleName = Effect.gen(function* () {
   if (status.code !== 0) {
     return Option.none<string>();
   }
+
   return Schema.decodeUnknownOption(TailscaleSelf)(status.stdout).pipe(
     Option.map((json) => json.Self.DNSName.replace(/\.$/, "")),
     Option.filter((name) => name !== "")
@@ -109,6 +110,7 @@ export const pair = Command.make(
             minted.stderr.trim() || "is T3 Code running? `devbox up` starts it",
         });
       }
+
       const url = yield* Option.match(
         Option.orElse(origin, () => Option.fromUndefinedOr(machine.url)),
         {
@@ -127,6 +129,7 @@ export const pair = Command.make(
       if (json) {
         return yield* out.json(pairing);
       }
+
       yield* out.pairs([
         ["url", pairing.url],
         ["token", pairing.token],

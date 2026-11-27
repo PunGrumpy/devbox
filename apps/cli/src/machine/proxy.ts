@@ -14,6 +14,7 @@ export const rewriteHeaders = (
   ) {
     return headers;
   }
+
   const url = new URL(publicUrl);
 
   const forwarded = [headers["x-forwarded-host"]]
@@ -65,6 +66,7 @@ export const proxy = (options: {
           if (!res.headersSent) {
             res.writeHead(502);
           }
+
           res.end();
         });
         req.on("error", () => forward.destroy());

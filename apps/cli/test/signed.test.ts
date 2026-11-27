@@ -67,6 +67,7 @@ describe("a signed request", () => {
     if (!first.ok) {
       return;
     }
+
     expect(first.do).toBe("update");
     expect(verdict(request(), first.challenges)).toEqual({
       ok: false,
@@ -222,6 +223,7 @@ describe("the challenges a spoke hands out", () => {
     for (let n = 1; n <= MAX_CHALLENGES + 1; n += 1) {
       challenges = handOut(challenges, nonceNumber(n), NOW);
     }
+
     expect(challenges.size).toBe(MAX_CHALLENGES);
 
     const answering = (nonce: string) =>

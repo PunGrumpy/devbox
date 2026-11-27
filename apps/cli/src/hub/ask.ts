@@ -55,7 +55,7 @@ export type AskContext = {
   /** Held by a publish or an unpublish, so two never interleave, whatever machine they are for. */
   readonly tunnels: Semaphore.Semaphore;
   /** Every machine the hub knows, by name. */
-  readonly names: ReadonlyArray<string>;
+  readonly names: readonly string[];
 };
 
 type Run = (
@@ -164,6 +164,7 @@ export const machineAction = (
   if (groups?.name === undefined || methods === undefined) {
     return undefined;
   }
+
   const action = Object.hasOwn(methods, method) ? methods[method] : undefined;
   const allow = Object.keys(methods).join(", ");
 
@@ -210,14 +211,17 @@ export const cloudflareAsk = (request: HubRequest): Reply | Ask => {
   if (request.method === "DELETE") {
     return { ask: "disconnect" };
   }
+
   if (request.method !== "PUT") {
     return refuse(405, "Use PUT or DELETE.", { allow: "PUT, DELETE" });
   }
+
   if (request.body === null) {
     return refuse(413, "A Cloudflare API token is not that long.", {
       connection: "close",
     });
   }
+
   const sent = Schema.decodeUnknownOption(Connect)(request.body, {
     onExcessProperty: "error",
   });
@@ -228,6 +232,7 @@ export const cloudflareAsk = (request: HubRequest): Reply | Ask => {
       'Send {"token": "<Cloudflare API token>"}, with "account" and "zone" when the token sees more than one.'
     );
   }
+
   const { token, account, zone } = sent.value;
 
   return {
@@ -242,9 +247,11 @@ const pickSentence = ({ what, choices, named }: PickOne) => {
   if (named !== undefined) {
     return `The token sees no ${what} ${named}.`;
   }
+
   if (choices.length === 0) {
     return `The token sees no ${what}. Give it access to the ${what} that holds your domain.`;
   }
+
   return `The token sees ${choices.length} ${what}s. Name one as "${what}".`;
 };
 
@@ -298,11 +305,13 @@ export const admit = (
   if (!loggedIn(request, token, now)) {
     return LOGGED_OUT;
   }
+
   const named = snapshot.machines.filter((m) => m.name === wanted.name);
 
   if (named.length === 0) {
     return refuse(404, "No machine has that name.");
   }
+
   const trusted = named.filter((m) => m.spoke === "trusted");
 
   if (trusted.length !== 1 || trusted[0] === undefined) {
@@ -313,12 +322,14 @@ export const admit = (
         : `${wanted.name} has no devbox spoke that answers.`
     );
   }
+
   const [machine] = trusted;
 
   if (TUNNELS.has(wanted.action)) {
     if (snapshot.cloudflare === null) {
       return NO_LOGIN;
     }
+
     if (machine.tailscale === null || machine.tailscale.ip === "") {
       return refuse(
         409,
@@ -366,6 +377,7 @@ const tellSpoke = (
       if (Option.isNone(challenge)) {
         continue;
       }
+
       const signed = signRequest(
         secrets.privateKey,
         new Date(),

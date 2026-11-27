@@ -49,6 +49,7 @@ const machine = (
     if (argv[0]?.endsWith("/mise") && argv[1] === "which") {
       return ok(`${installed}\n`);
     }
+
     return undefined;
   };
 
@@ -69,7 +70,7 @@ const unitPath = (m: ReturnType<typeof makeMachine>) =>
 const machineJson = (m: ReturnType<typeof makeMachine>) =>
   readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8");
 
-const up = (m: ReturnType<typeof makeMachine>, ...args: Array<string>) =>
+const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
   devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });

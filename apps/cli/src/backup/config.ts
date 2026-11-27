@@ -56,7 +56,7 @@ const EnvName = Schema.String.pipe(
 
 export type ParsedEnv = {
   readonly values: Readonly<Record<string, string>>;
-  readonly invalid: ReadonlyArray<number>;
+  readonly invalid: readonly number[];
 };
 
 const unquote = (value: string) =>
@@ -68,13 +68,14 @@ const unquote = (value: string) =>
 
 export const parseEnv = (text: string): ParsedEnv => {
   const values: Record<string, string> = {};
-  const invalid: Array<number> = [];
+  const invalid: number[] = [];
   text.split("\n").forEach((raw, index) => {
     const line = raw.trim();
 
     if (line === "" || line.startsWith("#")) {
       return;
     }
+
     const at = line.indexOf("=");
     const name = at < 1 ? undefined : line.slice(0, at).trim();
 
@@ -84,6 +85,7 @@ export const parseEnv = (text: string): ParsedEnv => {
     ) {
       return void invalid.push(index + 1);
     }
+
     values[name] = unquote(line.slice(at + 1).trim());
   });
 

@@ -87,7 +87,7 @@ export type Plan<E, R> = {
   readonly change: Change;
   readonly prepare: Effect.Effect<void, E, R | Scope.Scope>;
   readonly write: Effect.Effect<void, SqlError.SqlError, SqlClient.SqlClient>;
-  readonly verify: ReadonlyArray<Expectation>;
+  readonly verify: readonly Expectation[];
 };
 
 export type Mode = { readonly apply: boolean; readonly yes: boolean };
@@ -110,6 +110,7 @@ export const applyPlan = <E, R>(
       if (!mode.yes && !(yield* out.confirm(question(plan.change)))) {
         return yield* new Aborted();
       }
+
       yield* plan.prepare;
       const sql = yield* SqlClient.SqlClient;
 
@@ -122,6 +123,7 @@ export const applyPlan = <E, R>(
               `quick_check before the change is not clean: ${before}`
             );
           }
+
           const saved = yield* out.step("backup", backup(target.path));
           yield* out.log(
             `backup ${saved.path} ${out.paint("dim", `(${formatBytes(saved.bytes)})`)}`
@@ -140,7 +142,7 @@ export const applyPlan = <E, R>(
             { what: "quick_check", expected: before, actual: quickCheck },
           ];
 
-          const mismatches: Array<Mismatch> = [];
+          const mismatches: Mismatch[] = [];
 
           for (const check of checks) {
             const actual = yield* check.actual;

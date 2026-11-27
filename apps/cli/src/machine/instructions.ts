@@ -37,7 +37,7 @@ export const claudeHomes = (
   settings: Option.Option<string>,
   home: string,
   data: string
-): ReadonlyArray<string> => {
+): readonly string[] => {
   const fallback = join(data, ".claude");
 
   const instances = Option.flatMap(
@@ -45,7 +45,7 @@ export const claudeHomes = (
     Schema.decodeUnknownOption(T3Settings)
   ).pipe(
     Option.map((decoded) => Object.values(decoded.providerInstances ?? {})),
-    Option.getOrElse((): ReadonlyArray<unknown> => [])
+    Option.getOrElse((): readonly unknown[] => [])
   );
 
   const homes = instances.flatMap((instance) =>
@@ -89,6 +89,7 @@ export const instructionsLink = (
       if (target === source.path) {
         return InstructionsLink.Linked();
       }
+
       return Option.isNone(now.text)
         ? InstructionsLink.Link()
         : InstructionsLink.NotOurs();

@@ -25,7 +25,7 @@ import { devbox, runWith } from "./support/run.ts";
 
 type Machine = ReturnType<typeof makeMachine>;
 
-const up = (m: Machine, ...args: Array<string>) =>
+const up = (m: Machine, ...args: string[]) =>
   devbox(
     { HOME: m.home, PATH: "/usr/bin:/bin" },
     ["up", "--supervisor", "detached", ...args],
@@ -36,8 +36,8 @@ const up = (m: Machine, ...args: Array<string>) =>
 
 const upPicking = (
   m: Machine,
-  pick: ReadonlyArray<ReadonlyArray<string>>,
-  ...args: Array<string>
+  pick: readonly ReadonlyArray<string>[],
+  ...args: string[]
 ) =>
   devbox(
     { HOME: m.home, PATH: "/usr/bin:/bin" },
@@ -442,6 +442,7 @@ describe("devbox serve keeps the chosen agents current", () => {
     for (const bin of ["claude", "codex", "devin"]) {
       writeFileSync(join(m.home, ".local/bin", bin), "");
     }
+
     m.respond = (argv) =>
       argv[0] === "curl" && argv.some((a) => a.includes("dotfiles"))
         ? { code: 0, stdout: TEMPLATE, stderr: "" }

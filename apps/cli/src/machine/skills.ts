@@ -25,8 +25,8 @@ export const SkillSource = Schema.Struct({
 export type SkillSource = typeof SkillSource.Type;
 
 export type SkillsList = {
-  readonly sources: ReadonlyArray<SkillSource>;
-  readonly rejected: ReadonlyArray<string>;
+  readonly sources: readonly SkillSource[];
+  readonly rejected: readonly string[];
   readonly hash: string;
 };
 
@@ -47,8 +47,8 @@ export const parseSkillsList = (text: string): SkillsList => {
     .filter((line) => line.startsWith("skill "))
     .map((line) => line.replace("git@github.com:", "https://github.com/"));
 
-  const sources: Array<SkillSource> = [];
-  const rejected: Array<string> = [];
+  const sources: SkillSource[] = [];
+  const rejected: string[] = [];
 
   for (const line of lines) {
     const decoded = Schema.decodeUnknownResult(SkillSource)(tokens(line));
@@ -69,13 +69,13 @@ export const parseSkillsList = (text: string): SkillsList => {
 
 export const skillsStamp = (
   list: SkillsList,
-  agents: ReadonlyArray<string>
+  agents: readonly string[]
 ): string => `${list.hash} ${agents.join(",")}`;
 
 export const skillsAddArgs = (
   source: SkillSource,
-  agents: ReadonlyArray<string>
-): ReadonlyArray<string> => [
+  agents: readonly string[]
+): readonly string[] => [
   "npx",
   "-y",
   "skills",

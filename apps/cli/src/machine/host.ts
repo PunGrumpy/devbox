@@ -40,7 +40,7 @@ export const TIMED_OUT = 124;
 
 export type Proc = {
   readonly pid: number;
-  readonly argv: ReadonlyArray<string>;
+  readonly argv: readonly string[];
 };
 
 export type Fetched = { readonly body: string; readonly ms: number };
@@ -60,12 +60,14 @@ const capped = async (response: Response): Promise<string | undefined> => {
   if (Number(response.headers.get("content-length") ?? 0) > MAX_ANSWER_BYTES) {
     return undefined;
   }
+
   const reader = response.body?.getReader();
 
   if (reader === undefined) {
     return "";
   }
-  const chunks: Array<Uint8Array> = [];
+
+  const chunks: Uint8Array[] = [];
   let size = 0;
 
   for (;;) {
@@ -74,6 +76,7 @@ const capped = async (response: Response): Promise<string | undefined> => {
     if (done) {
       break;
     }
+
     size += value.byteLength;
 
     if (size > MAX_ANSWER_BYTES) {
@@ -95,18 +98,18 @@ export class Host extends Context.Service<
     readonly user: string;
     readonly etc: string;
     readonly path: string;
-    readonly self: ReadonlyArray<string>;
+    readonly self: readonly string[];
     readonly systemd: boolean;
     /** `process.platform`, such as linux or darwin. */
     readonly platform: string;
     readonly run: (
-      argv: ReadonlyArray<string>,
+      argv: readonly string[],
       options?: RunOptions
     ) => Effect.Effect<Ran>;
     readonly which: (name: string) => Effect.Effect<boolean>;
-    readonly processes: Effect.Effect<ReadonlyArray<Proc>>;
+    readonly processes: Effect.Effect<readonly Proc[]>;
     readonly spawnDetached: (
-      argv: ReadonlyArray<string>,
+      argv: readonly string[],
       options: {
         readonly env: Readonly<Record<string, string>>;
         readonly log: string;
@@ -195,6 +198,7 @@ export class Host extends Context.Service<
         if (!/^\d+$/.test(entry)) {
           return [];
         }
+
         try {
           const argv = readFileSync(`/proc/${entry}/cmdline`, "utf8")
             .split("\0")
@@ -231,6 +235,7 @@ export class Host extends Context.Service<
         for (let i = 0; i < 50 && alive(pid); i += 1) {
           yield* Effect.sleep("200 millis");
         }
+
         if (alive(pid)) {
           signal(pid, "SIGKILL");
         }
@@ -261,11 +266,13 @@ export class Host extends Context.Service<
           if (response.status !== 200) {
             return Option.none();
           }
+
           const body = await capped(response);
 
           if (body === undefined) {
             return Option.none();
           }
+
           return Option.some({
             body,
             ms: Math.round(performance.now() - started),
@@ -288,6 +295,7 @@ export class Host extends Context.Service<
           if (!response.ok) {
             return Option.none();
           }
+
           return Option.fromUndefinedOr(await capped(response));
         } catch {
           return Option.none();

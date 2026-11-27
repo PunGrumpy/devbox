@@ -39,6 +39,7 @@ const appRoute = Effect.gen(function* () {
   if (yield* host.which("clip.exe")) {
     return AppRoute.Clipboard();
   }
+
   return AppRoute.Scheme({
     opener: process.platform === "darwin" ? "open" : "xdg-open",
   });
@@ -64,6 +65,7 @@ const remotePairing = (target: string, label: string) =>
         `devbox pair failed there: ${ran.stderr.trim()}`
       );
     }
+
     return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Pairing))(
       ran.stdout
     ).pipe(
@@ -83,6 +85,7 @@ const toApp = (target: string, url: string, route: AppRoute) =>
           if ((yield* host.run(["clip.exe"], { stdin: url })).code !== 0) {
             return yield* Effect.fail("clip.exe failed");
           }
+
           yield* out.log(
             `${target}: pairing URL copied. In T3 Code, Settings -> Connections -> Add environment, paste it, then press Enter here.`
           );
@@ -93,6 +96,7 @@ const toApp = (target: string, url: string, route: AppRoute) =>
           if ((yield* host.run([opener, appLink(url)])).code !== 0) {
             return yield* Effect.fail(`${opener} failed`);
           }
+
           yield* out.log(
             `${target}: confirm "Add the backend" in the T3 Code app`
           );
@@ -153,6 +157,7 @@ export const link = Command.make(
               `t3 environment link exited with ${linked.code}`
             );
           }
+
           yield* out.check(
             true,
             `${target}: linked ${pairing.url} for agents here`
@@ -161,6 +166,7 @@ export const link = Command.make(
           if (!app) {
             return;
           }
+
           const forApp = yield* remotePairing(target, `${label} app`);
           yield* toApp(target, pairingUrl(forApp), route);
         }).pipe(Effect.result);

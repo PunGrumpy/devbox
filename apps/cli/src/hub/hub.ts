@@ -64,7 +64,7 @@ export type History = {
   readonly startedAt: string;
   readonly states: Readonly<Record<string, string>>;
   /** T3 Code's answer time in whole milliseconds per sample, null where it did not answer. */
-  readonly latency: Readonly<Record<string, ReadonlyArray<number | null>>>;
+  readonly latency: Readonly<Record<string, readonly (number | null)[]>>;
 };
 
 /** A machine as the hub shows it, with the address of its tunnel once it answers. */
@@ -83,7 +83,7 @@ export type Sample = Snapshot & {
 
 /** The last check, with what the hub has made and how it signs in to Cloudflare as they are now. */
 export type HubSnapshot = Omit<Sample, "machines"> & {
-  readonly machines: ReadonlyArray<HubMachine>;
+  readonly machines: readonly HubMachine[];
   /** The zone the hub publishes machines in and how it signs in, or null with no login saved. */
   readonly cloudflare: {
     readonly zone: string;
@@ -136,8 +136,9 @@ export const nextHistory = (
             : Math.round(m.t3.latencyMs),
       });
   }
+
   const states: Record<string, string> = {};
-  const latency: Record<string, ReadonlyArray<number | null>> = {};
+  const latency: Record<string, readonly (number | null)[]> = {};
 
   for (const name of new Set([...Object.keys(before), ...now.keys()])) {
     const sample = now.get(name);
@@ -150,6 +151,7 @@ export const nextHistory = (
     if (next.trim() === "") {
       continue;
     }
+
     const prior = beforeLatency[name] ?? [];
 
     const padded = [
@@ -201,6 +203,7 @@ export const assetsIn =
       if (!path.startsWith(`${root}${sep}`)) {
         return undefined;
       }
+
       return { body: readFileSync(path), path };
     } catch {
       return undefined;
@@ -243,6 +246,7 @@ const page = (
       body: "method not allowed\n",
     };
   }
+
   const found = asset(pathname);
 
   if (found === undefined) {
@@ -252,6 +256,7 @@ const page = (
       body: pathname === "/" ? NOT_BUILT : "not found\n",
     };
   }
+
   return {
     status: 200,
     headers: {
@@ -289,12 +294,15 @@ export const route = (
   if (crossSite(request)) {
     return refuse(403, "This request came from a page on another site.");
   }
+
   if (!isApi(pathname)) {
     return page(method, pathname, asset);
   }
+
   if (pathname === LOGIN_PATH) {
     return method === "POST" ? login(request, hub.token, hub.now) : onlyPost;
   }
+
   const wanted = machineAction(pathname, method);
 
   if (wanted?.action !== undefined) {
@@ -306,24 +314,31 @@ export const route = (
       hub.now
     );
   }
+
   if (!loggedIn(request, hub.token, hub.now)) {
     return LOGGED_OUT;
   }
+
   if (wanted !== undefined) {
     return refuse(405, `Use ${wanted.allow}.`, { allow: wanted.allow });
   }
+
   if (pathname === "/api/logout") {
     return method === "POST" ? logout : onlyPost;
   }
+
   if (pathname === CLOUDFLARE_PATH) {
     return cloudflareAsk(request);
   }
+
   if (pathname !== "/api/machines") {
     return refuse(404, "Nothing is here.");
   }
+
   if (method !== "GET") {
     return refuse(405, "Use GET.", { allow: "GET" });
   }
+
   return {
     status: 200,
     headers: { ...NO_STORE, "content-type": "application/json; charset=utf-8" },
@@ -390,9 +405,11 @@ const webhook = Effect.gen(function* () {
   if (named === "") {
     return Option.none<URL>();
   }
+
   if (URL.canParse(named)) {
     return Option.some(new URL(named));
   }
+
   yield* out.warn("DEVBOX_HUB_NOTIFY is not a URL, so nothing will be sent");
 
   return Option.none<URL>();
@@ -458,6 +475,7 @@ export const hub = Command.make(
           if (failed && !sendFailed) {
             yield* out.warn("a notification could not be sent");
           }
+
           sendFailed = failed;
         });
 
@@ -473,6 +491,7 @@ export const hub = Command.make(
           if (count % ASK_LATEST_EVERY === 0) {
             newest = Option.getOrElse(yield* latestT3, () => newest);
           }
+
           const watched = nextWatch(watch, snapshot);
 
           const saved = {
@@ -506,6 +525,7 @@ export const hub = Command.make(
               )
             );
           }
+
           return {
             ...snapshot,
             history: saved.history,
@@ -530,6 +550,7 @@ export const hub = Command.make(
         if (method !== "GET" && limit === undefined) {
           res.setHeader("connection", "close");
         }
+
         Promise.all([
           limit === undefined ? Promise.resolve("") : readBody(req, limit),
           Effect.runPromiseWith(context)(current(latest, home)),
@@ -555,6 +576,7 @@ export const hub = Command.make(
             if ("status" in routed) {
               return routed;
             }
+
             return Effect.runPromiseWith(context)(
               answer(routed, {
                 secrets,

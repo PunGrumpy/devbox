@@ -55,7 +55,7 @@ export const sessionValue = (expiry: number, token: string): string =>
 
 const SESSION = /^(?<expiry>[1-9]\d{0,11})\.(?<mac>[A-Za-z0-9_-]{43})$/;
 
-const sessions = (cookie: string | undefined): ReadonlyArray<string> =>
+const sessions = (cookie: string | undefined): readonly string[] =>
   (cookie ?? "").split(";").flatMap((pair) => {
     const at = pair.indexOf("=");
 
@@ -70,6 +70,7 @@ const validSession = (value: string, token: string, now: number): boolean => {
   if (parts?.expiry === undefined || parts.mac === undefined) {
     return false;
   }
+
   return (
     Number(parts.expiry) * 1000 > now &&
     hashedConstantTimeEqual(parts.mac, macOf(parts.expiry, token))
@@ -89,6 +90,7 @@ export const loggedIn = (
   if (sent !== undefined && hashedConstantTimeEqual(sent, token)) {
     return true;
   }
+
   return sessions(request.headers.cookie).some((value) =>
     validSession(value, token, now)
   );
@@ -120,9 +122,11 @@ export const crossSite = (request: HubRequest): boolean => {
   if (request.method === "GET" || origin === undefined) {
     return false;
   }
+
   if (host === undefined || !URL.canParse(origin)) {
     return true;
   }
+
   return new URL(origin).host.toLowerCase() !== host.toLowerCase();
 };
 
@@ -140,6 +144,7 @@ export const login = (
   if (request.body === null) {
     return refuse(413, "A login is not that long.", { connection: "close" });
   }
+
   const sent = Schema.decodeUnknownOption(Login)(request.body, {
     onExcessProperty: "error",
   });
@@ -147,9 +152,11 @@ export const login = (
   if (Option.isNone(sent)) {
     return refuse(400, 'Send {"token": "<hub token>"}.');
   }
+
   if (!hashedConstantTimeEqual(sent.value.token, token)) {
     return refuse(403, "That is not the hub token.");
   }
+
   const expiry = Math.floor(now / 1000) + SESSION_SECONDS;
 
   return {

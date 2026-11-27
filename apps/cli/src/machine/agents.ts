@@ -86,7 +86,7 @@ export const AGENTS = [
     login: "grok login --device-auth",
     byDefault: false,
   },
-] as const satisfies ReadonlyArray<Agent>;
+] as const satisfies readonly Agent[];
 
 export type AgentId = (typeof AGENTS)[number]["id"];
 
@@ -99,7 +99,7 @@ const isAgentId = (word: string): word is AgentId =>
 const KNOWN = AGENTS.map((agent) => agent.id).join(", ");
 
 /** Unique and in AGENTS order, so two lists that mean the same set serialize the same. Only `normalize` builds one. */
-export type AgentIds = ReadonlyArray<AgentId> & {
+export type AgentIds = readonly AgentId[] & {
   readonly AgentIds: unique symbol;
 };
 
@@ -129,9 +129,11 @@ export const parseAgentsFlag = (
   if (text.trim() === "pick") {
     return Result.succeed(AgentsFlag.Pick());
   }
+
   if (text.trim() === "none") {
     return Result.succeed(AgentsFlag.Set({ ids: normalize([]) }));
   }
+
   const words = text.split(",").map((word) => word.trim());
   const bad = words.find((word) => !isAgentId(word));
 
@@ -142,6 +144,7 @@ export const parseAgentsFlag = (
         : `unknown agent "${bad}"; known: ${KNOWN}`
     );
   }
+
   return Result.succeed(
     AgentsFlag.Set({ ids: normalize(words.filter(isAgentId)) })
   );
@@ -180,6 +183,7 @@ export const readSavedAgents = (data: string) =>
     if (Option.isNone(text)) {
       return Option.none<AgentIds>();
     }
+
     const decoded = Schema.decodeUnknownOption(SavedFile)(text.value);
 
     if (Option.isNone(decoded)) {
@@ -195,6 +199,7 @@ export const readSavedAgents = (data: string) =>
         `${path} names agents this devbox does not know, ignoring ${unknown.join(", ")}`
       );
     }
+
     return Option.some(normalize(decoded.value.agents.filter(isAgentId)));
   });
 
@@ -242,12 +247,14 @@ export const chooseAgents = (
       if (flag.value._tag === "Set") {
         return { ids: flag.value.ids, from: "flag" as const };
       }
+
       return { ids: yield* pickAgents(ticked), from: "picked" as const };
     }
 
     if (Option.isSome(saved)) {
       return { ids: saved.value, from: "saved" as const };
     }
+
     return yield* pickAgents(ticked).pipe(
       Effect.map((ids) => ({ ids, from: "picked" as const })),
       Effect.catchTag("UsageError", () =>
@@ -308,6 +315,7 @@ export const installAgent = (
           if (script.code !== 0) {
             return script;
           }
+
           const detach = (yield* host.which("setsid")) ? ["setsid"] : [];
 
           return yield* host.run([...detach, "bash"], {
@@ -340,6 +348,7 @@ export const updateAgents = (data: string, ids: AgentIds, npm: string) =>
       if (install._tag === "Script") {
         continue;
       }
+
       const ran = yield* host.run(
         [
           npm,
@@ -358,7 +367,7 @@ export const updateAgents = (data: string, ids: AgentIds, npm: string) =>
     }
   });
 
-export const skillsAgentsOf = (ids: AgentIds): ReadonlyArray<string> =>
+export const skillsAgentsOf = (ids: AgentIds): readonly string[] =>
   ids.flatMap((id) => agentOf(id).skills ?? []);
 
 export const loginHint = (id: AgentId): string => agentOf(id).login;

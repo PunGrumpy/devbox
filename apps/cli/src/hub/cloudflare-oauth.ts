@@ -119,6 +119,7 @@ export const readCallback = (url: string, state: string): Callback => {
       hint: AGAIN,
     };
   }
+
   const error = query.get("error");
 
   if (error !== null) {
@@ -131,6 +132,7 @@ export const readCallback = (url: string, state: string): Callback => {
           : "check the client's redirect URL and scopes in the Cloudflare dashboard",
     };
   }
+
   const code = query.get("code");
 
   if (code === null || code === "") {
@@ -140,6 +142,7 @@ export const readCallback = (url: string, state: string): Callback => {
       hint: AGAIN,
     };
   }
+
   return { _tag: "Code", code };
 };
 
@@ -171,6 +174,7 @@ export const parseTokens = (
     if (answer.token_type.toLowerCase() !== "bearer" || refresh === undefined) {
       return Option.none();
     }
+
     const seconds = answer.expires_in ?? ASSUMED_SECONDS;
 
     return Option.some({
@@ -236,6 +240,7 @@ const tokensFrom = (
         hint: failed.hint,
       });
     }
+
     const now = DateTime.toEpochMillis(yield* DateTime.now);
 
     return yield* Option.match(parseTokens(answer.body, now, refreshToken), {
@@ -398,12 +403,14 @@ export const signIn = (clientId: string, flow: Flow = CLOUDFLARE_FLOW) =>
         hint: AGAIN,
       });
     }
+
     if (callback.value._tag === "Refused") {
       return yield* new OAuthFailed({
         message: callback.value.message,
         hint: callback.value.hint,
       });
     }
+
     return yield* exchange(flow.post, {
       token: flow.endpoints.token,
       clientId,

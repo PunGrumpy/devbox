@@ -69,11 +69,12 @@ export const moveThreads = Command.make(
         if (apply && target._tag === "Live") {
           yield* assertT3Closed;
         }
+
         yield* assertSchema(SCHEMA);
         yield* assertEventsEmpty;
         const into = yield* resolveProject(to);
 
-        const sources: ReadonlyArray<Project> = yield* Effect.forEach(
+        const sources: readonly Project[] = yield* Effect.forEach(
           from,
           resolveProject
         );

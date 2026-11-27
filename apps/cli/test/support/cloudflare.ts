@@ -52,20 +52,20 @@ type DnsRecord = {
 export type FakeCloudflare = {
   /** The one bearer it takes. */
   bearer: string;
-  accounts: Array<{ id: string; name: string }>;
-  zones: Array<{ id: string; name: string; account: string }>;
+  accounts: { id: string; name: string }[];
+  zones: { id: string; name: string; account: string }[];
   /** The zone's custom ruleset, undefined until one is made. */
-  ruleset: { id: string; rules: Array<Rule> } | undefined;
-  tunnels: Array<Tunnel>;
+  ruleset: { id: string; rules: Rule[] } | undefined;
+  tunnels: Tunnel[];
   ingress: Map<string, unknown>;
-  records: Array<DnsRecord>;
-  calls: Array<Call>;
+  records: DnsRecord[];
+  calls: Call[];
   /** A call answered as Cloudflare refusing it, with the message, before it changes anything. */
   refuse: (call: Call) => string | undefined;
   /** An answer in place of Cloudflare's own, such as one that is not JSON. */
   override: (call: Call) => Answer | undefined;
   /** For each DNS record made, whether the WAF rule for its name existed then. */
-  guarded: Array<boolean>;
+  guarded: boolean[];
   answer: (url: string, request: Request) => Answer | undefined;
 };
 
@@ -115,9 +115,11 @@ export const makeCloudflare = (
     if (method === "GET" && path === "/user/tokens/verify") {
       return ok({ id: "tok", status: "active" });
     }
+
     if (method === "GET" && path === "/accounts") {
       return ok(cf.accounts);
     }
+
     if (method === "GET" && path === "/zones") {
       return ok(
         cf.zones
@@ -129,6 +131,7 @@ export const makeCloudflare = (
           }))
       );
     }
+
     if (parts[0] === "zones" && parts[2] === "rulesets") {
       if (method === "GET" && parts[3] === "phases") {
         return cf.ruleset === undefined
@@ -138,10 +141,11 @@ export const makeCloudflare = (
             )
           : ok({ ...cf.ruleset, phase: "http_request_firewall_custom" });
       }
+
       if (method === "POST" && parts.length === 3) {
         cf.ruleset = {
           id: nextId("rs"),
-          rules: ((input.rules ?? []) as Array<Omit<Rule, "id">>).map((r) => ({
+          rules: ((input.rules ?? []) as Omit<Rule, "id">[]).map((r) => ({
             ...r,
             id: nextId("rule"),
           })),
@@ -153,6 +157,7 @@ export const makeCloudflare = (
       if (cf.ruleset === undefined || parts[3] !== cf.ruleset.id) {
         return no(404, "no ruleset");
       }
+
       if (method === "POST" && parts[4] === "rules") {
         cf.ruleset.rules.push({
           ...(input as Omit<Rule, "id">),
@@ -178,6 +183,7 @@ export const makeCloudflare = (
           live.filter((t) => query.name === undefined || t.name === query.name)
         );
       }
+
       if (method === "POST" && parts.length === 3) {
         const made = {
           id: nextId("tun"),
@@ -195,6 +201,7 @@ export const makeCloudflare = (
       if (tunnel === undefined) {
         return no(404, "Tunnel not found");
       }
+
       if (method === "PUT" && parts[4] === "configurations") {
         cf.ingress.set(tunnel.id, input.config);
 
@@ -204,6 +211,7 @@ export const makeCloudflare = (
       if (method === "GET" && parts[4] === "token") {
         return ok(TUNNEL_TOKEN);
       }
+
       if (method === "DELETE" && parts[4] === "connections") {
         tunnel.connections = 0;
 
@@ -214,6 +222,7 @@ export const makeCloudflare = (
         if (tunnel.connections > 0) {
           return no(400, "Cannot delete a tunnel with active connections");
         }
+
         tunnel.deleted = true;
 
         return ok(tunnel);
@@ -226,6 +235,7 @@ export const makeCloudflare = (
       if (method === "GET" && parts.length === 3) {
         return ok(cf.records.filter((r) => r.name === query["name.exact"]));
       }
+
       if (method === "POST" && parts.length === 3) {
         const name = String(input.name);
         cf.guarded.push(
@@ -251,6 +261,7 @@ export const makeCloudflare = (
       if (record === undefined) {
         return no(404, "Record does not exist.");
       }
+
       if (method === "PATCH") {
         Object.assign(record, input);
 
@@ -271,6 +282,7 @@ export const makeCloudflare = (
     if (!url.startsWith(`${API}/`)) {
       return undefined;
     }
+
     const parsed = new URL(url);
 
     const call: Call = {
@@ -285,16 +297,19 @@ export const makeCloudflare = (
     if (request.headers?.authorization !== `Bearer ${cf.bearer}`) {
       return no(400, "Invalid request headers");
     }
+
     const replaced = cf.override(call);
 
     if (replaced !== undefined) {
       return replaced;
     }
+
     const refused = cf.refuse(call);
 
     if (refused !== undefined) {
       return no(400, refused);
     }
+
     return handle(call);
   };
 

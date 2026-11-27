@@ -184,12 +184,15 @@ describe("browser libraries", () => {
           stderr: "",
         };
       }
+
       if (argv[0] === "dpkg") {
         return { code: 1, stdout: "", stderr: "" };
       }
+
       if (argv[0] === "sudo") {
         return { code: 0, stdout: "", stderr: "" };
       }
+
       return undefined;
     };
 

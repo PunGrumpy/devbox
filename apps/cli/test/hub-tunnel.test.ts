@@ -35,7 +35,7 @@ const HOSTNAME = "t3-edge-7.example.com";
 
 type Spoke = {
   took: boolean;
-  told: Array<{ readonly action: string; readonly fields: Fields }>;
+  told: { readonly action: string; readonly fields: Fields }[];
 };
 
 const setUp = async (cf: FakeCloudflare = makeCloudflare()) => {
@@ -59,7 +59,7 @@ const jobFor = (
   m: FakeMachine,
   spoke: Spoke,
   name = "edge-7",
-  others: ReadonlyArray<string> = []
+  others: readonly string[] = []
 ): TunnelJob => ({
   home: m.home,
   others,
@@ -96,7 +96,7 @@ const publishing = async (
   m: FakeMachine,
   spoke: Spoke,
   name?: string,
-  others?: ReadonlyArray<string>
+  others?: readonly string[]
 ) => (await runWith(m.host, publish(jobFor(m, spoke, name, others)))).value;
 
 const unpublishing = async (m: FakeMachine, spoke: Spoke, name?: string) =>
@@ -217,7 +217,7 @@ describe("publishing", () => {
     expect(cf.ruleset?.rules).toEqual([theirs]);
   });
 
-  const STEPS: ReadonlyArray<readonly [string, (c: Call) => boolean]> = [
+  const STEPS: readonly (readonly [string, (c: Call) => boolean])[] = [
     [
       "check the hostname",
       (c) => c.method === "GET" && c.path.endsWith("/dns_records"),

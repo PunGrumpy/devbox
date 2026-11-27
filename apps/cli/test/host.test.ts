@@ -39,6 +39,7 @@ describe("Host.answers", () => {
     if (server === undefined) {
       return;
     }
+
     try {
       expect(await answers(server.port!, "::1")).toBe(true);
     } finally {
@@ -104,15 +105,18 @@ describe("Host.fetchText", () => {
         if (path === "/small") {
           return new Response("ok");
         }
+
         if (path === "/sized") {
           return new Response(big);
         }
+
         return new Response(
           new ReadableStream({
             start: (c) => {
               for (let i = 0; i < 32; i += 1) {
                 c.enqueue(new TextEncoder().encode(big.slice(0, 65_536)));
               }
+
               c.close();
             },
           })

@@ -50,8 +50,7 @@ const tokenBody = (fields: Record<string, unknown> = {}) =>
   });
 
 const fakePost = (answer: Answer) => {
-  const sent: Array<{ url: string; form: Readonly<Record<string, string>> }> =
-    [];
+  const sent: { url: string; form: Readonly<Record<string, string>> }[] = [];
 
   const post: PostForm = (url, form) =>
     Effect.sync(() => {
@@ -69,6 +68,7 @@ const fails = async <A>(effect: Effect.Effect<A, OAuthFailed>) => {
   if (Exit.isSuccess(exit)) {
     throw new Error("expected a failure");
   }
+
   const error = exit.cause.reasons.find(
     (reason) => reason._tag === "Fail"
   )?.error;
@@ -76,6 +76,7 @@ const fails = async <A>(effect: Effect.Effect<A, OAuthFailed>) => {
   if (!(error instanceof OAuthFailed)) {
     throw new Error("expected OAuthFailed");
   }
+
   return error;
 };
 
@@ -370,7 +371,7 @@ const fakeCloudflare = async (options: { error?: string } = {}) => {
   const seen = {
     challenge: "",
     verifier: "",
-    forms: [] as Array<Record<string, string>>,
+    forms: [] as Record<string, string>[],
   };
 
   const server = http.createServer((req, res) => {
@@ -386,6 +387,7 @@ const fakeCloudflare = async (options: { error?: string } = {}) => {
       } else {
         back.searchParams.set("error", options.error);
       }
+
       res.writeHead(302, { location: back.href });
       res.end();
 
@@ -430,8 +432,8 @@ const fakeCloudflare = async (options: { error?: string } = {}) => {
 };
 
 const capture = () => {
-  const out: Array<string> = [];
-  const err: Array<string> = [];
+  const out: string[] = [];
+  const err: string[] = [];
 
   const output = Output.make({
     stdout: (text) => out.push(text),
@@ -452,10 +454,10 @@ const capture = () => {
 
 const runLogin = (
   flow: Flow,
-  args: ReadonlyArray<string> = ["--client-id", CLIENT]
+  args: readonly string[] = ["--client-id", CLIENT]
 ) => {
   const printed = capture();
-  const saved: Array<SignedIn> = [];
+  const saved: SignedIn[] = [];
 
   const root = Command.make("devbox").pipe(
     Command.withSubcommands([
@@ -488,6 +490,7 @@ const printedAddress = async (printed: ReturnType<typeof capture>) => {
     if (found !== undefined) {
       return found;
     }
+
     await Bun.sleep(10);
   }
 
@@ -564,6 +567,7 @@ describe("devbox hub cloudflare login", () => {
     for (const secret of [ACCESS, REFRESH, CODE, cloudflare.seen.verifier]) {
       expect(all).not.toContain(secret);
     }
+
     expect(await refused(flow.port)).toBe(true);
   });
 
@@ -640,6 +644,7 @@ describe("devbox hub cloudflare login", () => {
         )
       ).toBe("refused");
     }
+
     await browse(await printedAddress(printed));
     expect(await done).toBe(0);
     await cloudflare.close();

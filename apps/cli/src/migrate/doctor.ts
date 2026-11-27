@@ -40,17 +40,17 @@ type QuickCheck = Data.TaggedEnum<{
 const QuickCheck = Data.taggedEnum<QuickCheck>();
 
 type MemoryCheck = Data.TaggedEnum<{
-  Checked: { readonly entries: ReadonlyArray<StrandedMemory> };
+  Checked: { readonly entries: readonly StrandedMemory[] };
   Unchecked: { readonly reason: string };
 }>;
 
 const MemoryCheck = Data.taggedEnum<MemoryCheck>();
 
 type Inspection = Data.TaggedEnum<{
-  Incomplete: { readonly missing: ReadonlyArray<string> };
+  Incomplete: { readonly missing: readonly string[] };
   Complete: {
     readonly events: number;
-    readonly projects: ReadonlyArray<ProjectRow>;
+    readonly projects: readonly ProjectRow[];
     readonly issues: Issues;
     readonly memory: MemoryCheck;
   };
@@ -67,7 +67,7 @@ type Report = {
 
 const Cwd = Schema.Array(Schema.Struct({ cwd: Schema.Unknown }));
 
-const strings = (rows: ReadonlyArray<{ readonly cwd: unknown }>) =>
+const strings = (rows: readonly { readonly cwd: unknown }[]) =>
   rows.flatMap((row) => (typeof row.cwd === "string" ? [row.cwd] : []));
 
 const inspect = Effect.gen(function* () {
@@ -261,6 +261,7 @@ const render = (report: Report) =>
     if (complete === undefined) {
       return yield* out.log(dim("the other checks need the tables above"));
     }
+
     if (complete.projects.length > 0) {
       yield* out.table<ProjectRow>(
         [
@@ -331,6 +332,7 @@ const render = (report: Report) =>
           if (entries.length === 0) {
             return;
           }
+
           yield* out.line();
           yield* out.table<StrandedMemory>(
             [

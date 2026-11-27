@@ -43,8 +43,8 @@ export type Supervisor = Data.TaggedEnum<{
 export const Supervisor = Data.taggedEnum<Supervisor>();
 
 export type ServeState = Data.TaggedEnum<{
-  Running: { readonly pids: ReadonlyArray<number> };
-  Stale: { readonly pids: ReadonlyArray<number> };
+  Running: { readonly pids: readonly number[] };
+  Stale: { readonly pids: readonly number[] };
   Stopped: {};
 }>;
 
@@ -54,15 +54,15 @@ export type Context = {
   readonly home: string;
   readonly etc: string;
   readonly user: string;
-  readonly self: ReadonlyArray<string>;
+  readonly self: readonly string[];
   readonly path: string;
-  readonly settings: ReadonlyArray<Setting>;
+  readonly settings: readonly Setting[];
 };
 
 export type BackupFact = Data.TaggedEnum<{
   Off: { readonly why: string };
   On: {
-    readonly missing: ReadonlyArray<string>;
+    readonly missing: readonly string[];
     readonly apt: boolean;
     readonly timer: { readonly enabled: boolean; readonly active: boolean };
   };
@@ -73,7 +73,7 @@ export const BackupFact = Data.taggedEnum<BackupFact>();
 export type Facts = {
   readonly sudo: boolean;
   readonly files: ReadonlyMap<string, Option.Option<string>>;
-  readonly git: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly git: ReadonlyMap<string, readonly string[]>;
   readonly links: ReadonlyMap<string, Option.Option<string>>;
   readonly dataIsHome: boolean;
   readonly ghLoginSaved: boolean;
@@ -115,14 +115,14 @@ export type Change = Data.TaggedEnum<{
     // Applies only when the file is created.
     readonly mode: Option.Option<number>;
   };
-  Git: { readonly key: string; readonly values: ReadonlyArray<string> };
+  Git: { readonly key: string; readonly values: readonly string[] };
   Link: { readonly path: string; readonly target: string };
   InstallT3: { readonly from: Option.Option<string>; readonly to: string };
   InstallAgent: { readonly id: AgentId };
   Linger: {};
-  InstallTools: { readonly packages: ReadonlyArray<string> };
+  InstallTools: { readonly packages: readonly string[] };
   EnableTimer: {};
-  Start: { readonly why: string; readonly stop: ReadonlyArray<number> };
+  Start: { readonly why: string; readonly stop: readonly number[] };
   BuildHub: { readonly checkout: string };
   EnableHub: { readonly address: string };
   RemoveHub: { readonly path: string; readonly privileged: boolean };
@@ -138,8 +138,8 @@ export const Change = Data.taggedEnum<Change>();
 export type Skip = { readonly what: string; readonly why: string };
 
 export type Plan = {
-  readonly changes: ReadonlyArray<Change>;
-  readonly skips: ReadonlyArray<Skip>;
+  readonly changes: readonly Change[];
+  readonly skips: readonly Skip[];
 };
 
 export const t3SettingsPath = (baseDir: string) =>
@@ -170,9 +170,11 @@ export const enableLinkedEnvironments = (
   if (Option.isNone(settings)) {
     return LinkedEnvironments.NotAnObject();
   }
+
   if (settings.value.linkedEnvironmentsEnabled === true) {
     return LinkedEnvironments.On();
   }
+
   return LinkedEnvironments.Enable({
     content: `${JSON.stringify({ ...settings.value, linkedEnvironmentsEnabled: true }, null, 2)}\n`,
   });
@@ -261,7 +263,7 @@ const neverAllInterfaces = (bind: string): string =>
 export const hubHost = (config: MachineConfig): string =>
   neverAllInterfaces(config.host);
 
-export const hubArgs = (config: MachineConfig): ReadonlyArray<string> => [
+export const hubArgs = (config: MachineConfig): readonly string[] => [
   "hub",
   "--host",
   hubHost(config),
@@ -295,7 +297,7 @@ export const hubUnitFile = (
     "",
   ].join("\n");
 
-export const spokeArgs = (config: MachineConfig): ReadonlyArray<string> => [
+export const spokeArgs = (config: MachineConfig): readonly string[] => [
   "spoke",
   "--host",
   neverAllInterfaces(config.host),
@@ -409,7 +411,7 @@ export const persistLinks = (
           : []),
       ];
 
-const sameValues = (a: ReadonlyArray<string>, b: ReadonlyArray<string>) =>
+const sameValues = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((value, i) => value === b[i]);
 
 export const plan = (
@@ -417,8 +419,8 @@ export const plan = (
   ctx: Context,
   facts: Facts
 ): Plan => {
-  const changes: Array<Change> = [];
-  const skips: Array<Skip> = [];
+  const changes: Change[] = [];
+  const skips: Skip[] = [];
 
   const current = (path: string) =>
     Option.flatten(Option.fromUndefinedOr(facts.files.get(path)));
@@ -432,6 +434,7 @@ export const plan = (
     if (Option.contains(current(path), content)) {
       return false;
     }
+
     if (privileged && !facts.sudo) {
       skips.push({ what: path, why: "no passwordless sudo" });
 
@@ -518,6 +521,7 @@ export const plan = (
   for (const id of toInstall) {
     changes.push(Change.InstallAgent({ id }));
   }
+
   for (const id of Option.getOrElse(facts.agents.saved, () => [])) {
     if (!config.agents.ids.includes(id))
       skips.push({
@@ -546,9 +550,11 @@ export const plan = (
               why: `${missing.join(" and ")} missing, and apt with passwordless sudo is needed to install them`,
             });
           }
+
           if (missing.length > 0) {
             changes.push(Change.InstallTools({ packages: missing }));
           }
+
           const service = write(
             unitPath(scope, ctx, BACKUP_SERVICE),
             backupServiceFile(scope, config, ctx),
@@ -609,6 +615,7 @@ export const plan = (
             Change.RemoveHub({ path, privileged: scope === "system" })
           );
         }
+
         return;
       }
 
@@ -623,6 +630,7 @@ export const plan = (
           Change.EnableHub({ address: `${hubHost(config)}:${HUB_PORT}` })
         );
       }
+
       if (!facts.hub.built) {
         Option.match(facts.hub.checkout, {
           onNone: () =>
@@ -654,6 +662,7 @@ export const plan = (
             Change.RemoveSpoke({ path, privileged: scope === "system" })
           );
         }
+
         return;
       }
 
@@ -689,6 +698,7 @@ export const plan = (
             Change.RemoveTunnel({ path, privileged: scope === "system" })
           );
         }
+
         return;
       }
 
@@ -697,6 +707,7 @@ export const plan = (
           Change.InstallCloudflared({ path: cloudflaredPath(ctx.home) })
         );
       }
+
       const wrote = write(path, tunnelUnitFile(scope, ctx), scope === "system");
 
       if (wrote || !facts.tunnel.cloudflared || !facts.tunnel.running) {

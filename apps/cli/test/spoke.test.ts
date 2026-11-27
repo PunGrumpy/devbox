@@ -45,9 +45,11 @@ const setUpMachine = (options: { recorded?: boolean; virt?: string } = {}) => {
     if (argv[0] === "systemd-detect-virt") {
       return { code: 0, stdout: `${options.virt ?? "kvm"}\n`, stderr: "" };
     }
+
     if (argv[SELF.length] === "pair") {
       return { code: 0, stdout: `${JSON.stringify(PAIRING)}\n`, stderr: "" };
     }
+
     return undefined;
   };
 
@@ -69,7 +71,7 @@ const setUpMachine = (options: { recorded?: boolean; virt?: string } = {}) => {
 
 const running = async (
   m: ReturnType<typeof makeMachine>,
-  ...args: Array<string>
+  ...args: string[]
 ) => {
   const port = await Effect.runPromise(freePort);
 
@@ -84,6 +86,7 @@ const running = async (
   for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1) {
     await Bun.sleep(20);
   }
+
   return { spoke, base: `http://127.0.0.1:${port}`, port };
 };
 

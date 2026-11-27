@@ -53,11 +53,11 @@ import { devbox, runWith, start } from "./support/run.ts";
 
 const piped = async (
   m: FakeMachine,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   stdin: string
 ) => {
-  const out: Array<string> = [];
-  const err: Array<string> = [];
+  const out: string[] = [];
+  const err: string[] = [];
 
   const output = Output.make({
     stdout: (text) => out.push(text),
@@ -104,7 +104,7 @@ const withCloudflare = (cf: FakeCloudflare = makeCloudflare()) => {
   return { m, cf };
 };
 
-const saveToken = (m: FakeMachine, flags: ReadonlyArray<string> = []) =>
+const saveToken = (m: FakeMachine, flags: readonly string[] = []) =>
   piped(m, ["hub", "cloudflare", "token", ...flags], `${CLOUDFLARE_TOKEN}\n`);
 
 const CLIENT = "made-up-client-id";
@@ -123,7 +123,7 @@ const tokenAnswer = (access: string, refresh: string): Answer => ({
 });
 
 const tokenEndpoint = (answer: Answer, delayMs = 0) => {
-  const sent: Array<Readonly<Record<string, string>>> = [];
+  const sent: Readonly<Record<string, string>>[] = [];
 
   const post: PostForm = (_, form) =>
     Effect.sync(() => sent.push(form)).pipe(
@@ -134,9 +134,9 @@ const tokenEndpoint = (answer: Answer, delayMs = 0) => {
   return { post, sent };
 };
 
-const logIn = async (m: FakeMachine, flags: ReadonlyArray<string> = []) => {
-  const out: Array<string> = [];
-  const err: Array<string> = [];
+const logIn = async (m: FakeMachine, flags: readonly string[] = []) => {
+  const out: string[] = [];
+  const err: string[] = [];
 
   const output = Output.make({
     stdout: (text) => out.push(text),
@@ -523,6 +523,7 @@ describe("an OAuth login the hub calls Cloudflare with", () => {
     if (saved.login.kind !== "oauth") {
       throw new Error("expected an OAuth login");
     }
+
     expect(Date.parse(saved.login.expiresAt) - Date.now()).toBeGreaterThan(
       3_500_000
     );
@@ -551,6 +552,7 @@ describe("an OAuth login the hub calls Cloudflare with", () => {
     for (const secret of [OAUTH_ACCESS, OAUTH_REFRESH]) {
       expect(`${error.message} ${error.hint}`).not.toContain(secret);
     }
+
     expect(savedFile(m)).toEqual(account);
   });
 
@@ -646,6 +648,7 @@ const replied = (routed: ReturnType<typeof ask>): Reply => {
   if (!("status" in routed)) {
     throw new Error(`asked ${routed.ask} instead of replying`);
   }
+
   return routed;
 };
 
@@ -730,17 +733,21 @@ for (const kind of ["token", "oauth"] as const) {
     const cf = makeCloudflare({
       bearer: kind === "token" ? CLOUDFLARE_TOKEN : OAUTH_ACCESS,
     });
+
     const m = makeMachine();
     m.answer = (url, request) => cf.answer(url, request);
+
     if (kind === "token") await saveToken(m);
     else
       await runWith(
         m.host,
         saveCloudflare(m.home, oauthAccount(Date.now() + 3_600_000))
       );
+
     const key = (
       await devbox({ HOME: m.home }, ["hub", "key"], { host: m.host })
     ).out.trim();
+
     m.binaries.add("tailscale");
     m.respond = (argv) =>
       argv[0] === "tailscale"
@@ -766,8 +773,10 @@ for (const kind of ["token", "oauth"] as const) {
       })
     );
     let nonce = 0;
+
     const challenge = () =>
       `edge-8-challenge-${String((nonce += 1)).padStart(4, "0")}`;
+
     m.pages.set(
       `http://100.64.0.22:${SPOKE_PORT}/api/challenge`,
       JSON.stringify({ nonce: challenge() })
@@ -777,11 +786,13 @@ for (const kind of ["token", "oauth"] as const) {
         `http://100.64.0.22:${SPOKE_PORT}/api/challenge`,
         JSON.stringify({ nonce: challenge() })
       );
+
       return posted.url.endsWith("/api/do") ? "" : undefined;
     };
 
     const port = await Effect.runPromise(freePort);
     const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
+
     const hub = start(
       { HOME: m.home },
       [
@@ -795,22 +806,29 @@ for (const kind of ["token", "oauth"] as const) {
       ],
       { host: m.host }
     );
+
     for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1)
       await Bun.sleep(20);
     afterAll(() => hub.stop());
     const base = `http://127.0.0.1:${port}`;
+
     const token = (
       await devbox({ HOME: m.home }, ["hub", "token"], { host: m.host })
     ).out.trim();
+
     const owner = { authorization: `Bearer ${token}` };
+
     const machines = async () => {
       const text = await (
         await fetch(`${base}/api/machines`, { headers: owner })
       ).text();
+
       return { text, snapshot: JSON.parse(text) as HubSnapshot };
     };
+
     const tunnelOf = async (name: string) =>
       (await machines()).snapshot.machines.find((x) => x.name === name)?.tunnel;
+
     const tunnel = (method: string, name = "edge-8") =>
       fetch(`${base}/api/machines/${name}/tunnel`, { method, headers: owner });
 
@@ -833,9 +851,11 @@ for (const kind of ["token", "oauth"] as const) {
         token: TUNNEL_TOKEN,
         url: "https://t3-edge-8.example.com",
       });
+
       const { nonce: sentNonce } = JSON.parse(sent?.body ?? "{}") as {
         nonce: string;
       };
+
       const verdict = verifyRequest(
         {
           body: sent?.body ?? "",
@@ -846,6 +866,7 @@ for (const kind of ["token", "oauth"] as const) {
         Date.now(),
         handOut(new Map(), sentNonce, Date.now())
       );
+
       expect(verdict).toMatchObject({
         ok: true,
         do: "tunnel",
@@ -859,6 +880,7 @@ for (const kind of ["token", "oauth"] as const) {
     test("no secret reaches the snapshot, the hub's log, or tunnels.json", async () => {
       const { text } = await machines();
       const remembered = readFileSync(tunnelsFile(m.home), "utf8");
+
       for (const secret of [
         CLOUDFLARE_TOKEN,
         OAUTH_ACCESS,
@@ -919,6 +941,7 @@ for (const kind of ["token", "oauth"] as const) {
         tunnel("POST"),
         tunnel("DELETE"),
       ]);
+
       expect([published.status, unpublished.status]).toEqual([202, 204]);
       expect(stateOf(cf)).toEqual({
         rules: [],
@@ -927,10 +950,12 @@ for (const kind of ["token", "oauth"] as const) {
         records: [],
       });
       expect(await tunnelOf("edge-8")).toBeNull();
+
       const [again, last] = await Promise.all([
         tunnel("DELETE"),
         tunnel("POST"),
       ]);
+
       expect([again.status, last.status]).toEqual([204, 202]);
       expect(stateOf(cf).records).toHaveLength(1);
       expect(await tunnelOf("edge-8")).toEqual({
@@ -1076,6 +1101,7 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
   for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
   }
+
   afterAll(() => hub.stop());
   const base = `http://127.0.0.1:${port}`;
 
@@ -1084,7 +1110,7 @@ describe("devbox hub, connected to Cloudflare from its page", async () => {
   ).out.trim();
 
   const page = { authorization: `Bearer ${token}`, origin: base };
-  const replies: Array<string> = [];
+  const replies: string[] = [];
 
   const send = async (method: string, body?: object | string) => {
     const response = await fetch(`${base}/api/cloudflare`, {

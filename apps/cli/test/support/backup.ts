@@ -20,11 +20,13 @@ export const makeSqlite = (path: string, rows: number, wal = false) => {
   if (wal) {
     db.run("pragma journal_mode = wal");
   }
+
   db.run("create table if not exists t (n integer)");
 
   for (let i = 0; i < rows; i += 1) {
     db.run("insert into t values (?)", [i]);
   }
+
   db.close();
 };
 
@@ -86,12 +88,15 @@ export const withBackupTools = (
                 "Fatal: repository does not exist\nIs there a repository at the following location?\n",
             };
       }
+
       if (args[0] === "init") {
         return ((repo.exists = true), ok());
       }
+
       if (args[0] === "backup") {
         return ((repo.stage = args.at(-1)), ok());
       }
+
       if (args[0] === "restore") {
         if (repo.stage === undefined) {
           return {
@@ -100,11 +105,13 @@ export const withBackupTools = (
             stderr: "Fatal: no matching ID found for prefix latest\n",
           };
         }
+
         const target = args[args.indexOf("--target") + 1]!;
 
         if (existsSync(repo.stage)) {
           cpSync(repo.stage, join(target, repo.stage), { recursive: true });
         }
+
         return ok();
       }
 

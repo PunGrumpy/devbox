@@ -47,12 +47,15 @@ const setUpMachine = async () => {
     if (argv[0] === "systemd-detect-virt") {
       return ok("kvm\n");
     }
+
     if (argv[0]?.endsWith("/mise") && argv[1] === "use") {
       return (writeFileSync(installed, ""), ok());
     }
+
     if (argv[0]?.endsWith("/mise") && argv[1] === "which") {
       return ok(`${installed}\n`);
     }
+
     return undefined;
   };
 
@@ -71,7 +74,7 @@ const setUpMachine = async () => {
   return m;
 };
 
-const up = (m: Machine, ...args: ReadonlyArray<string>) =>
+const up = (m: Machine, ...args: readonly string[]) =>
   devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });
@@ -90,6 +93,7 @@ const running = async (m: Machine) => {
   for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1) {
     await Bun.sleep(20);
   }
+
   return { spoke, base: `http://127.0.0.1:${port}` };
 };
 
@@ -117,7 +121,7 @@ const tokenPath = (m: Machine) =>
 const machineJson = (m: Machine) =>
   readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8");
 
-const recorded = (m: Machine): ReadonlyArray<string> =>
+const recorded = (m: Machine): readonly string[] =>
   JSON.parse(machineJson(m)).up;
 
 const seen = new WeakMap<Machine, number>();
@@ -134,7 +138,7 @@ const started = (m: Machine) => {
   return runs.slice(from).map((argv) => argv.slice(SELF.length + 2));
 };
 
-const finish = async (m: Machine, flags: ReadonlyArray<string>) => {
+const finish = async (m: Machine, flags: readonly string[]) => {
   const r = await up(m, ...flags);
   expect(r.code).toBe(0);
 
@@ -279,7 +283,7 @@ describe("a tunnel request", async () => {
     ],
     [{ token: TOKEN, url: `${URL} --hub` }, "https"],
     [{ token: TOKEN, url: "https://localhost" }, "https"],
-  ] satisfies ReadonlyArray<readonly [Fields, string]>)(
+  ] satisfies readonly (readonly [Fields, string])[])(
     "%p is refused, and nothing is saved or started",
     async (fields, names) => {
       const response = await ask(base, "tunnel", fields);

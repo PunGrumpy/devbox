@@ -25,19 +25,22 @@ const machine = (options: { tree?: string; buildFails?: boolean } = {}) => {
     if (argv[0] === "git" && argv[3] === "rev-parse") {
       return ok(`${state.tree}\n`);
     }
+
     if (argv[0] === "/opt/bun" && argv[1] === "install") {
       return ok();
     }
+
     if (argv[0] === "/opt/bun" && argv[1] === "run") {
       return options.buildFails ? { code: 1, stdout: "", stderr: "" } : ok();
     }
+
     return undefined;
   };
 
   return { m, checkout, state };
 };
 
-const up = (m: ReturnType<typeof makeMachine>, ...args: Array<string>) =>
+const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
   devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });

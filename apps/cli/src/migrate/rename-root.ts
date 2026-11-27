@@ -50,7 +50,7 @@ const sessions = Effect.gen(function* () {
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Session)))
     );
 
-  return rows.flatMap((row): Array<Session> =>
+  return rows.flatMap((row): Session[] =>
     typeof row.cwd === "string" ? [{ ...row, cwd: row.cwd }] : []
   );
 });
@@ -81,6 +81,7 @@ export const renameRoot = Command.make(
         if (apply && target._tag === "Live") {
           yield* assertT3Closed;
         }
+
         yield* assertSchema(SCHEMA);
         yield* assertEventsEmpty;
         const project = yield* resolveProject(ref);

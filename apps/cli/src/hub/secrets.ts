@@ -94,6 +94,7 @@ export const hubKey = (home: string) =>
         hint: remakeHint(path),
       });
     }
+
     return privateKey;
   });
 
@@ -112,6 +113,7 @@ export const hubToken = (home: string) =>
         hint: remakeHint(path),
       });
     }
+
     return token;
   });
 

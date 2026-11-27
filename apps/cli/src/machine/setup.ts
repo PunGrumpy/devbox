@@ -52,6 +52,7 @@ export const browserLibraries = Effect.gen(function* () {
   if (!(yield* host.which("apt-get"))) {
     return yield* out.log("browser: no apt-get, skipped");
   }
+
   const packages = yield* Effect.forEach(BROWSER_PACKAGES, (name) =>
     Effect.map(host.run(["apt-cache", "policy", `${name}t64`]), (policy) =>
       /Candidate: (?!\(none\))/.test(policy.stdout) ? `${name}t64` : name
@@ -61,6 +62,7 @@ export const browserLibraries = Effect.gen(function* () {
   if ((yield* host.run(["dpkg", "-s", ...packages])).code === 0) {
     return yield* out.log("browser: libraries present");
   }
+
   const update = yield* host.run(["sudo", "-n", "apt-get", "update", "-qq"], {
     inherit: true,
   });
@@ -100,11 +102,13 @@ export const ensureMise = (data: string, env: Record<string, string>) =>
     if (yield* fs.exists(mise).pipe(Effect.orElseSucceed(() => false))) {
       return true;
     }
+
     const installer = yield* host.run(["curl", "-fsSL", "https://mise.run"]);
 
     if (installer.code !== 0) {
       return false;
     }
+
     const ran = yield* host.run(["sh"], {
       stdin: installer.stdout,
       env: { ...env, MISE_INSTALL_PATH: mise },
@@ -123,6 +127,7 @@ const languages = (data: string, env: Record<string, string>) =>
     if (!(yield* ensureMise(data, env))) {
       return yield* out.warn("tools: cannot download mise");
     }
+
     const gh = (yield* host.which("gh")) ? [] : ["gh@latest"];
 
     const use = yield* host.run(
@@ -147,7 +152,7 @@ const languages = (data: string, env: Record<string, string>) =>
 export const installSkills = (
   data: string,
   env: Record<string, string>,
-  agents: ReadonlyArray<string>
+  agents: readonly string[]
 ) =>
   Effect.gen(function* () {
     const host = yield* Host;
@@ -157,11 +162,13 @@ export const installSkills = (
     if (agents.length === 0) {
       return yield* out.log("skills: no chosen agent takes skills");
     }
+
     const fetched = yield* host.run(["curl", "-fsSL", SKILLS_LIST_URL]);
 
     if (fetched.code !== 0) {
       return yield* out.warn("skills: cannot read the list");
     }
+
     const list = parseSkillsList(fetched.stdout);
     const paths = pathsOf(data);
 
@@ -179,11 +186,13 @@ export const installSkills = (
     ) {
       return yield* out.log("skills: up to date");
     }
+
     for (const line of list.rejected) {
       yield* out.warn(
         `skills: ignored a line that is not a skill source: ${line}`
       );
     }
+
     const cwd = mkdtempSync(join(tmpdir(), "devbox-skills-"));
 
     const failed = yield* Effect.filter(list.sources, (source) =>
@@ -223,6 +232,7 @@ export const linkInstructions = (
     if (Option.isNone(text)) {
       return yield* out.warn(`instructions: no ${sourcePath}`);
     }
+
     const source = { path: sourcePath, text: text.value };
 
     const settings = yield* fs
@@ -287,5 +297,6 @@ export const postStart = (config: ServeConfig, home: string) =>
     if (ids.includes("claude")) {
       yield* linkInstructions(config, home, INSTRUCTIONS_FILE);
     }
+
     yield* out.log("setup: done");
   });

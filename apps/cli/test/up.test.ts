@@ -18,7 +18,7 @@ import { absolutePath } from "../src/migrate/paths.ts";
 import { makeMachine, SELF } from "./support/host.ts";
 import { devbox } from "./support/run.ts";
 
-const up = (m: ReturnType<typeof makeMachine>, ...args: Array<string>) =>
+const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
   devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });
@@ -563,6 +563,7 @@ describe("devbox up converges", () => {
       if (argv[0] === "curl" && argv.includes("https://mise.run")) {
         return { code: 0, stdout: "install mise", stderr: "" };
       }
+
       if (argv[0] === "sh") {
         mkdirSync(join(data, ".local/bin"), { recursive: true });
         writeFileSync(join(data, ".local/bin/mise"), "");
@@ -620,7 +621,7 @@ describe("devbox up converges", () => {
   test("npm runs with the mise data dir from --data", async () => {
     const m = makeMachine();
     const data = join(m.base, "persist");
-    const seen: Array<string | undefined> = [];
+    const seen: (string | undefined)[] = [];
     const host = m.host;
     m.host = {
       ...host,
@@ -628,6 +629,7 @@ describe("devbox up converges", () => {
         if (argv[0]?.endsWith("npm")) {
           seen.push(options?.env?.MISE_DATA_DIR);
         }
+
         return host.run(argv, options);
       },
     };

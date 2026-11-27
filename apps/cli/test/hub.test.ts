@@ -39,6 +39,7 @@ const sneakyComputer = () => {
         stderr: "",
       };
     }
+
     if (argv[1] === "environment") {
       return {
         code: 0,
@@ -55,6 +56,7 @@ const sneakyComputer = () => {
         stderr: "",
       };
     }
+
     return undefined;
   };
 
@@ -116,6 +118,7 @@ describe("devbox hub", async () => {
   for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
   }
+
   afterAll(() => running.stop());
 
   test("logs the URL it listens on", () => {
@@ -210,6 +213,7 @@ test("without a built page, / says how to build it and the JSON still answers", 
   for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
   }
+
   try {
     const page = await fetch(`http://127.0.0.1:${port}/`);
     expect(page.status).toBe(404);
@@ -231,6 +235,7 @@ test("the hub closes its port when stopped", async () => {
   for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
   }
+
   const headers = asOwner(home);
   expect(
     (await fetch(`http://127.0.0.1:${port}/api/machines`, { headers })).status

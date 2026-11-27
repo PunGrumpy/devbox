@@ -14,7 +14,7 @@ import { Locations } from "./locations.ts";
 import { type AbsolutePath, absolutePath } from "./paths.ts";
 
 export type ClaudeHome = {
-  readonly instances: ReadonlyArray<string>;
+  readonly instances: readonly string[];
   readonly enabled: boolean;
   readonly path: AbsolutePath;
 };
@@ -53,7 +53,7 @@ const ClaudeInstance = Schema.Struct({
 export class ClaudeHomes extends Context.Service<
   ClaudeHomes,
   {
-    readonly list: Effect.Effect<ReadonlyArray<ClaudeHome>, SettingsUnreadable>;
+    readonly list: Effect.Effect<readonly ClaudeHome[], SettingsUnreadable>;
     readonly defaultHome: AbsolutePath;
     readonly configDirElsewhere: Option.Option<AbsolutePath>;
   }
@@ -74,9 +74,11 @@ export class ClaudeHomes extends Context.Service<
           if (value === "~") {
             return home;
           }
+
           if (/^~[\\/]/.test(value)) {
             return join(home, value.slice(2));
           }
+
           return value;
         };
 
@@ -91,6 +93,7 @@ export class ClaudeHomes extends Context.Service<
           ) {
             return [];
           }
+
           const settings = yield* fs.readFileString(settingsFile).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(Settings)),
             Effect.mapError(
@@ -104,7 +107,7 @@ export class ClaudeHomes extends Context.Service<
 
           const homes = new Map<
             string,
-            { instances: Array<string>; enabled: boolean; path: AbsolutePath }
+            { instances: string[]; enabled: boolean; path: AbsolutePath }
           >();
 
           for (const [id, raw] of Object.entries(
@@ -115,6 +118,7 @@ export class ClaudeHomes extends Context.Service<
             if (Option.isNone(instance)) {
               continue;
             }
+
             const { config, enabled } = instance.value;
 
             const configured =

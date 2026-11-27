@@ -27,9 +27,11 @@ const boxWith = (machine: object, tailscale?: Ran) => {
     if (argv[1] === "pair") {
       return { code: 0, stdout: T3_PAIR_OUTPUT, stderr: "" };
     }
+
     if (argv[0] === "tailscale") {
       return tailscale;
     }
+
     return undefined;
   };
 
@@ -249,6 +251,7 @@ const sshAnswers = (
     if (argv[0] === "ssh") {
       return { code: 0, stdout: stdout(argv[6]!), stderr: "" };
     }
+
     if (
       argv[0] === "t3" ||
       argv[0] === "xdg-open" ||
@@ -257,6 +260,7 @@ const sshAnswers = (
     ) {
       return { code: 0, stdout: "", stderr: "" };
     }
+
     return undefined;
   };
 };

@@ -81,6 +81,7 @@ const reply = (r: HubRequest, now = NOW, token = TOKEN): Reply => {
   if (!("status" in routed)) {
     throw new Error(`asked ${routed.ask} instead of replying`);
   }
+
   return routed;
 };
 
@@ -198,6 +199,7 @@ describe("a request that is not logged in: 401", () => {
     ]) {
       expect(reply(request("GET", path)).status).toBe(401);
     }
+
     expect(reply(request("POST", "/api/logout")).status).toBe(401);
   });
 
@@ -429,6 +431,7 @@ describe("devbox hub, logged in through a browser", async () => {
   for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
   }
+
   afterAll(() => hub.stop());
   const base = `http://127.0.0.1:${port}`;
 

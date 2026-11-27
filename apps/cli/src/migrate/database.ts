@@ -16,7 +16,7 @@ export const Tables = {
   scheduledTasks: "scheduled_tasks",
 } as const;
 
-export type SchemaRequirement = Readonly<Record<string, ReadonlyArray<string>>>;
+export type SchemaRequirement = Readonly<Record<string, readonly string[]>>;
 
 export const BASE_SCHEMA: SchemaRequirement = {
   [Tables.projects]: ["project_id", "title", "workspace_root", "deleted_at"],
@@ -130,6 +130,7 @@ export const resolveTarget = Effect.fn("resolveTarget")(function* (
   if (Option.isNone(db)) {
     return DbTarget.Live({ path: liveDb });
   }
+
   const path = absolutePath(db.value);
   const fs = yield* FileSystem.FileSystem;
 
@@ -165,7 +166,7 @@ export const databaseLayer = (path: AbsolutePath, access: "read" | "write") =>
 const Count = Schema.Array(Schema.Struct({ n: Schema.Number }));
 
 export const count = <E, R>(
-  statement: Effect.Effect<ReadonlyArray<object>, E, R>
+  statement: Effect.Effect<readonly object[], E, R>
 ) =>
   statement.pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(Count)),
@@ -185,7 +186,7 @@ export const columnsOf = Effect.fn("columnsOf")(function* (table: string) {
 export const schemaGaps = Effect.fn("schemaGaps")(function* (
   required: SchemaRequirement
 ) {
-  const gaps: Array<string> = [];
+  const gaps: string[] = [];
 
   for (const [table, columns] of Object.entries(required)) {
     const present = yield* columnsOf(table);
@@ -250,6 +251,7 @@ export const backup = Effect.fn("backup")(function* (source: AbsolutePath) {
       message: `backup already exists: ${path}`,
     });
   }
+
   yield* sql`VACUUM INTO ${path}`;
   const bytes = Number((yield* fs.stat(path)).size);
 
@@ -258,6 +260,7 @@ export const backup = Effect.fn("backup")(function* (source: AbsolutePath) {
       message: `backup failed: ${path} is empty`,
     });
   }
+
   if (Number((yield* fs.stat(source)).size) > 0 && bytes < 4096) {
     return yield* new BackupFailed({
       message: `backup looks wrong: ${path} is ${formatBytes(bytes)}`,
@@ -303,6 +306,7 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
   if (byId) {
     return byId;
   }
+
   const byTitle = yield* projects(
     () => sql`WHERE title = ${ref} ORDER BY deleted_at IS NOT NULL`
   );
@@ -314,8 +318,10 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
   if (only === undefined) {
     return yield* new ProjectNotFound({ ref });
   }
+
   if (rest.length === 0) {
     return only;
   }
+
   return yield* new AmbiguousProject({ ref, candidates });
 });

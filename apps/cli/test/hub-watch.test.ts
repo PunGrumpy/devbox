@@ -36,7 +36,7 @@ const sample = (states: Record<string, MachineState>): Snapshot => ({
 });
 
 /** Feeds samples to the reducer in turn and returns what each one announced. */
-const announce = (...samples: ReadonlyArray<Record<string, MachineState>>) => {
+const announce = (...samples: readonly Record<string, MachineState>[]) => {
   let watch: Watch | undefined;
 
   return samples.map((states) => {
@@ -238,6 +238,7 @@ const running = async (
   for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
     await Bun.sleep(20);
   }
+
   const answered = await fetch(`http://127.0.0.1:${port}/api/machines`, {
     headers: asOwner(m.home),
   });

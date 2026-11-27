@@ -61,7 +61,7 @@ const T3Package = Schema.fromJsonString(
   Schema.Struct({ version: Schema.String })
 );
 
-const systemctl = (scope: "system" | "user", args: ReadonlyArray<string>) =>
+const systemctl = (scope: "system" | "user", args: readonly string[]) =>
   scope === "system"
     ? ["sudo", "-n", "systemctl", ...args]
     : ["systemctl", "--user", ...args];
@@ -82,6 +82,7 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
         if (host.systemd && sudo) {
           return Supervisor.Systemd({ scope: "system" });
         }
+
         return yield* new UpFailed({
           message: "a system unit needs systemd and passwordless sudo",
         });
@@ -89,6 +90,7 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
         if (yield* userBus) {
           return Supervisor.Systemd({ scope: "user" });
         }
+
         return yield* new UpFailed({
           message: "systemctl --user does not answer here",
         });
@@ -96,9 +98,11 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
         if (host.systemd && sudo) {
           return Supervisor.Systemd({ scope: "system" });
         }
+
         if (yield* userBus) {
           return Supervisor.Systemd({ scope: "user" });
         }
+
         return Supervisor.Detached();
     }
   });
@@ -117,9 +121,11 @@ const resolveNpm = (config: MachineConfig) =>
     if (yield* host.which("npm")) {
       return "npm";
     }
+
     if (yield* shimReady) {
       return npmShim;
     }
+
     const env = processEnv(settingsFor(config.data), process.env.PATH ?? "");
     yield* out.log("node: npm is missing, installing Node LTS with mise");
 
@@ -132,12 +138,14 @@ const resolveNpm = (config: MachineConfig) =>
         }
       );
     }
+
     if (yield* ensureMise(config.data, env)) {
       yield* host.run([mise, "use", "--global", "--yes", "node@lts"], {
         env,
         inherit: true,
       });
     }
+
     return (yield* shimReady) ? npmShim : "npm";
   });
 
@@ -272,6 +280,7 @@ const gather = (
           if (ours.length === 0) {
             return ServeState.Stopped();
           }
+
           return ours.length === 1 &&
             ours[0]!.argv.join("\0") === want.join("\0")
             ? ServeState.Running({ pids })
@@ -467,7 +476,7 @@ const apply = (
     const out = yield* Output;
 
     const must = (
-      argv: ReadonlyArray<string>,
+      argv: readonly string[],
       options?: { stdin?: string; env?: Record<string, string> }
     ) =>
       Effect.flatMap(host.run(argv, options), (r) =>
@@ -697,6 +706,7 @@ const apply = (
               message: "cannot download mise to install cloudflared",
             });
           }
+
           const { mise } = pathsOf(config.data);
           yield* must([mise, "use", "--global", "--yes", "cloudflared"], {
             env,
@@ -787,6 +797,7 @@ export const up = Command.make("up", upFlags, (flags) =>
         `no terminal to ask which agent CLIs to install, so using the defaults. Run \`devbox up${config.data === home ? "" : ` --data ${config.data}`} --agents pick\` on a terminal to choose`
       );
     }
+
     const token = tunnelTokenFile(home);
 
     if (
@@ -798,6 +809,7 @@ export const up = Command.make("up", upFlags, (flags) =>
         hint: "the hub saves it when it publishes this machine. Without a hub, see Reach T3 without Tailscale in the README",
       });
     }
+
     const npm = yield* resolveNpm(config);
     const facts = yield* gather(config, ctx, npm, saved);
 
@@ -807,6 +819,7 @@ export const up = Command.make("up", upFlags, (flags) =>
         hint: "check that npm is on PATH and the registry answers",
       });
     }
+
     yield* out.log(
       `supervisor: ${Supervisor.$match(facts.supervisor, {
         Systemd: ({ scope }) => `systemd ${scope} unit ${UNIT}`,
@@ -818,6 +831,7 @@ export const up = Command.make("up", upFlags, (flags) =>
     for (const skip of skips) {
       yield* out.note(`skipped ${skip.what}: ${skip.why}`);
     }
+
     for (const change of changes) {
       yield* apply(change, config, ctx, facts.supervisor, npm).pipe(
         Effect.catchTag("AgentInstallFailed", (error) =>
@@ -829,6 +843,7 @@ export const up = Command.make("up", upFlags, (flags) =>
         )
       );
     }
+
     const [elapsed, answers] = yield* Effect.timed(
       answering(config.host, config.port, 600)
     );
@@ -843,6 +858,7 @@ export const up = Command.make("up", upFlags, (flags) =>
         }),
       });
     }
+
     const where = Option.getOrElse(
       config.publicUrl,
       () => `http://${probeHost(config.host)}:${config.port}`

@@ -51,6 +51,7 @@ export const restore = (
       if (!(away >= 0 && away < DAY_MS && history.sampleSeconds > 0)) {
         return Option.none();
       }
+
       const missed = Math.min(
         limit,
         Math.floor(away / (history.sampleSeconds * 1000))
@@ -67,7 +68,7 @@ export const restore = (
           .filter(([, samples]) => samples.trim() !== "")
       );
 
-      const nullGap: ReadonlyArray<null> = Array<null>(missed).fill(null);
+      const nullGap: readonly null[] = Array<null>(missed).fill(null);
 
       const latency = Object.fromEntries(
         Object.entries(history.latency ?? {})

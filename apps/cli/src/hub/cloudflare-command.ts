@@ -29,6 +29,7 @@ const tokenFromStdin = Effect.gen(function* () {
   if (yield* stdio.stdinIsTerminal) {
     yield* out.note("paste the API token, then press Enter and Ctrl-D");
   }
+
   const decoder = new TextDecoder();
 
   const text = yield* Stream.runFold(
@@ -48,6 +49,7 @@ const tokenFromStdin = Effect.gen(function* () {
       hint: "pipe it in, for example `devbox hub cloudflare token < token-file`",
     });
   }
+
   return token;
 });
 
@@ -71,12 +73,14 @@ const asCommandError = ({ what, choices, named }: PickOne) => {
           : `it sees ${listed}`,
     });
   }
+
   if (choices.length === 0) {
     return new CloudflareFailed({
       message: `the token sees no ${what}`,
       hint: `give it access to the ${what} that holds your domain`,
     });
   }
+
   return new UsageError({
     message: `the token sees ${choices.length} ${what}s: ${listed}`,
     hint: `pass ${FLAG[what]} to pick one`,
@@ -143,6 +147,7 @@ const statusCommand = Command.make("status", {}, () =>
     if (Option.isNone(saved)) {
       return yield* out.stdout("No Cloudflare login is saved.\n");
     }
+
     const { login, zone, accountId } = saved.value;
 
     const kind =
@@ -169,6 +174,7 @@ const logoutCommand = Command.make("logout", {}, () =>
     if (!(yield* forgetCloudflare(home))) {
       return yield* out.stdout("No Cloudflare login was saved.\n");
     }
+
     yield* out.success("forgot the Cloudflare login");
     const published = Object.keys(yield* loadTunnels(home));
 

@@ -8,7 +8,7 @@ import { devbox } from "./support/run.ts";
 
 type Machine = ReturnType<typeof makeMachine>;
 
-const up = (m: Machine, ...args: Array<string>) =>
+const up = (m: Machine, ...args: string[]) =>
   devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
     host: m.host,
   });
@@ -168,6 +168,7 @@ describe("devbox up and backups", () => {
       if (argv.includes("apt-get")) {
         return { code: 0, stdout: "", stderr: "" };
       }
+
       return undefined;
     };
 

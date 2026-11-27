@@ -158,12 +158,12 @@ export const makeFixture = (
 export const query = <T>(
   path: string,
   sql: string,
-  ...params: Array<string | number>
-): Array<T> => {
+  ...params: (string | number)[]
+): T[] => {
   const db = new Database(path, { readonly: true, strict: true });
 
   try {
-    return db.query<T, Array<string | number>>(sql).all(...params);
+    return db.query<T, (string | number)[]>(sql).all(...params);
   } finally {
     db.close();
   }
@@ -195,6 +195,7 @@ export const makeWorld = (): World => {
   for (const dir of [home, real, join(t3, "userdata"), homes.a, homes.b]) {
     mkdirSync(dir, { recursive: true });
   }
+
   symlinkSync(real, join(home, "Developments"));
   symlinkSync(homes.b, join(home, ".claude-b-alias"));
   writeFileSync(
@@ -247,7 +248,7 @@ export const addProject = (
   id: string,
   title: string,
   root: string,
-  cwds: Array<{ cwd: string; driver?: string }> = []
+  cwds: { cwd: string; driver?: string }[] = []
 ): void => {
   const conn = new Database(world.db, { strict: true });
   conn
