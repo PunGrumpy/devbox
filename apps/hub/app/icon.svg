@@ -16,14 +16,14 @@
 <filter id="d" x="-20%" y="-30%" width="140%" height="180%"><feDropShadow class="lift" dx="0" dy="4" stdDeviation="5" flood-color="#0a0030"/></filter>
 <filter id="v" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur in="SourceAlpha" stdDeviation="4" result="b"/><feGaussianBlur in="SourceAlpha" stdDeviation="1.6" result="t"/><feOffset in="b" dx="-5" dy="-6" result="o1"/><feComposite in="SourceAlpha" in2="o1" operator="out" result="e1"/><feFlood flood-color="#8a0a3c" flood-opacity="0.36"/><feComposite in2="e1" operator="in" result="shade"/><feOffset in="t" dx="2" dy="2.5" result="o2"/><feComposite in="SourceAlpha" in2="o2" operator="out" result="e2"/><feFlood flood-color="#fff" flood-opacity="0.34"/><feComposite in2="e2" operator="in" result="light"/><feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="shade"/><feMergeNode in="light"/></feMerge></filter>
 <clipPath id="plate"><rect width="256" height="256" rx="57.6"/></clipPath>
-<clipPath id="c"><circle cx="100" cy="76" r="45"/><circle cx="160" cy="52" r="25"/><path d="M124 68C150 50 186 60 202 86C210 98 220 106 226 116C232 128 224 141 210 141C194 142 180 146 168 154C158 161 152 171 152 185L152 216L72 216L72 192C72 174 60 162 58 140C56 118 70 96 96 86Z"/></clipPath>
+<clipPath id="c"><circle cx="100" cy="76" r="45"/><circle cx="160" cy="52" r="25"/><path d="M124 68C150 50 186 60 202 86C210 98 220 106 226 116C232 128 224 141 210 141C194 142 180 146 168 154C158 161 152 171 152 185L152 300L72 300L72 192C72 174 60 162 58 140C56 118 70 96 96 86Z"/></clipPath>
 <clipPath id="pc"><rect x="56" y="188" width="144" height="50" rx="25"/></clipPath>
 </defs>
 <g clip-path="url(#plate)">
 <rect width="256" height="256" fill="url(#l)"/>
 <rect width="256" height="256" fill="url(#r)" mask="url(#m)"/>
-<g transform="translate(128 132) scale(1.16) translate(-136 -118)">
-<g fill="url(#g)" filter="url(#v)"><circle cx="100" cy="76" r="45"/><circle cx="160" cy="52" r="25"/><path d="M124 68C150 50 186 60 202 86C210 98 220 106 226 116C232 128 224 141 210 141C194 142 180 146 168 154C158 161 152 171 152 185L152 216L72 216L72 192C72 174 60 162 58 140C56 118 70 96 96 86Z"/></g>
+<g transform="translate(122 136) scale(1.04) translate(-136 -118)">
+<g fill="url(#g)" filter="url(#v)"><circle cx="100" cy="76" r="45"/><circle cx="160" cy="52" r="25"/><path d="M124 68C150 50 186 60 202 86C210 98 220 106 226 116C232 128 224 141 210 141C194 142 180 146 168 154C158 161 152 171 152 185L152 300L72 300L72 192C72 174 60 162 58 140C56 118 70 96 96 86Z"/></g>
 <circle cx="100" cy="76" r="26" fill="#a3104e" opacity="0.16"/>
 <rect width="256" height="256" fill="url(#s)" clip-path="url(#c)"/>
 <ellipse cx="168" cy="107" rx="9.5" ry="13" fill="#200057"/>
