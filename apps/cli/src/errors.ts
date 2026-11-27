@@ -25,7 +25,7 @@ export class Aborted extends Schema.TaggedError<Aborted>()("Aborted", {}) {
   }
 }
 
-export const hintOf = (error: unknown): string | undefined =>
+export const hintOf = (error: unknown) =>
   Predicate.hasProperty(error, "hint") && Predicate.isString(error.hint)
     ? error.hint
     : undefined;

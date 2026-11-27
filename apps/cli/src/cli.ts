@@ -59,27 +59,23 @@ const presenter = Layer.effect(
 
     return {
       present: (event) => {
-        switch (event._tag) {
-          case "Help": {
-            return out.stdout(`${formatter.formatHelpDoc(event.helpDoc)}\n`);
-          }
-
-          case "Version": {
-            return out.stdout(`${event.version}\n`);
-          }
-
-          case "InvalidInvocation": {
-            return Effect.forEach(
-              event.errors,
-              (error) =>
-                out.error(
-                  error.message,
-                  `run \`${event.commandPath.join(" ")} --help\``
-                ),
-              { discard: true }
-            );
-          }
+        if (event._tag === "Help") {
+          return out.stdout(`${formatter.formatHelpDoc(event.helpDoc)}\n`);
         }
+
+        if (event._tag === "Version") {
+          return out.stdout(`${event.version}\n`);
+        }
+
+        return Effect.forEach(
+          event.errors,
+          (error) =>
+            out.error(
+              error.message,
+              `run \`${event.commandPath.join(" ")} --help\``
+            ),
+          { discard: true }
+        );
       },
     };
   })
@@ -125,13 +121,14 @@ export const MainLayer = Layer.mergeAll(
 ).pipe(Layer.provideMerge(BunServices.layer));
 
 if (import.meta.main) {
-  runCli(process.argv.slice(2)).pipe(
-    Effect.flatMap((code) =>
-      Effect.sync(() => {
-        process.exitCode = code;
-      })
-    ),
-    Effect.provide(MainLayer),
-    BunRuntime.runMain
+  BunRuntime.runMain(
+    runCli(process.argv.slice(2)).pipe(
+      Effect.flatMap((code) =>
+        Effect.sync(() => {
+          process.exitCode = code;
+        })
+      ),
+      Effect.provide(MainLayer)
+    )
   );
 }
