@@ -3,9 +3,9 @@ import { createHmac } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import { route } from "../src/hub/hub.ts";
 import type {
@@ -17,33 +17,33 @@ import type {
 import type { Machine } from "../src/hub/machines.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { makeMachine } from "./support/host.ts";
-import { devbox, start } from "./support/run.ts";
+import { readJson } from "./support/json.ts";
+import { devbox, start, statusOf, untilListening } from "./support/run.ts";
 
 const TOKEN = "made-up-hub-token-0123456789abcdefghijklmnop";
 const NOW = Date.parse("2026-11-27T12:00:00.000Z");
 const MONTH = 2_592_000;
 const EXPIRY = NOW / 1000 + MONTH;
 
-const machine = (name: string, spoke: Machine["spoke"]): HubMachine => ({
-  name,
-  here: false,
-  kind: "computer",
-  state: "t3",
-  tailscale: null,
-  t3: null,
-  vitals: null,
-  spoke,
-  tunnel: null,
-});
+const machine = (machineName: string, trust: Machine["spoke"]) =>
+  ({
+    name: machineName,
+    here: false,
+    kind: "computer",
+    state: "t3",
+    tailscale: null,
+    t3: null,
+    vitals: null,
+    spoke: trust,
+    tunnel: null,
+  }) satisfies HubMachine;
+
+const EDGE_7 = machine("edge-7", "trusted");
 
 const SNAPSHOT: HubSnapshot = {
   generatedAt: "2026-11-27T12:00:00.000Z",
   tailscale: true,
-  machines: [
-    machine("edge-7", "trusted"),
-    machine("edge-8", "untrusted"),
-    machine("edge-9", null),
-  ],
+  machines: [EDGE_7, machine("edge-8", "untrusted"), machine("edge-9", null)],
   history: {
     sampleSeconds: 60,
     startedAt: "2026-11-27T12:00:00.000Z",
@@ -65,17 +65,18 @@ const request = (
   url: string,
   headers: HubRequest["headers"] = {},
   body: string | null = ""
-): HubRequest => ({
-  method,
-  url,
-  headers: { host: "hub.tail1234.ts.net:3780", ...headers },
-  body,
-});
+) =>
+  ({
+    method,
+    url,
+    body,
+    headers: { host: "hub.tail1234.ts.net:3780", ...headers },
+  }) satisfies HubRequest;
 
 const answer = (r: HubRequest, now = NOW, token = TOKEN) =>
   route(r, { snapshot: SNAPSHOT, token, now }, page);
 
-const reply = (r: HubRequest, now = NOW, token = TOKEN): Reply => {
+const reply = (r: HubRequest, now = NOW, token = TOKEN) => {
   const routed = answer(r, now, token);
 
   if (!("status" in routed)) {
@@ -86,7 +87,7 @@ const reply = (r: HubRequest, now = NOW, token = TOKEN): Reply => {
 };
 
 const errorOf = (r: Reply) =>
-  (JSON.parse(String(r.body)) as { error: string }).error;
+  readJson(Schema.Struct({ error: Schema.String }), String(r.body)).error;
 
 const mac = (expiry: string, token = TOKEN) =>
   createHmac("sha256", token).update(expiry).digest("base64url");
@@ -188,7 +189,7 @@ describe("a request that is not logged in: 401", () => {
   });
 
   test("anywhere under /api/, so a logged out caller cannot tell which paths exist", () => {
-    for (const path of [
+    for (const pathname of [
       "/api",
       "/api/",
       "/api/nope",
@@ -197,7 +198,7 @@ describe("a request that is not logged in: 401", () => {
       "/api/machines/edge-7/update",
       "/api/machines/edge-7/pair",
     ]) {
-      expect(reply(request("GET", path)).status).toBe(401);
+      expect(reply(request("GET", pathname)).status).toBe(401);
     }
 
     expect(reply(request("POST", "/api/logout")).status).toBe(401);
@@ -263,7 +264,7 @@ describe("a page on another site", () => {
       cookie: SESSION,
     };
 
-    for (const path of [
+    for (const pathname of [
       "/api/login",
       "/api/logout",
       "/api/machines/edge-7/update",
@@ -272,7 +273,7 @@ describe("a page on another site", () => {
       "/api/nope",
       "/",
     ]) {
-      const r = reply(request("POST", path, signedIn, loginBody(TOKEN)));
+      const r = reply(request("POST", pathname, signedIn, loginBody(TOKEN)));
       expect(r.status).toBe(403);
       expect(errorOf(r)).toBe("This request came from a page on another site.");
       expect(r.headers["set-cookie"]).toBeUndefined();
@@ -364,7 +365,7 @@ describe("a request for a machine passes one admission step", () => {
         request("POST", `/api/machines/edge-7/${action}`, signedIn)
       );
 
-      expect(routed).toEqual({ ask: action, machine: SNAPSHOT.machines[0]! });
+      expect(routed).toEqual({ ask: action, machine: EDGE_7 });
     }
   });
 
@@ -415,10 +416,10 @@ describe("a request for a machine passes one admission step", () => {
   });
 });
 
-describe("devbox hub, logged in through a browser", async () => {
+const startHub = async () => {
   const m = makeMachine();
   const port = await Effect.runPromise(freePort);
-  const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
+  const empty = mkdtempSync(path.join(tmpdir(), "devbox-hub-ui-"));
 
   const hub = start(
     { HOME: m.home },
@@ -428,31 +429,39 @@ describe("devbox hub, logged in through a browser", async () => {
     }
   );
 
-  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
-    await Bun.sleep(20);
-  }
+  await untilListening(hub);
 
-  afterAll(() => hub.stop());
+  const issued = await devbox({ HOME: m.home }, ["hub", "token"], {
+    host: m.host,
+  });
+
+  return { hub, port, token: issued.out.trim() };
+};
+
+const started = await startHub();
+
+describe("devbox hub, logged in through a browser", () => {
+  const { hub, port, token } = started;
   const base = `http://127.0.0.1:${port}`;
 
-  const token = (
-    await devbox({ HOME: m.home }, ["hub", "token"], { host: m.host })
-  ).out.trim();
+  afterAll(async () => {
+    await hub.stop();
+  });
 
-  const post = (
-    path: string,
+  const post = async (
+    pathname: string,
     body: string,
     headers: Record<string, string> = {}
-  ) => fetch(`${base}${path}`, { method: "POST", headers, body });
+  ) => await fetch(`${base}${pathname}`, { method: "POST", headers, body });
 
   test("a login sets the cookie, the cookie reads the machines, and a logout clears it", async () => {
-    expect((await fetch(`${base}/api/machines`)).status).toBe(401);
+    expect(await statusOf(fetch(`${base}/api/machines`))).toBe(401);
     const login = await post("/api/login", loginBody(token), { origin: base });
     expect(login.status).toBe(204);
     const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
-    expect(cookie).toMatch(/^devbox_hub=\d+\.[A-Za-z0-9_-]{43}$/);
+    expect(cookie).toMatch(/^devbox_hub=\d+\.[A-Za-z0-9_-]{43}$/u);
     expect(
-      (await fetch(`${base}/api/machines`, { headers: { cookie } })).status
+      await statusOf(fetch(`${base}/api/machines`, { headers: { cookie } }))
     ).toBe(200);
     const logout = await post("/api/logout", "", { cookie, origin: base });
     expect(logout.status).toBe(204);
@@ -460,22 +469,23 @@ describe("devbox hub, logged in through a browser", async () => {
   });
 
   test("a login with a huge body is cut off at a kilobyte and the hub still answers", async () => {
-    const answered = await new Promise<number>((done, fail) => {
-      const req = http.request(
-        `${base}/api/login`,
-        { method: "POST" },
-        (response) => {
-          response.resume();
-          done(response.statusCode ?? 0);
-        }
-      );
+    const cutOff = Promise.withResolvers<number>();
 
-      req.on("error", fail);
-      req.end(JSON.stringify({ token: "x".repeat(64 * 1024) }));
-    });
+    const req = http.request(
+      `${base}/api/login`,
+      { method: "POST" },
+      (response) => {
+        response.resume();
+        cutOff.resolve(response.statusCode ?? 0);
+      }
+    );
+
+    req.on("error", cutOff.reject);
+    req.end(JSON.stringify({ token: "x".repeat(64 * 1024) }));
+    const answered = await cutOff.promise;
 
     expect(answered).toBe(413);
-    expect((await post("/api/login", loginBody(token))).status).toBe(204);
+    expect(await statusOf(post("/api/login", loginBody(token)))).toBe(204);
   });
 
   test("a login is never logged, right or wrong", async () => {
