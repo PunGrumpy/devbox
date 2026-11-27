@@ -18,25 +18,19 @@ const MINUTES_VALID = 15;
 const SECONDS_PER_MINUTE = 60;
 const MS_PER_SECOND = 1000;
 
-/** How long a pairing link stays valid before the page drops it from state. */
 export const PAIR_TTL_MS = MINUTES_VALID * SECONDS_PER_MINUTE * MS_PER_SECOND;
 
-/** The four machine actions that share the ask, confirm, send and report lifecycle. */
 export type MachineAction = "pair" | "publish" | "unpublish" | "update";
 
-/** Saving and forgetting the hub's Cloudflare login, from the Settings section. */
 export type CloudflareAction = "connect" | "disconnect";
 
-/** Every request the page sends that changes something on the hub. */
 export type HubAction = CloudflareAction | MachineAction;
 
-/** An account or a zone a Cloudflare token sees. */
 export interface Named {
   readonly id: string;
   readonly name: string;
 }
 
-/** The accounts or the zones to pick one from, when a token sees several. */
 export interface Choices {
   readonly options: readonly Named[];
   readonly what: "account" | "zone";
@@ -171,25 +165,20 @@ interface ActionSpec {
   readonly ttlMs: number | null;
 }
 
-/** The hostname a machine takes when published under a Cloudflare zone. */
 export const tunnelHostname = (name: string, zone: string) =>
   `t3-${name.toLowerCase().replaceAll(/[^a-z0-9]/gu, "-")}.${zone}`;
 
-/** Whether a machine runs a known T3 Code version that differs from the latest one. */
 export const needsUpdate = (machine: Machine, latest: string | null) => {
   const version = machine.t3?.version ?? null;
 
   return latest !== null && version !== null && version !== latest;
 };
 
-/** The command to run on a machine so its spoke trusts this hub. */
 export const trustCommand = (key: string) => `devbox up --spoke --trust ${key}`;
 
-/** The command that sets up a spoke on a machine, listening on its Tailscale address. */
 export const spokeCommand = (ip: string, key: string) =>
   `devbox up --host ${ip} --spoke --trust ${key}`;
 
-/** The machines online on the tailnet with no devbox spoke, each with its Tailscale address. */
 export const withoutSpoke = (machines: readonly Machine[]) =>
   machines.flatMap(({ name, spoke, tailscale }) =>
     spoke === null && tailscale?.online === true && tailscale.ip !== ""
@@ -197,25 +186,20 @@ export const withoutSpoke = (machines: readonly Machine[]) =>
       : []
   );
 
-/** How the hub signs in to Cloudflare, as the Settings section says it. */
 export const connectedSentence = ({ kind, zone }: Cloudflare) =>
   kind === "token"
     ? `Connected to ${zone} with an API token.`
     : `Connected to ${zone} through OAuth.`;
 
-/** Whether a machine can hand out a pairing link through this hub. */
 export const canPair = (machine: Machine) =>
   machine.spoke === "trusted" && machine.state === "t3";
 
-/** Whether a machine can be published through Cloudflare from this hub. */
 export const canPublish = (machine: Machine, cloudflare: Cloudflare | null) =>
   cloudflare !== null && machine.spoke === "trusted" && machine.tunnel === null;
 
-/** Whether a machine has a tunnel that can be removed through this hub. */
 export const canUnpublish = (machine: Machine, cloudflare: Cloudflare | null) =>
   cloudflare !== null && machine.spoke === "trusted" && machine.tunnel !== null;
 
-/** The quiet actions currently available on a machine card, in display order. */
 export const eligibleActions = (
   machine: Machine,
   latest: string | null,
@@ -274,7 +258,6 @@ const OLD_HUB = fail(
   "This hub cannot do that from the page. Update devbox on the hub machine."
 );
 
-/** The single table describing every hub action: route, copy, confirmation, and replies. */
 export const HUB_ACTIONS = {
   connect: {
     busyLabel: "Connecting…",
@@ -475,7 +458,6 @@ export const HUB_ACTIONS = {
   },
 } satisfies Record<HubAction, ActionSpec>;
 
-/** Turns a hub reply status (or null on a network failure) for any hub action into an outcome. */
 export const describeActionReply = (
   action: HubAction,
   name: string,
@@ -496,7 +478,6 @@ export const describeActionReply = (
   return fail(`The hub answered with status ${status}.`);
 };
 
-/** What the page sends to connect Cloudflare: the token, and the account and zone once picked. */
 export interface ConnectRequest {
   account?: string;
   token: string;
@@ -539,14 +520,12 @@ const send = async (
   }
 };
 
-/** Sends a machine action, or a disconnect, to the hub using the session cookie. */
 export const requestAction = async (
   action: Exclude<HubAction, "connect">,
   name: string,
   request: FetchLike = fetch
 ) => await send(action, name, request);
 
-/** Sends an API token to the hub once. The page keeps neither the token nor the request. */
 export const requestConnect = async (
   connect: ConnectRequest,
   request: FetchLike = fetch

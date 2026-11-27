@@ -11,7 +11,6 @@ type FormState =
   | { readonly phase: "submitting" }
   | { readonly message: string; readonly phase: "error" };
 
-/** The full-page login form shown whenever the hub answers 401. */
 export const LoginGate = () => {
   const inputId = useId();
   const input = useRef<HTMLInputElement>(null);

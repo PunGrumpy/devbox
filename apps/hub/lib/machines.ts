@@ -97,7 +97,6 @@ const HOUR = 60;
 const TWO_DAYS_IN_HOURS = 48;
 const DAY = 24;
 
-/** A length of time as one short unit: 42s, 5m, 3h, 12d. */
 export const span = (milliseconds: number) => {
   const seconds = Math.max(0, Math.round(milliseconds / SECOND));
 
@@ -126,22 +125,25 @@ export const ago = (iso: string, now: number) =>
 export const BAR_COUNT = 48;
 const BAR_SECONDS = 1800;
 
+const SAMPLE = {
+  offline: "0",
+  online: "1",
+  t3: "2",
+  unknown: " ",
+} satisfies Record<BarState, string>;
+
 const worstState = (samples: string) => {
-  if (samples.includes("0")) {
+  if (samples.includes(SAMPLE.offline)) {
     return "offline";
   }
 
-  if (samples.includes("1")) {
+  if (samples.includes(SAMPLE.online)) {
     return "online";
   }
 
-  return samples.includes("2") ? "t3" : "unknown";
+  return samples.includes(SAMPLE.t3) ? "t3" : "unknown";
 };
 
-/**
- * The hub writes one character per sample, newest last. Each bar shows the worst state in its
- * 30 minutes, so a short outage stays visible.
- */
 export const bars = (states: string, sampleSeconds: number) => {
   const perBar = Math.max(1, Math.round(BAR_SECONDS / sampleSeconds));
 
@@ -182,7 +184,6 @@ export const STATE_LABEL = {
   t3: "T3 Code ready",
 } satisfies Record<MachineState, string>;
 
-/** Whether T3 Code answers on a machine, as the line under its name. */
 export const t3Sentence = (machine: Machine, now: number) => {
   const { state, t3, tailscale } = machine;
 
@@ -207,7 +208,6 @@ export const t3Sentence = (machine: Machine, now: number) => {
     : `Last seen ${ago(lastSeen, now)}`;
 };
 
-/** Whether agents on the hub machine hold a link to a machine. */
 export const linkSentence = (link: Link | null, now: number) => {
   if (link === null) {
     return "Not linked for agents.";
@@ -220,7 +220,6 @@ export const linkSentence = (link: Link | null, now: number) => {
     : `Linked for agents but ${link.status}, ${left}.`;
 };
 
-/** The first sentence of the page. */
 export const lead = (machines: readonly Machine[] | null, failing: boolean) => {
   if (machines === null) {
     return failing
@@ -260,7 +259,6 @@ const rank = (key: string) => {
   return index === -1 ? OS_ORDER.length : index;
 };
 
-/** Machines under the system they run, in the order the page lists them. */
 export const groupByOs = (machines: readonly Machine[]) => {
   const groups = new Map<string, Machine[]>();
 
@@ -281,23 +279,18 @@ export const groupByOs = (machines: readonly Machine[]) => {
 const UPTIME_MIN_SAMPLES = 30;
 const PERCENT = 100;
 
-/**
- * The share of a machine's known samples in which it was online, as a whole percent. Too few
- * samples say nothing yet, so they give null.
- */
 export const uptime = (states: string) => {
-  const known = states.replaceAll(" ", "");
+  const known = states.replaceAll(SAMPLE.unknown, "");
 
   if (known.length < UPTIME_MIN_SAMPLES) {
     return null;
   }
 
-  const up = known.replaceAll("0", "").length;
+  const up = known.replaceAll(SAMPLE.offline, "").length;
 
   return Math.round((up / known.length) * PERCENT);
 };
 
-/** What the paragraph under a card adds about the last day and a newer T3 Code, if anything. */
 export const daySentences = (
   machine: Machine,
   states: string,
@@ -346,11 +339,6 @@ const shareOf = ({ total, used }: Usage) => (total > 0 ? used / total : 0);
 const sizeOf = ({ total, used }: Usage) =>
   `${formatGb(used)} of ${formatGb(total)} GB`;
 
-/**
- * Load, memory and disk as three meters. `fill` is the share used as a whole percent capped at
- * 100, `high` marks 90% and above, and `value` is what the meter prints, with load above 100%
- * kept as its real number.
- */
 export const vitalsMeters = (vitals: Vitals) => [
   meter("Load", vitals.load),
   meter("Memory", shareOf(vitals.memory), sizeOf(vitals.memory)),

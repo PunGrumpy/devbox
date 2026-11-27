@@ -2,8 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { sheenOf } from "@/lib/sheen";
 
-const line = 22.5;
-const command = { line, height: 43, light: false, width: 576 };
+const command = { height: 43, lightFill: false, lineHeight: 22.5, width: 576 };
 
 const middleOf = (image: string) => {
   const stop = image
@@ -49,6 +48,8 @@ describe("sheenOf", () => {
 
   test("a dark block is brightest in the middle of the band, a light one stays clear there", () => {
     expect(middleOf(sheenOf(command).band.image)).toBeGreaterThan(30);
-    expect(middleOf(sheenOf({ ...command, light: true }).band.image)).toBe(0);
+    expect(middleOf(sheenOf({ ...command, lightFill: true }).band.image)).toBe(
+      0
+    );
   });
 });

@@ -26,10 +26,6 @@ const kindOf = (text: string, previous: string | undefined) => {
   return (text.startsWith("-") ? "property" : "plain") satisfies TokenKind;
 };
 
-/**
- * A shell line as the pieces the Rex docs colour: the program at the start of each command, its
- * flags, and the operators between commands. Everything else stays plain.
- */
 export const shellTokens = (line: string) => {
   const pieces = [...line.matchAll(/\s+|\S+/gu)];
 

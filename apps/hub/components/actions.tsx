@@ -8,10 +8,6 @@ import { HUB_ACTIONS, requestAction, trustCommand } from "@/lib/actions";
 import type { MachineAction, MachineActionState } from "@/lib/actions";
 import { markSignedOut } from "@/lib/store";
 
-/**
- * Holds the active action state for one machine card: ask, maybe confirm, send, and report.
- * Any timed result (such as a pairing link) is cleared on dismiss, unmount, or when its TTL ends.
- */
 export const useMachineAction = (name: string) => {
   const [state, setState] = useState<MachineActionState | null>(null);
   const active = useRef(true);
@@ -101,7 +97,6 @@ interface ActionButtonProps {
   state: MachineActionState | null;
 }
 
-/** One quiet pill button for any machine action. */
 export const ActionButton = ({
   action,
   onTrigger,
@@ -134,7 +129,6 @@ interface ActionConfirmProps {
   onConfirm: () => void;
 }
 
-/** The shared in-card confirmation row used by every action that asks before running. */
 export const ActionConfirm = ({
   confirmLabel,
   message,
@@ -215,7 +209,6 @@ interface ActionResultProps {
   state: Exclude<MachineActionState, { readonly phase: "confirming" }>;
 }
 
-/** The shared in-card status and result line for sending, done, and error outcomes. */
 export const ActionResult = ({ name, onDismiss, state }: ActionResultProps) => {
   if (state.phase === "sending") {
     return (
@@ -258,7 +251,6 @@ interface ActionNoticeProps {
   zone: string | null;
 }
 
-/** Renders the active confirmation row or result line inside a machine card. */
 export const ActionNotice = ({
   eligible,
   name,
@@ -297,7 +289,6 @@ interface UntrustedNoteProps {
   show: boolean;
 }
 
-/** Sentence with the copyable trust command for an outdated machine whose spoke does not trust the hub. */
 export const UntrustedNote = ({ hubKey, name, show }: UntrustedNoteProps) => {
   if (!show || hubKey === null || hubKey === "") {
     return null;
