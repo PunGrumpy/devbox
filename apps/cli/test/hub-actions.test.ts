@@ -12,7 +12,13 @@ import { freePort } from "../src/machine/proxy.ts";
 import { fingerprint, handOut, verifyRequest } from "../src/spoke/signed.ts";
 import { makeMachine } from "./support/host.ts";
 import { readJson } from "./support/json.ts";
-import { devbox, start, untilListening } from "./support/run.ts";
+import {
+  devbox,
+  start,
+  statusOf,
+  textOf,
+  untilListening,
+} from "./support/run.ts";
 
 const SPOKE_PORT = "3900";
 
@@ -49,18 +55,6 @@ const Listed = Schema.Struct({
 });
 
 const Sent = Schema.Struct({ nonce: Schema.optional(Schema.String) });
-
-const statusOf = async (response: Promise<Response>) => {
-  const { status } = await response;
-
-  return status;
-};
-
-const textOf = async (response: Promise<Response>) => {
-  const answered = await response;
-
-  return await answered.text();
-};
 
 const PAIRING_LINK =
   "http://edge-8.tail1234.ts.net:3773/pair#token=made-up-pairing-token-0123";

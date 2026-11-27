@@ -173,3 +173,17 @@ export const poll: <T>(
 export const untilListening = async (hub: { readonly err: () => string }) => {
   await poll(() => (hub.err().includes("hub:") ? true : undefined), 100, 20);
 };
+
+/** The status of a response, once it comes. */
+export const statusOf = async (response: Promise<Response>) => {
+  const { status } = await response;
+
+  return status;
+};
+
+/** The body of a response as text, once it comes. */
+export const textOf = async (response: Promise<Response>) => {
+  const answered = await response;
+
+  return await answered.text();
+};

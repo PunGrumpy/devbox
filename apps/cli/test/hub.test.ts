@@ -2,17 +2,23 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import { HISTORY_LIMIT, nextHistory } from "../src/hub/hub.ts";
-import type { HubSnapshot } from "../src/hub/hub.ts";
-import type { Machine, MachineState, Snapshot } from "../src/hub/machines.ts";
+import type { MachineState, Snapshot } from "../src/hub/machines.ts";
 import { restore, serialize } from "../src/hub/saved.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { makeMachine } from "./support/host.ts";
-import { asOwner, devbox, start } from "./support/run.ts";
+import { readJson } from "./support/json.ts";
+import {
+  asOwner,
+  devbox,
+  start,
+  statusOf,
+  untilListening,
+} from "./support/run.ts";
 
 const SNEAKY = `</script><script>alert(1)</script>$&$'`;
 
@@ -53,8 +59,6 @@ const sneakyComputer = () => {
         stderr: "",
       };
     }
-
-    return undefined;
   };
 
   m.pages.set(
@@ -69,54 +73,71 @@ const sneakyComputer = () => {
   return m;
 };
 
-/** A built page with one hashed asset, and a file beside it that the hub must never serve. */
-const builtPage = () => {
-  const base = mkdtempSync(join(tmpdir(), "devbox-hub-"));
-  const ui = join(base, "out");
-  mkdirSync(join(ui, "_next/static/chunks"), { recursive: true });
+const builtPageBesideSecret = () => {
+  const base = mkdtempSync(path.join(tmpdir(), "devbox-hub-"));
+  const ui = path.join(base, "out");
+  mkdirSync(path.join(ui, "_next/static/chunks"), { recursive: true });
   writeFileSync(
-    join(ui, "index.html"),
+    path.join(ui, "index.html"),
     "<!doctype html><title>devbox hub</title>"
   );
-  writeFileSync(join(ui, "_next/static/chunks/app.js"), "console.log(1)");
-  writeFileSync(join(base, "secret.txt"), "outside the page");
+  writeFileSync(path.join(ui, "_next/static/chunks/app.js"), "console.log(1)");
+  writeFileSync(path.join(base, "secret.txt"), "outside the page");
 
   return ui;
 };
 
-/** The hub keeps its history under HOME, so every test gets a home of its own. */
-const freshHome = () => mkdtempSync(join(tmpdir(), "devbox-hub-home-"));
+const historyHome = () => mkdtempSync(path.join(tmpdir(), "devbox-hub-home-"));
 
-/** A path sent as written, because fetch would resolve the dots before it left. */
-const rawStatus = (port: number, path: string) =>
-  new Promise<number>((done, fail) => {
-    http
-      .get({ host: "127.0.0.1", port, path }, (response) => {
-        response.resume();
-        done(response.statusCode ?? 0);
-      })
-      .on("error", fail);
-  });
+const statusOfUnresolvedPath = async (port: number, unresolved: string) => {
+  const answered = Promise.withResolvers<number>();
 
-describe("devbox hub", async () => {
+  http
+    .get({ port, host: "127.0.0.1", path: unresolved }, (response) => {
+      response.resume();
+      answered.resolve(response.statusCode ?? 0);
+    })
+    .on("error", answered.reject);
+
+  return await answered.promise;
+};
+
+const Served = Schema.Struct({
+  generatedAt: Schema.String,
+  tailscale: Schema.Boolean,
+  machines: Schema.Array(
+    Schema.Struct({ name: Schema.String, state: Schema.String })
+  ),
+  history: Schema.Unknown,
+  latest: Schema.Unknown,
+});
+
+const startHub = async () => {
   const m = sneakyComputer();
   const port = await Effect.runPromise(freePort);
 
   const running = start(
     { HOME: m.home },
-    ["hub", "--port", String(port), "--ui", builtPage()],
+    ["hub", "--port", String(port), "--ui", builtPageBesideSecret()],
     {
       host: m.host,
     }
   );
 
+  await untilListening(running);
+
+  return { m, port, running };
+};
+
+const started = await startHub();
+
+describe("devbox hub", () => {
+  const { m, port, running } = started;
   const base = `http://127.0.0.1:${port}`;
 
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
-    await Bun.sleep(20);
-  }
-
-  afterAll(() => running.stop());
+  afterAll(async () => {
+    await running.stop();
+  });
 
   test("logs the URL it listens on", () => {
     expect(running.err()).toContain(`hub: http://127.0.0.1:${port}/`);
@@ -130,9 +151,9 @@ describe("devbox hub", async () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("content-type")).toContain("application/json");
-    const json = (await response.json()) as HubSnapshot;
+    const json = readJson(Served, await response.text());
     expect(json.tailscale).toBe(true);
-    expect(json.machines.map((x: Machine) => [x.name, x.state])).toEqual([
+    expect(json.machines.map((x) => [x.name, x.state])).toEqual([
       ["edge-7", "t3"],
       [SNEAKY, "t3"],
     ]);
@@ -168,21 +189,24 @@ describe("devbox hub", async () => {
   });
 
   test("a path cannot climb out of the built page", async () => {
-    expect(await rawStatus(port, "/../secret.txt")).toBe(404);
-    expect(await rawStatus(port, "/%2e%2e/secret.txt")).toBe(404);
-    expect(await rawStatus(port, "/_next/..%2f..%2fsecret.txt")).toBe(404);
+    expect(await statusOfUnresolvedPath(port, "/../secret.txt")).toBe(404);
+    expect(await statusOfUnresolvedPath(port, "/%2e%2e/secret.txt")).toBe(404);
+    expect(
+      await statusOfUnresolvedPath(port, "/_next/..%2f..%2fsecret.txt")
+    ).toBe(404);
   });
 
   test("any other path is 404 and any other method is 405", async () => {
-    expect((await fetch(`${base}/nope`)).status).toBe(404);
+    expect(await statusOf(fetch(`${base}/nope`))).toBe(404);
     const headers = asOwner(m.home);
-    expect((await fetch(`${base}/api/machines/x`, { headers })).status).toBe(
+    expect(await statusOf(fetch(`${base}/api/machines/x`, { headers }))).toBe(
       404
     );
-    expect((await fetch(`${base}/`, { method: "POST" })).status).toBe(405);
+    expect(await statusOf(fetch(`${base}/`, { method: "POST" }))).toBe(405);
     expect(
-      (await fetch(`${base}/api/machines`, { method: "DELETE", headers }))
-        .status
+      await statusOf(
+        fetch(`${base}/api/machines`, { method: "DELETE", headers })
+      )
     ).toBe(405);
   });
 
@@ -190,14 +214,14 @@ describe("devbox hub", async () => {
     const before = m.fetches.length;
     await fetch(`${base}/api/machines`, { headers: asOwner(m.home) });
     await fetch(`${base}/`);
-    expect(m.fetches.length).toBe(before);
+    expect(m.fetches).toHaveLength(before);
   });
 });
 
 test("without a built page, / says how to build it and the JSON still answers", async () => {
   const port = await Effect.runPromise(freePort);
-  const empty = mkdtempSync(join(tmpdir(), "devbox-hub-empty-"));
-  const home = freshHome();
+  const empty = mkdtempSync(path.join(tmpdir(), "devbox-hub-empty-"));
+  const home = historyHome();
 
   const running = start({ HOME: home }, [
     "hub",
@@ -207,9 +231,7 @@ test("without a built page, / says how to build it and the JSON still answers", 
     empty,
   ]);
 
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
-    await Bun.sleep(20);
-  }
+  await untilListening(running);
 
   try {
     const page = await fetch(`http://127.0.0.1:${port}/`);
@@ -217,7 +239,9 @@ test("without a built page, / says how to build it and the JSON still answers", 
     expect(await page.text()).toContain("bun run build");
     const headers = asOwner(home);
     expect(
-      (await fetch(`http://127.0.0.1:${port}/api/machines`, { headers })).status
+      await statusOf(
+        fetch(`http://127.0.0.1:${port}/api/machines`, { headers })
+      )
     ).toBe(200);
   } finally {
     await running.stop();
@@ -226,18 +250,16 @@ test("without a built page, / says how to build it and the JSON still answers", 
 
 test("the hub closes its port when stopped", async () => {
   const port = await Effect.runPromise(freePort);
-  const home = freshHome();
+  const home = historyHome();
   const running = start({ HOME: home }, ["hub", "--port", String(port)]);
 
-  for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) {
-    await Bun.sleep(20);
-  }
-
+  await untilListening(running);
   const headers = asOwner(home);
   expect(
-    (await fetch(`http://127.0.0.1:${port}/api/machines`, { headers })).status
+    await statusOf(fetch(`http://127.0.0.1:${port}/api/machines`, { headers }))
   ).toBe(200);
   await running.stop();
+  // oxlint-disable-next-line typescript/await-thenable, typescript/no-confusing-void-expression -- bun-types types rejects matchers as sync, but Bun returns a promise that must be awaited
   await expect(
     fetch(`http://127.0.0.1:${port}/api/machines`)
   ).rejects.toThrow();
@@ -251,7 +273,7 @@ test("a port in use fails with a hint", async () => {
   });
 
   try {
-    const r = await devbox({ HOME: freshHome() }, [
+    const r = await devbox({ HOME: historyHome() }, [
       "hub",
       "--port",
       String(taken.port),
@@ -269,30 +291,31 @@ const sample = (
   generatedAt: string,
   states: Record<string, MachineState>,
   latency: Record<string, number | null> = {}
-): Snapshot => ({
-  generatedAt,
-  tailscale: true,
-  machines: Object.entries(states).map(([name, state]) => ({
-    name,
-    here: false,
-    kind: "computer",
-    state,
-    tailscale: null,
-    t3:
-      latency[name] === undefined
-        ? null
-        : {
-            environmentId: `env-${name}`,
-            label: name,
-            version: "0.2.0",
-            url: `http://${name}.tail1234.ts.net:3773`,
-            latencyMs: latency[name],
-            link: null,
-          },
-    vitals: null,
-    spoke: null,
-  })),
-});
+) =>
+  ({
+    generatedAt,
+    tailscale: true,
+    machines: Object.entries(states).map(([name, state]) => ({
+      name,
+      state,
+      here: false,
+      kind: "computer",
+      tailscale: null,
+      t3:
+        latency[name] === undefined
+          ? null
+          : {
+              environmentId: `env-${name}`,
+              label: name,
+              version: "0.2.0",
+              url: `http://${name}.tail1234.ts.net:3773`,
+              latencyMs: latency[name],
+              link: null,
+            },
+      vitals: null,
+      spoke: null,
+    })),
+  }) satisfies Snapshot;
 
 describe("history", () => {
   const T0 = "2026-11-27T00:00:00.000Z";
@@ -346,7 +369,7 @@ describe("history", () => {
       sampleSeconds: 60,
       startedAt: T0,
       states: { a: "0".repeat(HISTORY_LIMIT) },
-      latency: { a: Array<number | null>(HISTORY_LIMIT).fill(5) },
+      latency: { a: Array.from({ length: HISTORY_LIMIT }, () => 5) },
     };
 
     const next = nextHistory(
@@ -370,8 +393,8 @@ describe("history", () => {
         gone: `1${" ".repeat(HISTORY_LIMIT - 1)}`,
       },
       latency: {
-        a: Array<number | null>(HISTORY_LIMIT).fill(12),
-        gone: [18, ...Array<null>(HISTORY_LIMIT - 1).fill(null)],
+        a: Array.from({ length: HISTORY_LIMIT }, () => 12),
+        gone: [18, ...Array.from({ length: HISTORY_LIMIT - 1 }, () => null)],
       },
     };
 
