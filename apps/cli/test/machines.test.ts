@@ -1,17 +1,74 @@
 import { describe, expect, test } from "bun:test";
 
+import { Schema } from "effect";
+
 import type { Ran } from "../src/machine/host.ts";
 import { makeMachine } from "./support/host.ts";
+import { readJson } from "./support/json.ts";
 import { devbox } from "./support/run.ts";
 
-const ok = (stdout: string): Ran => ({ code: 0, stdout, stderr: "" });
+const UsedSchema = Schema.Struct({
+  used: Schema.Number,
+  total: Schema.Number,
+});
+
+const VitalsSchema = Schema.Struct({
+  load: Schema.Number,
+  memory: UsedSchema,
+  disk: UsedSchema,
+});
+
+const TailnetSchema = Schema.Struct({
+  ip: Schema.String,
+  dns: Schema.String,
+  os: Schema.String,
+  online: Schema.Boolean,
+  lastSeen: Schema.NullOr(Schema.String),
+});
+
+const LinkSummarySchema = Schema.Struct({
+  status: Schema.String,
+  access: Schema.String,
+  expiresAt: Schema.String,
+  urls: Schema.Array(Schema.String),
+});
+
+const T3Schema = Schema.Struct({
+  environmentId: Schema.String,
+  label: Schema.String,
+  version: Schema.NullOr(Schema.String),
+  url: Schema.NullOr(Schema.String),
+  latencyMs: Schema.NullOr(Schema.Number),
+  link: Schema.NullOr(LinkSummarySchema),
+});
+
+const MachineSchema = Schema.Struct({
+  name: Schema.String,
+  here: Schema.Boolean,
+  kind: Schema.Literals(["mac", "windows", "wsl", "vm", "computer", "remote"]),
+  state: Schema.Literals(["t3", "online", "offline"]),
+  tailscale: Schema.NullOr(TailnetSchema),
+  t3: Schema.NullOr(T3Schema),
+  vitals: Schema.NullOr(VitalsSchema),
+  spoke: Schema.NullOr(Schema.Literals(["trusted", "untrusted"])),
+});
+
+const MachinesSnapshotSchema = Schema.Struct({
+  generatedAt: Schema.String,
+  tailscale: Schema.Boolean,
+  machines: Schema.Array(MachineSchema),
+});
+
+interface NodeOverrides {
+  OS?: string;
+  Online?: boolean;
+  LastSeen?: string;
+}
+
+const ok = (stdout: string) => ({ stdout, code: 0, stderr: "" }) satisfies Ran;
 const NEVER = "0001-01-01T00:00:00Z";
 
-const node = (
-  name: string,
-  ip: string,
-  extra: Record<string, unknown> = {}
-) => ({
+const node = (name: string, ip: string, extra: NodeOverrides = {}) => ({
   HostName: name,
   DNSName: `${name.toLowerCase()}.tail1234.ts.net.`,
   TailscaleIPs: [ip, "fd7a:115c:a1e0::15"],
@@ -21,7 +78,12 @@ const node = (
   ...extra,
 });
 
-const status = (self: object, peers: readonly object[]) =>
+type TailscaleNodeFixture = ReturnType<typeof node>;
+
+const status = (
+  self: TailscaleNodeFixture,
+  peers: readonly TailscaleNodeFixture[]
+) =>
   JSON.stringify({
     BackendState: "Running",
     Self: self,
@@ -34,6 +96,14 @@ const descriptor = (environmentId: string, label: string) =>
     label,
     platform: { os: "linux" },
     serverVersion: "0.2.0",
+  });
+
+const withPlatform = (environmentId: string, label: string, os: string) =>
+  JSON.stringify({
+    environmentId,
+    label,
+    serverVersion: "0.2.0",
+    platform: { os },
   });
 
 const t3Link = (
@@ -52,15 +122,16 @@ const t3Link = (
   status: linkStatus,
 });
 
+type T3LinkFixture = ReturnType<typeof t3Link>;
+
 const page = (ip: string, port = 3773) =>
   `http://${ip}:${port}/.well-known/t3/environment`;
 
-/** A computer with Tailscale (or not), `t3` on PATH, and pages that answer. */
 const computer = (
   options: {
     tailscale?: string;
     tailscaleBin?: string;
-    links?: readonly object[];
+    links?: readonly T3LinkFixture[];
     pages?: Record<string, string>;
   } = {}
 ) => {
@@ -85,8 +156,6 @@ const computer = (
     if (argv[1] === "environment" && argv[2] === "list") {
       return ok(JSON.stringify(links));
     }
-
-    return undefined;
   };
 
   return m;
@@ -102,7 +171,7 @@ const machinesJson = async (
 
   expect(r.code).toBe(0);
 
-  return { ...r, json: JSON.parse(r.out) };
+  return { ...r, json: readJson(MachinesSnapshotSchema, r.out) };
 };
 
 describe("devbox machines --json", () => {
@@ -242,14 +311,7 @@ describe("devbox machines --json", () => {
     });
 
     const { json } = await machinesJson(m);
-    expect(
-      json.machines.map(
-        (x: { name: string; t3: { environmentId: string } }) => [
-          x.name,
-          x.t3.environmentId,
-        ]
-      )
-    ).toEqual([
+    expect(json.machines.map((x) => [x.name, x.t3?.environmentId])).toEqual([
       ["edge-7", "env-7"],
       ["edge-7", "env-old"],
     ]);
@@ -268,11 +330,7 @@ describe("devbox machines --json", () => {
     });
 
     const { json } = await machinesJson(m);
-    expect(
-      json.machines.map(
-        (x: { name: string; state: string }) => `${x.name}:${x.state}`
-      )
-    ).toEqual([
+    expect(json.machines.map((x) => `${x.name}:${x.state}`)).toEqual([
       "edge-7:online",
       "delta:t3",
       "Zulu:t3",
@@ -298,12 +356,7 @@ describe("devbox machines --json", () => {
     const { json } = await machinesJson(m);
 
     const seen = Object.fromEntries(
-      json.machines.map(
-        (x: { name: string; tailscale: { lastSeen: string | null } }) => [
-          x.name,
-          x.tailscale.lastSeen,
-        ]
-      )
+      json.machines.map((x) => [x.name, x.tailscale?.lastSeen])
     );
 
     expect(seen).toEqual({
@@ -311,7 +364,7 @@ describe("devbox machines --json", () => {
       "edge-8": "2026-11-26T08:15:00Z",
       "edge-9": null,
     });
-    expect(json.machines[1].state).toBe("offline");
+    expect(json.machines[1]?.state).toBe("offline");
     expect(m.fetches.filter((url) => !url.endsWith("/api/spoke"))).toEqual([
       page("100.64.0.21"),
     ]);
@@ -330,10 +383,7 @@ describe("devbox machines --json", () => {
     });
 
     const { json } = await machinesJson(m);
-    expect(json.machines.map((x: { name: string }) => x.name)).toEqual([
-      "edge-7",
-      "mac-1",
-    ]);
+    expect(json.machines.map((x) => x.name)).toEqual(["edge-7", "mac-1"]);
     expect(m.fetches).not.toContain(page("100.64.0.40"));
   });
 
@@ -347,10 +397,7 @@ describe("devbox machines --json", () => {
 
     const { json } = await machinesJson(m);
     expect(json.tailscale).toBe(true);
-    expect(json.machines.map((x: { name: string }) => x.name)).toEqual([
-      "edge-7",
-      "edge-8",
-    ]);
+    expect(json.machines.map((x) => x.name)).toEqual(["edge-7", "edge-8"]);
     expect(m.calls).toContainEqual(["tailscale.exe", "status", "--json"]);
   });
 
@@ -390,19 +437,17 @@ describe("devbox machines --json", () => {
     expect(r.out).toBe("");
     expect(r.err).toContain("Tailscale did not answer");
     expect(r.err).toMatch(
-      /machine\s+kind\s+state\s+where\s+T3 Code\s+agent link/
+      /machine\s+kind\s+state\s+where\s+T3 Code\s+agent link/u
     );
     expect(r.err).toMatch(
-      /box-1\.example\.internal \(here\)\s+computer\s+online/
+      /box-1\.example\.internal \(here\)\s+computer\s+online/u
     );
   });
 
   test("--json says nothing on stderr when Tailscale does not answer", async () => {
     const { json, err } = await machinesJson(computer());
     expect(json.tailscale).toBe(false);
-    expect(json.machines.map((x: { state: string }) => x.state)).toEqual([
-      "online",
-    ]);
+    expect(json.machines.map((x) => x.state)).toEqual(["online"]);
     expect(err).toBe("");
   });
 });
@@ -412,10 +457,11 @@ const LINKS = JSON.stringify([t3Link("env-8", "edge-8")]);
 const linkedNames = async (
   m: ReturnType<typeof makeMachine>,
   ...args: string[]
-) =>
-  (await machinesJson(m, ...args)).json.machines.map(
-    (x: { name: string }) => x.name
-  );
+) => {
+  const { json } = await machinesJson(m, ...args);
+
+  return json.machines.map((x) => x.name);
+};
 
 const bare = () => {
   const m = makeMachine();
@@ -476,14 +522,6 @@ describe("which t3 lists the links", () => {
 });
 
 describe("the kind of a machine", () => {
-  const withPlatform = (environmentId: string, label: string, os: string) =>
-    JSON.stringify({
-      environmentId,
-      label,
-      serverVersion: "0.2.0",
-      platform: { os },
-    });
-
   test("comes from the system Tailscale reports, and WSL from what T3 Code says it runs on", async () => {
     const m = computer({
       tailscale: status(node("studio", "100.64.0.10", { OS: "macOS" }), [
@@ -499,12 +537,7 @@ describe("the kind of a machine", () => {
 
     const { json } = await machinesJson(m);
     expect(
-      Object.fromEntries(
-        json.machines.map((x: { name: string; kind: string }) => [
-          x.name,
-          x.kind,
-        ])
-      )
+      Object.fromEntries(json.machines.map((x) => [x.name, x.kind]))
     ).toEqual({
       studio: "mac",
       tower: "windows",
@@ -525,9 +558,7 @@ describe("the kind of a machine", () => {
     m.respond = (argv) =>
       argv[0] === "systemd-detect-virt" ? ok("kvm\n") : respond(argv);
     const { json } = await machinesJson(m);
-    expect(
-      json.machines.map((x: { name: string; kind: string }) => [x.name, x.kind])
-    ).toEqual([
+    expect(json.machines.map((x) => [x.name, x.kind])).toEqual([
       ["edge-7", "vm"],
       ["edge-8", "computer"],
     ]);
