@@ -22,17 +22,18 @@ export interface Readings {
 }
 
 /** Memory in use is what the kernel says a new program could not have without swapping. */
-export const vitalsOf = (r: Readings): Vitals => ({
-  load: r.cores > 0 ? Math.round((r.load1 / r.cores) * 1000) / 1000 : 0,
-  memory: {
-    used: Math.max(0, r.memory.total - r.memory.available),
-    total: r.memory.total,
-  },
-  disk: {
-    used: Math.max(0, (r.disk.blocks - r.disk.free) * r.disk.blockSize),
-    total: r.disk.blocks * r.disk.blockSize,
-  },
-});
+export const vitalsOf = (r: Readings) =>
+  ({
+    load: r.cores > 0 ? Math.round((r.load1 / r.cores) * 1000) / 1000 : 0,
+    memory: {
+      used: Math.max(0, r.memory.total - r.memory.available),
+      total: r.memory.total,
+    },
+    disk: {
+      used: Math.max(0, (r.disk.blocks - r.disk.free) * r.disk.blockSize),
+      total: r.disk.blocks * r.disk.blockSize,
+    },
+  }) satisfies Vitals;
 
 export const SPOKE_PORT = 3782;
 
