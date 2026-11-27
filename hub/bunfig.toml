@@ -1,3 +1,0 @@
-[install]
-# The lint plugins need their own TypeScript 6, apart from the TypeScript 7 this app is checked with.
-linker = "isolated"

@@ -5,7 +5,7 @@ import { join } from "node:path";
 // One file for every agent. Claude Code reads CLAUDE.md, not AGENTS.md, so each Claude
 // home gets a link to it and a `git pull` of this repo updates them all.
 export const INSTRUCTIONS_FILE = fileURLToPath(
-  new URL("../../instructions/AGENTS.md", import.meta.url),
+  new URL("../../../../instructions/AGENTS.md", import.meta.url),
 );
 
 const T3Settings = Schema.fromJsonString(

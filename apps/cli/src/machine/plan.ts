@@ -74,9 +74,9 @@ export type Facts = {
   readonly hub: {
     /** The unit is enabled and active. */
     readonly running: boolean;
-    /** The page in this checkout was built from the `hub/` it holds now. */
+    /** The page in this checkout was built from the `apps/hub` it holds now. */
     readonly built: boolean;
-    /** Where `hub/` is. A compiled devbox has none. */
+    /** The checkout that holds `apps/hub`. A compiled devbox has none. */
     readonly checkout: Option.Option<string>;
   };
   readonly agents: {
@@ -434,7 +434,7 @@ export const plan = (config: MachineConfig, ctx: Context, facts: Facts): Plan =>
           onNone: () =>
             skips.push({
               what: "hub page",
-              why: "this devbox is not a checkout, so build hub/ in one and pass --ui",
+              why: "this devbox is not a checkout, so build apps/hub in one and pass --ui",
             }),
           onSome: (checkout) => changes.push(Change.BuildHub({ checkout })),
         });

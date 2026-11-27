@@ -49,7 +49,7 @@ const writeBin = (dir: string, bin: string) => {
   writeFileSync(join(dir, bin), "");
 };
 
-export const SELF = ["/opt/bun", "/opt/devbox/src/cli.ts"] as const;
+export const SELF = ["/opt/bun", "/opt/devbox/apps/cli/src/cli.ts"] as const;
 
 export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "devbox-machine-")));

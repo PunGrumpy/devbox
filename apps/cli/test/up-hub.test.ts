@@ -15,8 +15,8 @@ const machine = (options: { tree?: string; buildFails?: boolean } = {}) => {
   const m = makeMachine({ userBus: true });
   const checkout = join(m.base, "devbox");
   const state = { tree: options.tree ?? "tree-1" };
-  mkdirSync(join(checkout, "hub", "out"), { recursive: true });
-  m.host = { ...m.host, self: ["/opt/bun", join(checkout, "src", "cli.ts")] };
+  mkdirSync(join(checkout, "apps", "hub", "out"), { recursive: true });
+  m.host = { ...m.host, self: ["/opt/bun", join(checkout, "apps", "cli", "src", "cli.ts")] };
   m.respond = (argv) => {
     if (argv[0] === "git" && argv[3] === "rev-parse") return ok(`${state.tree}\n`);
     if (argv[0] === "/opt/bun" && argv[1] === "install") return ok();
@@ -43,7 +43,7 @@ describe("devbox up --hub", () => {
     expect(first.code).toBe(0);
     const unit = readFileSync(unitPath(m), "utf8");
     expect(unit).toContain(
-      `ExecStart=/opt/bun ${checkout}/src/cli.ts hub --host 127.0.0.1 --port 3780 --t3-port 3773\n`,
+      `ExecStart=/opt/bun ${checkout}/apps/cli/src/cli.ts hub --host 127.0.0.1 --port 3780 --t3-port 3773\n`,
     );
     expect(unit).toContain(`EnvironmentFile=-${m.home}/.config/devbox/hub/env\n`);
     expect(unit).toContain("Restart=always");
@@ -51,7 +51,7 @@ describe("devbox up --hub", () => {
     expect(first.err).toContain("enabled devbox-hub.service on 127.0.0.1:3780");
     expect(first.err).toContain("built the hub page");
     expect(builds(m)).toBe(1);
-    expect(readFileSync(join(checkout, "hub/out/.built"), "utf8")).toBe("tree-1\n");
+    expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf8")).toBe("tree-1\n");
 
     const before = m.calls.length;
     expect((await up(m, "--hub")).err).toContain("No changes.");
@@ -72,7 +72,7 @@ describe("devbox up --hub", () => {
     const second = await up(m, "--hub");
     expect(second.err).toContain("built the hub page");
     expect(builds(m, before)).toBe(1);
-    expect(readFileSync(join(checkout, "hub/out/.built"), "utf8")).toBe("tree-2\n");
+    expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf8")).toBe("tree-2\n");
     expect(m.units.get("user:devbox-hub.service")).toEqual({ active: true, enabled: true });
   });
 
@@ -93,7 +93,7 @@ describe("devbox up --hub", () => {
     expect(r.code).not.toBe(0);
     expect(r.err).toContain("the hub page did not build");
     expect(m.units.get("user:devbox-hub.service")).toEqual({ active: true, enabled: true });
-    expect(existsSync(join(checkout, "hub/out/.built"))).toBe(false);
+    expect(existsSync(join(checkout, "apps/hub/out/.built"))).toBe(false);
   });
 
   test("without systemd it says to run the hub yourself", async () => {

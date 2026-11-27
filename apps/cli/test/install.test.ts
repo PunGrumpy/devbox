@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const INSTALL = join(import.meta.dir, "..", "install.sh");
+const INSTALL = join(import.meta.dir, "..", "..", "..", "install.sh");
 
 // Runs install.sh with only stub commands on PATH. The stub bash fails, so the script stops
 // right after it would have run bun's installer.

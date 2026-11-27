@@ -381,7 +381,7 @@ describe("devbox up converges", () => {
     expect(r.err).toContain("supervisor: systemd user unit devbox.service");
     const unit = readFileSync(join(m.home, ".config/systemd/user/devbox.service"), "utf8");
     expect(unit).toContain(
-      `ExecStart=/opt/bun /opt/devbox/src/cli.ts serve --data ${m.home} --port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --public-url https://edge-7.example.com\n`,
+      `ExecStart=/opt/bun /opt/devbox/apps/cli/src/cli.ts serve --data ${m.home} --port 3773 --base-dir ${m.home}/.t3 --workspace ${m.home} --public-url https://edge-7.example.com\n`,
     );
     expect(unit).toContain(
       `Environment=PATH=${m.home}/.local/bin:${m.home}/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n`,

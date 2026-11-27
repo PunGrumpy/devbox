@@ -442,7 +442,7 @@ describe("devbox serve keeps the chosen agents current", () => {
 });
 
 describe("the README", () => {
-  const readme = readFileSync(join(import.meta.dir, "..", "README.md"), "utf8");
+  const readme = readFileSync(join(import.meta.dir, "..", "..", "..", "README.md"), "utf8");
 
   test.each(AGENTS.map((agent) => [agent.id, agent.login]))(
     "lists the agent %s and how to log in with `%s`",

@@ -236,7 +236,7 @@ const gather = (
     });
     const checkout =
       ctx.self.length === 2
-        ? Option.some(resolve(dirname(ctx.self[1]!), ".."))
+        ? Option.some(resolve(dirname(ctx.self[1]!), "../../.."))
         : Option.none<string>();
     const hubRunning = Supervisor.$match(supervisor, {
       Systemd: ({ scope }) =>
@@ -280,13 +280,14 @@ const gather = (
     } satisfies Facts;
   });
 
-const hubStamp = (checkout: string) => join(checkout, "hub", "out", ".built");
+const HUB_DIR = join("apps", "hub");
+const hubStamp = (checkout: string) => join(checkout, HUB_DIR, "out", ".built");
 
-/** The git tree of `hub/`, which names what a build of the page was made from. */
+/** The git tree of `apps/hub`, which names what a build of the page was made from. */
 const hubTree = (checkout: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
-    const tree = yield* host.run(["git", "-C", checkout, "rev-parse", "HEAD:hub"]);
+    const tree = yield* host.run(["git", "-C", checkout, "rev-parse", "HEAD:apps/hub"]);
     return tree.code === 0 ? Option.some(tree.stdout.trim()) : Option.none<string>();
   });
 
@@ -507,13 +508,13 @@ const apply = (
         }),
       BuildHub: ({ checkout }) =>
         Effect.gen(function* () {
-          const cwd = join(checkout, "hub");
+          const cwd = join(checkout, HUB_DIR);
           const bun = ctx.self[0] ?? "bun";
-          for (const argv of [
-            [bun, "install", "--frozen-lockfile"],
-            [bun, "run", "build"],
+          for (const { argv, at } of [
+            { argv: [bun, "install", "--frozen-lockfile", "--filter", "devbox-hub"], at: checkout },
+            { argv: [bun, "run", "build"], at: cwd },
           ]) {
-            const ran = yield* host.run(argv, { cwd, inherit: true });
+            const ran = yield* host.run(argv, { cwd: at, inherit: true });
             if (ran.code !== 0)
               return yield* new UpFailed({
                 message: `the hub page did not build: ${argv.slice(1).join(" ")} exited with ${ran.code}`,

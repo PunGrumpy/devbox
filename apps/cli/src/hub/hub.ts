@@ -102,7 +102,7 @@ const NO_STORE = { "cache-control": "no-store" };
 const TEXT = { "content-type": "text/plain; charset=utf-8" };
 
 const NOT_BUILT =
-  "The hub page is not built. In the devbox checkout run `bun install` and `bun run build` in hub/, or pass --ui.\n";
+  "The hub page is not built. In the devbox checkout run `bun install` and `bun run build` in apps/hub/, or pass --ui.\n";
 
 export const route = (
   method: string,
@@ -171,7 +171,7 @@ const listen = (
       }),
   );
 
-const BUILT_PAGE = fileURLToPath(new URL("../../hub/out", import.meta.url));
+const BUILT_PAGE = fileURLToPath(new URL("../../../hub/out", import.meta.url));
 
 export const stateFile = (home: string) => join(home, ".local", "state", "devbox", "hub.json");
 
@@ -216,7 +216,7 @@ export const hub = Command.make(
       Flag.withDefault(3780),
     ),
     ui: Flag.String("ui").pipe(
-      Flag.withDescription("directory of the built page (default hub/out in this checkout)"),
+      Flag.withDescription("directory of the built page (default apps/hub/out in this checkout)"),
       Flag.withDefault(BUILT_PAGE),
     ),
     ...snapshotFlags,
@@ -253,13 +253,18 @@ export const hub = Command.make(
           const saved = { history: nextHistory(history, snapshot), watch: watched.watch };
           history = saved.history;
           watch = saved.watch;
-          yield* fs.makeDirectory(dirname(file), { recursive: true }).pipe(
-            Effect.andThen(
-              fs.writeFileString(`${file}.tmp`, serialize(saved, DateTime.formatIso(yield* DateTime.now))),
-            ),
-            Effect.andThen(fs.rename(`${file}.tmp`, file)),
-            Effect.ignore,
-          );
+          yield* fs
+            .makeDirectory(dirname(file), { recursive: true })
+            .pipe(
+              Effect.andThen(
+                fs.writeFileString(
+                  `${file}.tmp`,
+                  serialize(saved, DateTime.formatIso(yield* DateTime.now)),
+                ),
+              ),
+              Effect.andThen(fs.rename(`${file}.tmp`, file)),
+              Effect.ignore,
+            );
           if (Option.isSome(notify))
             yield* Effect.forkScoped(
               Effect.forEach(watched.notices, (notice) => send(notify.value, notice), {
