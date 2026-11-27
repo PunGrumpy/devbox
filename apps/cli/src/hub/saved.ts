@@ -31,7 +31,7 @@ export interface Resumed {
   readonly watch: Watch;
 }
 
-export const serialize = (resumed: Resumed, savedAt: string): string =>
+export const serialize = (resumed: Resumed, savedAt: string) =>
   `${JSON.stringify({ savedAt, ...resumed })}\n`;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -41,11 +41,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * older than the history's own 24 hours, gives nothing. The time the hub was down becomes unknown
  * samples, so the bars before it do not slide into the present.
  */
-export const restore = (
-  text: string,
-  now: number,
-  limit: number
-): Option.Option<Resumed> =>
+export const restore = (text: string, now: number, limit: number) =>
   Option.flatMap(
     Schema.decodeUnknownOption(Saved)(text),
     ({ savedAt, history, watch }) => {
@@ -71,7 +67,10 @@ export const restore = (
           .filter(([, samples]) => samples.trim() !== "")
       );
 
-      const nullGap: readonly null[] = Array<null>(missed).fill(null);
+      const nullGap: readonly null[] = Array.from(
+        { length: missed },
+        () => null
+      );
 
       const latency = Object.fromEntries(
         Object.entries(history.latency ?? {})

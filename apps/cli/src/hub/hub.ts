@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { dirname, extname, join, resolve, sep } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -183,21 +183,21 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
 export const assetsIn =
   (dir: string) =>
   (pathname: string): Asset | undefined => {
-    const root = resolve(dir);
+    const root = path.resolve(dir);
 
     try {
       const wanted = decodeURIComponent(pathname);
 
-      const path = resolve(
+      const target = path.resolve(
         root,
         `.${wanted.endsWith("/") ? `${wanted}index.html` : wanted}`
       );
 
-      if (!path.startsWith(`${root}${sep}`)) {
+      if (!target.startsWith(`${root}${path.sep}`)) {
         return undefined;
       }
 
-      return { body: readFileSync(path), path };
+      return { body: readFileSync(target), path: target };
     } catch {
       return undefined;
     }
@@ -257,7 +257,7 @@ const page = (
         ? "public, max-age=31536000, immutable"
         : "no-store",
       "content-type":
-        CONTENT_TYPES[extname(found.path)] ?? "application/octet-stream",
+        CONTENT_TYPES[path.extname(found.path)] ?? "application/octet-stream",
     },
     body: found.body,
   };
@@ -364,7 +364,7 @@ const current = (sample: Sample, home: string) =>
   });
 
 export const stateFile = (home: string) =>
-  join(home, ".local", "state", "devbox", "hub.json");
+  path.join(home, ".local", "state", "devbox", "hub.json");
 
 const REGISTRY = "https://registry.npmjs.org/t3/nightly";
 
@@ -495,7 +495,7 @@ export const hub = Command.make(
           history = saved.history;
           watch = saved.watch;
           yield* fs
-            .makeDirectory(dirname(file), { recursive: true })
+            .makeDirectory(path.dirname(file), { recursive: true })
             .pipe(
               Effect.andThen(
                 fs.writeFileString(

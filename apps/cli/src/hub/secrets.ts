@@ -4,7 +4,7 @@ import {
   randomBytes,
 } from "node:crypto";
 import type { KeyObject } from "node:crypto";
-import { dirname, join } from "node:path";
+import path from "node:path";
 
 import { Effect, FileSystem, Option, Schema } from "effect";
 import { Command } from "effect/cli";
@@ -21,43 +21,45 @@ export class SecretFailed extends Schema.TaggedError<SecretFailed>()(
   }
 ) {}
 
-const stateDir = (home: string) => join(home, ".local", "state", "devbox");
-export const keyFile = (home: string) => join(stateDir(home), "hub-key");
-export const tokenFile = (home: string) => join(stateDir(home), "hub-token");
+const stateDir = (home: string) => path.join(home, ".local", "state", "devbox");
+export const keyFile = (home: string) => path.join(stateDir(home), "hub-key");
+
+export const tokenFile = (home: string) =>
+  path.join(stateDir(home), "hub-token");
 
 const OWNER_ONLY = 0o600;
 
-const createUnlessAnotherProcessJustDid = (path: string, make: () => string) =>
+const createUnlessAnotherProcessJustDid = (file: string, make: () => string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    yield* fs.makeDirectory(dirname(path), { recursive: true });
+    yield* fs.makeDirectory(path.dirname(file), { recursive: true });
     yield* fs
-      .writeFileString(path, make(), { flag: "wx", mode: OWNER_ONLY })
+      .writeFileString(file, make(), { flag: "wx", mode: OWNER_ONLY })
       .pipe(Effect.ignore);
 
-    return yield* fs.readFileString(path);
+    return yield* fs.readFileString(file);
   });
 
-const ownFile = (path: string, make: () => string) =>
+const ownFile = (file: string, make: () => string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const existing = yield* fs.readFileString(path).pipe(Effect.option);
+    const existing = yield* fs.readFileString(file).pipe(Effect.option);
 
     if (Option.isSome(existing)) {
-      yield* fs.chmod(path, OWNER_ONLY).pipe(Effect.ignore);
+      yield* fs.chmod(file, OWNER_ONLY).pipe(Effect.ignore);
 
       return existing.value;
     }
 
-    return yield* createUnlessAnotherProcessJustDid(path, make);
+    return yield* createUnlessAnotherProcessJustDid(file, make);
   }).pipe(
     Effect.mapError(
-      () => new SecretFailed({ message: `cannot read or create ${path}` })
+      () => new SecretFailed({ message: `cannot read or create ${file}` })
     )
   );
 
-const remakeHint = (path: string) =>
-  `move ${path} aside and start the hub again to make a new one`;
+const remakeHint = (file: string) =>
+  `move ${file} aside and start the hub again to make a new one`;
 
 export interface HubSecrets {
   readonly privateKey: KeyObject;
@@ -67,31 +69,32 @@ export interface HubSecrets {
   readonly token: string;
 }
 
-const TOKEN = /^[A-Za-z0-9_-]{43}$/;
+const TOKEN = /^[A-Za-z0-9_-]{43}$/u;
 
 export const hubKey = (home: string) =>
   Effect.gen(function* () {
-    const path = keyFile(home);
+    const file = keyFile(home);
 
-    const pem = yield* ownFile(path, () =>
-      generateKeyPairSync("ed25519")
-        .privateKey.export({ format: "pem", type: "pkcs8" })
-        .toString()
+    const pem = yield* ownFile(file, () =>
+      generateKeyPairSync("ed25519").privateKey.export({
+        format: "pem",
+        type: "pkcs8",
+      })
     );
 
     const privateKey = yield* Effect.try({
       try: () => createPrivateKey(pem),
       catch: () =>
         new SecretFailed({
-          message: `${path} does not hold an Ed25519 key`,
-          hint: `${remakeHint(path)}. Every spoke then needs the new key`,
+          message: `${file} does not hold an Ed25519 key`,
+          hint: `${remakeHint(file)}. Every spoke then needs the new key`,
         }),
     });
 
     if (privateKey.asymmetricKeyType !== "ed25519") {
       return yield* new SecretFailed({
-        message: `${path} does not hold an Ed25519 key`,
-        hint: remakeHint(path),
+        message: `${file} does not hold an Ed25519 key`,
+        hint: remakeHint(file),
       });
     }
 
@@ -100,17 +103,17 @@ export const hubKey = (home: string) =>
 
 export const hubToken = (home: string) =>
   Effect.gen(function* () {
-    const path = tokenFile(home);
+    const file = tokenFile(home);
 
     const token = (yield* ownFile(
-      path,
+      file,
       () => `${randomBytes(32).toString("base64url")}\n`
     )).trim();
 
     if (!TOKEN.test(token)) {
       return yield* new SecretFailed({
-        message: `${path} does not hold a hub token`,
-        hint: remakeHint(path),
+        message: `${file} does not hold a hub token`,
+        hint: remakeHint(file),
       });
     }
 

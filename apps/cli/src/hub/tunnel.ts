@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import path from "node:path";
 
 import { Effect, FileSystem, Option, Schema } from "effect";
 
@@ -61,7 +61,7 @@ const Tunnels = Schema.fromJsonString(Schema.Record(Schema.String, Made));
 export type Tunnels = Readonly<Record<string, Made>>;
 
 export const tunnelsFile = (home: string) =>
-  join(home, ".local", "state", "devbox", "tunnels.json");
+  path.join(home, ".local", "state", "devbox", "tunnels.json");
 
 /** What the hub made, by machine name. A file that does not parse holds nothing. */
 export const loadTunnels = (home: string) =>
@@ -81,15 +81,15 @@ export const loadTunnels = (home: string) =>
 const remember = (home: string, name: string, made: Made | undefined) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const path = tunnelsFile(home);
+    const file = tunnelsFile(home);
     const { [name]: _, ...others } = yield* loadTunnels(home);
     const next = made === undefined ? others : { ...others, [name]: made };
-    yield* fs.makeDirectory(dirname(path), { recursive: true });
+    yield* fs.makeDirectory(path.dirname(file), { recursive: true });
     yield* fs.writeFileString(
-      `${path}.tmp`,
+      `${file}.tmp`,
       `${JSON.stringify(next, null, 2)}\n`
     );
-    yield* fs.rename(`${path}.tmp`, path);
+    yield* fs.rename(`${file}.tmp`, file);
   }).pipe(Effect.orDie);
 
 /** The tunnel's address for the snapshot, once it answers. */
