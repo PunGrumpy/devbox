@@ -1,94 +1,172 @@
+import { requestLogout } from "@/lib/auth";
+import type { FetchLike } from "@/lib/auth";
 import { snapshotSchema } from "@/lib/machines";
 import type { Snapshot } from "@/lib/machines";
 
-interface HubState {
-  failing: boolean;
-  snapshot: Snapshot | null;
+export type HubStatus =
+  | "loading"
+  | "not-answering"
+  | "signed-in"
+  | "signed-out";
+
+export interface HubState {
+  readonly snapshot: Snapshot | null;
+  readonly status: HubStatus;
 }
 
+const HTTP_UNAUTHORIZED = 401;
 const POLL_MS = 15_000;
 const TICK_MS = 1000;
 
-const listeners = new Set<() => void>();
-let state: HubState = { failing: false, snapshot: null };
-let now = 0;
-let poll: ReturnType<typeof setInterval> | undefined;
-let clock: ReturnType<typeof setInterval> | undefined;
+type FetchResult =
+  | { readonly kind: "failed" }
+  | { readonly kind: "ok"; readonly snapshot: Snapshot }
+  | { readonly kind: "unauthorized" };
 
-const emit = () => {
-  for (const listener of listeners) {
-    listener();
+const fetchSnapshot = async (request: FetchLike) => {
+  const response = await request("/api/machines", { cache: "no-store" });
+
+  if (response.status === HTTP_UNAUTHORIZED) {
+    return { kind: "unauthorized" } satisfies FetchResult;
   }
-};
-
-const fetchSnapshot = async () => {
-  const response = await fetch("/api/machines", { cache: "no-store" });
 
   if (!response.ok) {
-    return null;
+    return { kind: "failed" } satisfies FetchResult;
   }
 
   const parsed = snapshotSchema.safeParse(await response.json());
 
-  return parsed.success ? parsed.data : null;
+  return parsed.success
+    ? ({ kind: "ok", snapshot: parsed.data } satisfies FetchResult)
+    : ({ kind: "failed" } satisfies FetchResult);
 };
 
-/** Asks the hub for its latest snapshot. A failure keeps the snapshot already shown. */
-export const refresh = async () => {
-  const snapshot = await fetchSnapshot().catch(() => null);
-  state =
-    snapshot === null
-      ? { ...state, failing: true }
-      : { failing: false, snapshot };
-  now = Date.now();
-  emit();
-};
+/** Creates a hub store that holds the login status beside the latest snapshot. */
+export const createHubStore = (request: FetchLike = fetch) => {
+  const listeners = new Set<() => void>();
+  let state: HubState = { snapshot: null, status: "loading" };
+  let now = 0;
+  let generation = 0;
+  let poll: ReturnType<typeof setInterval> | undefined;
+  let clock: ReturnType<typeof setInterval> | undefined;
 
-const refreshWhenVisible = () => {
-  if (!document.hidden) {
-    void refresh();
-  }
-};
+  const emit = () => {
+    for (const listener of listeners) {
+      listener();
+    }
+  };
 
-const start = () => {
-  now = Date.now();
-  void refresh();
-  poll = setInterval(refreshWhenVisible, POLL_MS);
-  clock = setInterval(() => {
+  const markSignedOut = () => {
+    generation += 1;
+    state = { snapshot: null, status: "signed-out" };
     now = Date.now();
     emit();
-  }, TICK_MS);
-  document.addEventListener("visibilitychange", refreshWhenVisible);
-};
+  };
 
-const stop = () => {
-  clearInterval(poll);
-  clearInterval(clock);
-  document.removeEventListener("visibilitychange", refreshWhenVisible);
-};
+  const refresh = async () => {
+    const turn = generation;
 
-export const subscribe = (listener: () => void) => {
-  listeners.add(listener);
+    const result = await fetchSnapshot(request).catch(
+      () => ({ kind: "failed" }) satisfies FetchResult
+    );
 
-  if (listeners.size === 1) {
-    start();
-  }
-
-  return () => {
-    listeners.delete(listener);
-
-    if (listeners.size === 0) {
-      stop();
+    if (turn !== generation) {
+      return state;
     }
+
+    if (result.kind === "unauthorized") {
+      state = { snapshot: null, status: "signed-out" };
+    } else if (result.kind === "ok") {
+      state = { snapshot: result.snapshot, status: "signed-in" };
+    } else {
+      state = { snapshot: state.snapshot, status: "not-answering" };
+    }
+
+    now = Date.now();
+    emit();
+
+    return state;
+  };
+
+  const signOut = async () => {
+    generation += 1;
+    await requestLogout(request);
+    state = { snapshot: null, status: "signed-out" };
+    now = Date.now();
+    emit();
+  };
+
+  const refreshWhenVisible = () => {
+    if (!document.hidden && state.status !== "signed-out") {
+      void refresh();
+    }
+  };
+
+  const start = () => {
+    now = Date.now();
+    void refresh();
+    poll = setInterval(refreshWhenVisible, POLL_MS);
+    clock = setInterval(() => {
+      now = Date.now();
+      emit();
+    }, TICK_MS);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+  };
+
+  const stop = () => {
+    clearInterval(poll);
+    clearInterval(clock);
+    document.removeEventListener("visibilitychange", refreshWhenVisible);
+  };
+
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+
+    if (listeners.size === 1) {
+      start();
+    }
+
+    return () => {
+      listeners.delete(listener);
+
+      if (listeners.size === 0) {
+        stop();
+      }
+    };
+  };
+
+  const getHubState = () => state;
+  const getNow = () => now;
+
+  return {
+    getHubState,
+    getNow,
+    markSignedOut,
+    refresh,
+    signOut,
+    subscribe,
   };
 };
 
-export const getHubState = () => state;
+const defaultStore = createHubStore();
+
+/** Asks the hub for its latest snapshot. A failure keeps the snapshot already shown; 401 signs out. */
+export const { refresh } = defaultStore;
+
+/** Moves the store back to the signed-out state and drops the snapshot. */
+export const { markSignedOut } = defaultStore;
+
+/** Posts to `/api/logout` and returns the store to the signed-out state. */
+export const { signOut } = defaultStore;
+
+export const { subscribe } = defaultStore;
+
+export const { getHubState } = defaultStore;
 
 /** The time of the last tick, so every "ago" label on the page moves together. */
-export const getNow = () => now;
+export const { getNow } = defaultStore;
 
-const SERVER_STATE: HubState = { failing: false, snapshot: null };
+const SERVER_STATE: HubState = { snapshot: null, status: "loading" };
 
 export const getServerHubState = () => SERVER_STATE;
 

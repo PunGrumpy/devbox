@@ -3,6 +3,7 @@ import { Flag } from "effect/cli";
 import { join } from "node:path";
 import { UsageError } from "../errors.ts";
 import { type AbsolutePath, absolutePath } from "../migrate/paths.ts";
+import { PublicKey } from "../spoke/signed.ts";
 import { type AgentChoice, type AgentsFlag, agentsFile, parseAgentsFlag } from "./agents.ts";
 
 export const Name = Schema.String.pipe(
@@ -76,7 +77,7 @@ export const serveFlags = {
   ),
   host: Flag.String("host").pipe(
     Flag.withDescription(
-      "address T3 Code listens on, for example a Tailscale IP (default 0.0.0.0, every interface; not with --public-url)",
+      "address T3 Code listens on, for example a Tailscale IP, or the proxy does with --public-url (default 0.0.0.0, every interface)",
     ),
     Flag.withSchema(BindHost),
     Flag.optional,
@@ -107,6 +108,25 @@ export const upFlags = {
       "also keep `devbox hub` running, on --host when that is one address and on 127.0.0.1 otherwise",
     ),
     Flag.withDefault(false),
+  ),
+  spoke: Flag.Boolean("spoke").pipe(
+    Flag.withDescription(
+      "also keep `devbox spoke` running, which tells the hub this machine's load, memory and disk",
+    ),
+    Flag.withDefault(false),
+  ),
+  tunnel: Flag.Boolean("tunnel").pipe(
+    Flag.withDescription(
+      "also keep a Cloudflare Tunnel running with the token in ~/.config/cloudflared/token, which the hub saves when it publishes this machine",
+    ),
+    Flag.withDefault(false),
+  ),
+  trust: Flag.String("trust").pipe(
+    Flag.withDescription(
+      "with --spoke, a hub key (`devbox hub key` prints it) whose hub may update T3 Code here (repeatable)",
+    ),
+    Flag.withSchema(PublicKey),
+    Flag.atLeast(0),
   ),
   supervisor: Flag.Literals("supervisor", SUPERVISORS).pipe(
     Flag.withDescription(
@@ -143,6 +163,11 @@ export type MachineConfig = ServeConfig & {
   readonly supervisor: Supervisor;
   readonly agents: AgentChoice;
   readonly hub: boolean;
+  readonly spoke: boolean;
+  /** Hub keys the spoke takes updates from. */
+  readonly trust: ReadonlyArray<string>;
+  /** Keep `cloudflared-t3.service` running. */
+  readonly tunnel: boolean;
 };
 
 type ServeFlags = {
@@ -161,15 +186,13 @@ type UpFlags = ServeFlags & {
   readonly supervisor: Supervisor;
   readonly agents: Option.Option<AgentsFlag>;
   readonly hub: boolean;
+  readonly spoke: boolean;
+  readonly trust: ReadonlyArray<string>;
+  readonly tunnel: boolean;
 };
 
 export const serveConfig = (flags: ServeFlags, home: AbsolutePath) =>
-  Effect.gen(function* () {
-    if (Option.isSome(flags.host) && Option.isSome(flags.publicUrl))
-      return yield* new UsageError({
-        message: "--host and --public-url cannot be used together",
-        hint: "behind --public-url, T3 listens on 127.0.0.1 and the proxy takes every interface",
-      });
+  Effect.sync(() => {
     const data = Option.match(flags.data, { onNone: () => home, onSome: (d) => absolutePath(d) });
     const under = (value: Option.Option<string>, fallback: string) =>
       absolutePath(Option.getOrElse(value, () => join(data, fallback)));
@@ -190,14 +213,25 @@ export const machineConfig = (
   hostname: string,
   agents: AgentChoice,
 ) =>
-  Effect.map(serveConfig(flags, home), (config): MachineConfig => ({
-    ...config,
-    name: Option.getOrElse(flags.name, () => hostname),
-    channel: flags.channel,
-    supervisor: flags.supervisor,
-    agents,
-    hub: flags.hub,
-  }));
+  Effect.gen(function* () {
+    if (flags.trust.length > 0 && !flags.spoke)
+      return yield* new UsageError({
+        message: "--trust needs --spoke",
+        hint: "the spoke is what takes updates from a hub",
+      });
+    const config = yield* serveConfig(flags, home);
+    return {
+      ...config,
+      name: Option.getOrElse(flags.name, () => hostname),
+      channel: flags.channel,
+      supervisor: flags.supervisor,
+      agents,
+      hub: flags.hub,
+      spoke: flags.spoke,
+      trust: [...new Set(flags.trust)],
+      tunnel: flags.tunnel,
+    } satisfies MachineConfig;
+  });
 
 export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [
   "serve",
@@ -212,6 +246,25 @@ export const serveArgs = (config: ServeConfig): ReadonlyArray<string> => [
   ...(config.host === ALL_INTERFACES ? [] : ["--host", config.host]),
   ...Option.match(config.publicUrl, { onNone: () => [], onSome: (url) => ["--public-url", url] }),
   ...(config.setup ? [] : ["--no-setup"]),
+];
+
+/**
+ * The flags of `devbox up` that make this config again, for the spoke to run when the hub asks for
+ * an update. Paths are absolute, so it does not matter where it runs from. The agents are left
+ * out: a later run reads the ones saved in <data>.
+ */
+export const upArgs = (config: MachineConfig): ReadonlyArray<string> => [
+  ...serveArgs(config).slice(1),
+  "--name",
+  config.name,
+  "--channel",
+  config.channel,
+  "--supervisor",
+  config.supervisor,
+  ...(config.hub ? ["--hub"] : []),
+  ...(config.spoke ? ["--spoke"] : []),
+  ...config.trust.flatMap((key) => ["--trust", key]),
+  ...(config.tunnel ? ["--tunnel"] : []),
 ];
 
 export const pathsOf = (data: string) => ({

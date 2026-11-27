@@ -24,28 +24,59 @@ const t3Schema = z.object({
   version: z.string().nullable(),
 });
 
+const usageSchema = z.object({
+  total: z.number(),
+  used: z.number(),
+});
+
+const vitalsSchema = z.object({
+  disk: usageSchema,
+  load: z.number(),
+  memory: usageSchema,
+});
+
+const tunnelSchema = z.object({
+  url: z.string(),
+});
+
+const cloudflareSchema = z.object({
+  zone: z.string(),
+});
+
 const machineSchema = z.object({
   here: z.boolean(),
   kind: z
     .enum(["mac", "windows", "wsl", "vm", "computer", "remote"])
     .catch("computer"),
   name: z.string(),
+  spoke: z.enum(["trusted", "untrusted"]).nullable().default(null),
   state: z.enum(["t3", "online", "offline"]),
   t3: t3Schema.nullable(),
   tailscale: tailnetSchema.nullable(),
+  tunnel: tunnelSchema.nullable().default(null),
+  vitals: vitalsSchema.nullable().default(null),
 });
 
 export const snapshotSchema = z.object({
+  cloudflare: cloudflareSchema.nullable().default(null),
   generatedAt: z.string(),
   history: z.object({
+    latency: z.record(z.string(), z.array(z.number().nullable())).default({}),
     sampleSeconds: z.number().positive(),
     startedAt: z.string(),
     states: z.record(z.string(), z.string()),
   }),
-  machines: z.array(machineSchema),
+  key: z.string().nullable().default(null),
   latest: z.object({ t3: z.string().nullable() }).catch({ t3: null }),
+  machines: z.array(machineSchema),
   tailscale: z.boolean(),
 });
+
+export type Cloudflare = z.infer<typeof cloudflareSchema>;
+
+export type Tunnel = z.infer<typeof tunnelSchema>;
+
+export type Vitals = z.infer<typeof vitalsSchema>;
 
 export type Machine = z.infer<typeof machineSchema>;
 
@@ -282,3 +313,45 @@ export const daySentences = (
     .filter((sentence) => sentence !== null)
     .join(" ");
 };
+
+const GIBIBYTE = 1024 ** 3;
+const TENTHS = 10;
+const WHOLE_GB = 10;
+
+const formatGb = (bytes: number) => {
+  const gb = Math.max(0, bytes) / GIBIBYTE;
+  const rounded = Math.round(gb * TENTHS) / TENTHS;
+
+  return rounded < WHOLE_GB ? rounded.toFixed(1) : String(Math.round(gb));
+};
+
+const HIGH_PERCENT = 90;
+
+type Usage = Vitals["disk"];
+
+const meter = (label: string, share: number, size?: string) => {
+  const percent = Math.max(0, Math.round(share * PERCENT));
+
+  return {
+    label,
+    fill: Math.min(PERCENT, percent),
+    high: percent >= HIGH_PERCENT,
+    value: size ?? `${percent}%`,
+  };
+};
+
+const shareOf = ({ total, used }: Usage) => (total > 0 ? used / total : 0);
+
+const sizeOf = ({ total, used }: Usage) =>
+  `${formatGb(used)} of ${formatGb(total)} GB`;
+
+/**
+ * Load, memory and disk as three meters. `fill` is the share used as a whole percent capped at
+ * 100, `high` marks 90% and above, and `value` is what the meter prints, with load above 100%
+ * kept as its real number.
+ */
+export const vitalsMeters = (vitals: Vitals) => [
+  meter("Load", vitals.load),
+  meter("Memory", shareOf(vitals.memory), sizeOf(vitals.memory)),
+  meter("Disk", shareOf(vitals.disk), sizeOf(vitals.disk)),
+];

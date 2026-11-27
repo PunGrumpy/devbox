@@ -10,6 +10,7 @@ const machine = (name: string, os: string, over: Partial<Machine> = {}) =>
     here: false,
     kind: "computer",
     name,
+    spoke: null,
     state: "online",
     t3: null,
     tailscale: {
@@ -19,6 +20,8 @@ const machine = (name: string, os: string, over: Partial<Machine> = {}) =>
       online: true,
       os,
     },
+    tunnel: null,
+    vitals: null,
     ...over,
   }) satisfies Machine;
 

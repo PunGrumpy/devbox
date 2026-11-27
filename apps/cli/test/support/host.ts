@@ -3,7 +3,15 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { AGENTS } from "../../src/machine/agents.ts";
-import type { Host, Proc, Ran } from "../../src/machine/host.ts";
+import type { Answer, Host, Proc, Ran, Request } from "../../src/machine/host.ts";
+import type { Vitals } from "../../src/spoke/vitals.ts";
+
+export type Posted = {
+  readonly url: string;
+  readonly body: string;
+  readonly contentType: string;
+  readonly headers?: Readonly<Record<string, string>>;
+};
 
 export type FakeMachine = {
   base: string;
@@ -23,9 +31,22 @@ export type FakeMachine = {
   /** URL to the body it answers with 200. Any other URL does not answer. */
   pages: Map<string, string>;
   fetches: Array<string>;
-  posts: Array<{ readonly url: string; readonly body: string; readonly contentType: string }>;
+  posts: Array<Posted>;
   /** Whether a webhook answers. */
   webhookUp: boolean;
+  /**
+   * How a POST is answered, when not the way a webhook is: false is no 2xx, true a 2xx with an
+   * empty body, and a string the body of a 2xx.
+   */
+  answerPost: (posted: Posted) => boolean | string | undefined;
+  /** Answers `host.request`, by default with nothing, as if no server answered. */
+  answer: (url: string, request: Request) => Answer | undefined;
+  /** Every `host.request`, in order. */
+  requests: Array<{ readonly url: string } & Request>;
+  platform: string;
+  vitals: Vitals;
+  /** The directories vitals were asked for. */
+  vitalsAsked: Array<string>;
   runs: Array<{
     argv: ReadonlyArray<string>;
     env: Readonly<Record<string, string>> | undefined;
@@ -76,6 +97,16 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     fetches: [],
     posts: [],
     webhookUp: true,
+    answerPost: () => undefined,
+    answer: () => undefined,
+    requests: [],
+    platform: "linux",
+    vitals: {
+      load: 0.25,
+      memory: { used: 2_000_000_000, total: 8_000_000_000 },
+      disk: { used: 30_000_000_000, total: 100_000_000_000 },
+    },
+    vitalsAsked: [],
     runs: [],
     stdin: new Map(),
     brokenInstallers: new Set(),
@@ -174,6 +205,7 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     path: "/usr/bin:/bin",
     self: SELF,
     systemd: m.systemd,
+    platform: m.platform,
     run: (argv, options = {}) =>
       Effect.sync(() => {
         m.calls.push(argv);
@@ -210,8 +242,21 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
       }),
     post: (url, message) =>
       Effect.sync(() => {
-        m.posts.push({ url, ...message });
-        return m.webhookUp;
+        const posted = { url, ...message };
+        m.posts.push(posted);
+        const answered = m.answerPost(posted) ?? m.webhookUp;
+        if (answered === false) return Option.none();
+        return Option.some(answered === true ? "" : answered);
+      }),
+    request: (url, request) =>
+      Effect.sync(() => {
+        m.requests.push({ url, ...request });
+        return Option.fromUndefinedOr(m.answer(url, request));
+      }),
+    vitals: (dir) =>
+      Effect.sync(() => {
+        m.vitalsAsked.push(dir);
+        return m.vitals;
       }),
     readLine: Effect.sync(() => {
       m.calls.push(["<enter>"]);

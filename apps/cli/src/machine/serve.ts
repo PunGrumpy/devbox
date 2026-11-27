@@ -20,7 +20,6 @@ export class T3Missing extends Schema.TaggedError<T3Missing>()("T3Missing", {
   }
 }
 
-// Behind the proxy T3 stays on loopback, and the proxy is the only thing that listens outside.
 export const t3Bind = (config: ServeConfig) =>
   Option.isSome(config.publicUrl) ? "127.0.0.1" : config.host;
 
@@ -59,7 +58,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
     const t3Port = Option.isSome(config.publicUrl) ? yield* freePort : config.port;
     if (Option.isSome(config.publicUrl)) {
       yield* proxy({
-        host: "0.0.0.0",
+        host: config.host,
         port: config.port,
         upstream: t3Port,
         publicUrl: config.publicUrl.value,

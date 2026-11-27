@@ -1,8 +1,17 @@
 import { Context, Effect, Layer, Option } from "effect";
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
-import { hostname, userInfo } from "node:os";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  statfsSync,
+} from "node:fs";
+import { availableParallelism, freemem, hostname, loadavg, totalmem, userInfo } from "node:os";
 import { dirname } from "node:path";
+import { type Vitals, vitalsOf } from "../spoke/vitals.ts";
 
 export type Ran = { readonly code: number; readonly stdout: string; readonly stderr: string };
 
@@ -20,6 +29,36 @@ export type Proc = { readonly pid: number; readonly argv: ReadonlyArray<string> 
 
 export type Fetched = { readonly body: string; readonly ms: number };
 
+export type Request = {
+  readonly method: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
+};
+
+/** What a server answered, whatever the status. */
+export type Answer = { readonly status: number; readonly body: string };
+
+const MAX_ANSWER_BYTES = 1024 * 1024;
+
+const capped = async (response: Response): Promise<string | undefined> => {
+  if (Number(response.headers.get("content-length") ?? 0) > MAX_ANSWER_BYTES) return undefined;
+  const reader = response.body?.getReader();
+  if (reader === undefined) return "";
+  const chunks: Array<Uint8Array> = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_ANSWER_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+};
+
 export class Host extends Context.Service<
   Host,
   {
@@ -29,6 +68,8 @@ export class Host extends Context.Service<
     readonly path: string;
     readonly self: ReadonlyArray<string>;
     readonly systemd: boolean;
+    /** `process.platform`, such as linux or darwin. */
+    readonly platform: string;
     readonly run: (argv: ReadonlyArray<string>, options?: RunOptions) => Effect.Effect<Ran>;
     readonly which: (name: string) => Effect.Effect<boolean>;
     readonly processes: Effect.Effect<ReadonlyArray<Proc>>;
@@ -40,12 +81,27 @@ export class Host extends Context.Service<
     readonly answers: (port: number, address: string) => Effect.Effect<boolean>;
     /** The body of a 200 answer and how long it took, or none for anything else. */
     readonly fetchText: (url: string, timeoutMs: number) => Effect.Effect<Option.Option<Fetched>>;
-    /** Whether a POST was answered with a 2xx. */
+    /** The body of a 2xx answer to a POST, or none for anything else. */
     readonly post: (
       url: string,
-      message: { readonly body: string; readonly contentType: string },
+      message: {
+        readonly body: string;
+        readonly contentType: string;
+        readonly headers?: Readonly<Record<string, string>>;
+      },
       timeoutMs: number,
-    ) => Effect.Effect<boolean>;
+    ) => Effect.Effect<Option.Option<string>>;
+    /**
+     * The answer to any request, whatever its status, or none when nothing answered in time or the
+     * answer was larger than devbox reads.
+     */
+    readonly request: (
+      url: string,
+      request: Request,
+      timeoutMs: number,
+    ) => Effect.Effect<Option.Option<Answer>>;
+    /** Load, memory, and the disk that holds `dir`. */
+    readonly vitals: (dir: string) => Effect.Effect<Vitals>;
     readonly readLine: Effect.Effect<string>;
   }
 >()("devbox/machine/Host") {
@@ -56,6 +112,7 @@ export class Host extends Context.Service<
     path: process.env.PATH ?? "",
     self: Bun.main.endsWith(".ts") ? [process.execPath, Bun.main] : [process.execPath],
     systemd: existsSync("/run/systemd/system"),
+    platform: process.platform,
     run: (argv, options = {}) =>
       Effect.promise(async (): Promise<Ran> => {
         try {
@@ -134,25 +191,63 @@ export class Host extends Context.Service<
             signal: AbortSignal.timeout(timeoutMs),
           });
           if (response.status !== 200) return Option.none();
-          const body = await response.text();
+          const body = await capped(response);
+          if (body === undefined) return Option.none();
           return Option.some({ body, ms: Math.round(performance.now() - started) });
         } catch {
           return Option.none();
         }
       }),
-    post: (url, { body, contentType }, timeoutMs) =>
-      Effect.promise(() =>
-        fetch(url, {
-          method: "POST",
-          headers: { "content-type": contentType },
-          body,
-          redirect: "manual",
-          signal: AbortSignal.timeout(timeoutMs),
-        }).then(
-          (response) => response.ok,
-          () => false,
-        ),
-      ),
+    post: (url, { body, contentType, headers = {} }, timeoutMs) =>
+      Effect.promise(async (): Promise<Option.Option<string>> => {
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: { ...headers, "content-type": contentType },
+            body,
+            redirect: "manual",
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (!response.ok) return Option.none();
+          return Option.fromUndefinedOr(await capped(response));
+        } catch {
+          return Option.none();
+        }
+      }),
+    request: (url, { method, headers = {}, body }, timeoutMs) =>
+      Effect.promise(async (): Promise<Option.Option<Answer>> => {
+        try {
+          const response = await fetch(url, {
+            method,
+            headers,
+            ...(body === undefined ? {} : { body }),
+            redirect: "manual",
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          return Option.map(Option.fromUndefinedOr(await capped(response)), (text) => ({
+            status: response.status,
+            body: text,
+          }));
+        } catch {
+          return Option.none();
+        }
+      }),
+    vitals: (dir) =>
+      Effect.sync(() => {
+        const disk = (() => {
+          try {
+            return statfsSync(dir);
+          } catch {
+            return statfsSync("/");
+          }
+        })();
+        return vitalsOf({
+          load1: loadavg()[0] ?? 0,
+          cores: availableParallelism(),
+          memory: { total: totalmem(), available: freemem() },
+          disk: { blocks: disk.blocks, free: disk.bfree, blockSize: disk.bsize },
+        });
+      }),
     readLine: Effect.promise(
       () =>
         new Promise<string>((resolve) => {

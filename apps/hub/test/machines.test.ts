@@ -1,16 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  bars,
   BAR_COUNT,
+  bars,
+  daySentences,
   groupByOs,
   lead,
   linkSentence,
+  snapshotSchema,
   span,
   summarize,
   t3Sentence,
-  daySentences,
   uptime,
+  vitalsMeters,
 } from "@/lib/machines";
 import type { Machine } from "@/lib/machines";
 
@@ -18,6 +20,7 @@ const base: Machine = {
   here: false,
   kind: "computer",
   name: "edge-7",
+  spoke: null,
   state: "online",
   t3: null,
   tailscale: {
@@ -27,6 +30,8 @@ const base: Machine = {
     online: true,
     os: "linux",
   },
+  tunnel: null,
+  vitals: null,
 };
 
 const machine = (over: Partial<Machine>) => ({ ...base, ...over });
@@ -232,5 +237,137 @@ describe("daySentences", () => {
     expect(daySentences(running("0.1.13"), "2".repeat(60), "0.1.14")).toBe(
       "Online 100% of the last 24 hours. T3 Code 0.1.14 is out."
     );
+  });
+});
+
+const GB = 1024 ** 3;
+
+describe("snapshotSchema", () => {
+  test("parses a snapshot from an older hub without vitals, spoke, key, tunnel or cloudflare", () => {
+    const parsed = snapshotSchema.parse({
+      generatedAt: "2026-11-27T02:49:48Z",
+      history: {
+        sampleSeconds: 60,
+        startedAt: "2026-11-26T02:50:00Z",
+        states: { "edge-7": "2" },
+      },
+      latest: { t3: "0.1.14" },
+      machines: [
+        {
+          here: false,
+          kind: "computer",
+          name: "edge-7",
+          state: "t3",
+          t3: null,
+          tailscale: null,
+        },
+      ],
+      tailscale: true,
+    });
+
+    expect(parsed.key).toBeNull();
+    expect(parsed.cloudflare).toBeNull();
+    expect(parsed.machines[0]?.vitals).toBeNull();
+    expect(parsed.machines[0]?.spoke).toBeNull();
+    expect(parsed.machines[0]?.tunnel).toBeNull();
+  });
+
+  test("keeps vitals, spoke, key, tunnel and cloudflare when present", () => {
+    const parsed = snapshotSchema.parse({
+      cloudflare: { zone: "example.com" },
+      generatedAt: "2026-11-27T02:49:48Z",
+      history: {
+        sampleSeconds: 60,
+        startedAt: "2026-11-26T02:50:00Z",
+        states: { "edge-7": "2" },
+      },
+      key: "hub-public-key-sample",
+      latest: { t3: "0.1.14" },
+      machines: [
+        {
+          here: false,
+          kind: "vm",
+          name: "edge-7",
+          spoke: "trusted",
+          state: "t3",
+          t3: null,
+          tailscale: null,
+          tunnel: { url: "https://t3-edge-7.example.com" },
+          vitals: {
+            disk: { total: 100 * GB, used: 61 * GB },
+            load: 0.12,
+            memory: { total: 16 * GB, used: Math.round(5.1 * GB) },
+          },
+        },
+      ],
+      tailscale: true,
+    });
+
+    expect(parsed.key).toBe("hub-public-key-sample");
+    expect(parsed.cloudflare).toEqual({ zone: "example.com" });
+    expect(parsed.machines[0]?.spoke).toBe("trusted");
+    expect(parsed.machines[0]?.tunnel).toEqual({
+      url: "https://t3-edge-7.example.com",
+    });
+    expect(parsed.machines[0]?.vitals?.load).toBeCloseTo(0.12, 5);
+  });
+});
+
+describe("vitalsMeters", () => {
+  test("prints load as a percent and memory and disk as used of total", () => {
+    expect(
+      vitalsMeters({
+        disk: { total: 500 * GB, used: 210 * GB },
+        load: 0.61,
+        memory: { total: 32 * GB, used: 11 * GB },
+      })
+    ).toEqual([
+      { fill: 61, high: false, label: "Load", value: "61%" },
+      { fill: 34, high: false, label: "Memory", value: "11 of 32 GB" },
+      { fill: 42, high: false, label: "Disk", value: "210 of 500 GB" },
+    ]);
+  });
+
+  test("marks a meter at 90% and above, and not below", () => {
+    const [load, memory, disk] = vitalsMeters({
+      disk: { total: 500 * GB, used: 450 * GB },
+      load: 0.89,
+      memory: { total: 32 * GB, used: Math.round(28.8 * GB) },
+    });
+
+    expect(load?.high).toBe(false);
+    expect(memory?.high).toBe(true);
+    expect(disk?.high).toBe(true);
+  });
+
+  test("fills the track for load above 100% and still prints the real number", () => {
+    const [load] = vitalsMeters({
+      disk: { total: 100 * GB, used: 0 },
+      load: 1.25,
+      memory: { total: 8 * GB, used: Math.round(0.8 * GB) },
+    });
+
+    expect(load).toEqual({
+      fill: 100,
+      high: true,
+      label: "Load",
+      value: "125%",
+    });
+  });
+
+  test("keeps one decimal below 10 GB and whole gigabytes above", () => {
+    const [, memory, disk] = vitalsMeters({
+      disk: { total: 100 * GB, used: 0 },
+      load: 0,
+      memory: { total: 8 * GB, used: Math.round(0.8 * GB) },
+    });
+
+    expect(memory?.value).toBe("0.8 of 8.0 GB");
+    expect(disk).toEqual({
+      fill: 0,
+      high: false,
+      label: "Disk",
+      value: "0.0 of 100 GB",
+    });
   });
 });

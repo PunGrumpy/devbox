@@ -1,7 +1,6 @@
-import { Config, DateTime, Effect, FileSystem, Option, Schema } from "effect";
+import { Config, DateTime, Effect, FileSystem, Option, Schema, Semaphore } from "effect";
 import { Command, Flag } from "effect/cli";
 import { readFileSync } from "node:fs";
-import http from "node:http";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BindHost, Port } from "../machine/config.ts";
@@ -9,25 +8,53 @@ import { Host } from "../machine/host.ts";
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
 import {
+  type Machine,
   type MachineState,
   origin,
   type Snapshot,
   snapshotFlags,
   takeSnapshot,
 } from "./machines.ts";
+import { admit, answer, type Ask, machineAction } from "./ask.ts";
+import { loadCloudflare } from "./cloudflare-auth.ts";
+import { cloudflareCommand } from "./cloudflare-command.ts";
+import { header, listen, readBody } from "./listen.ts";
+import {
+  crossSite,
+  type HubRequest,
+  LOGGED_OUT,
+  loggedIn,
+  login,
+  logout,
+  MAX_LOGIN_BYTES,
+  type Reply,
+  refuse,
+} from "./login.ts";
 import { restore, serialize } from "./saved.ts";
+import { hubSecrets, keyCommand, tokenCommand } from "./secrets.ts";
+import { loadTunnels, tunnelOf, type Tunnels } from "./tunnel.ts";
 import { nextWatch, type Notice, sentence, type Watch, webhookBody } from "./watch.ts";
 
 export type History = {
   readonly sampleSeconds: number;
   readonly startedAt: string;
   readonly states: Readonly<Record<string, string>>;
+  /** T3 Code's answer time in whole milliseconds per sample, null where it did not answer. */
+  readonly latency: Readonly<Record<string, ReadonlyArray<number | null>>>;
 };
 
-export type HubSnapshot = Snapshot & {
+/** A machine as the hub shows it, with the address of its tunnel once it answers. */
+export type HubMachine = Machine & { readonly tunnel: { readonly url: string } | null };
+
+export type HubSnapshot = Omit<Snapshot, "machines"> & {
+  readonly machines: ReadonlyArray<HubMachine>;
+  /** The zone the hub publishes machines in, or null when no Cloudflare login is saved. */
+  readonly cloudflare: { readonly zone: string } | null;
   readonly history: History;
   /** The newest T3 Code on the nightly channel, or null while the registry has not answered. */
   readonly latest: { readonly t3: string | null };
+  /** The hub's public key in base64url, which a spoke is told to trust. */
+  readonly key: string;
 };
 
 const SAMPLE_SECONDS = 60;
@@ -38,25 +65,40 @@ const UNKNOWN = " ";
 
 /**
  * One character per sample, newest last. A machine seen late is padded on the left, a machine
- * missing from a sample gets a blank, and one blank for the whole window is dropped.
+ * missing from a sample gets a blank, and one blank for the whole window is dropped. Latency
+ * follows the same alignment, with null where T3 Code did not answer.
  */
 export const nextHistory = (previous: History | undefined, snapshot: Snapshot): History => {
   const before = previous?.states ?? {};
+  const beforeLatency = previous?.latency ?? {};
   const width = Math.max(0, ...Object.values(before).map((states) => states.length));
-  const now = new Map<string, string>();
-  for (const m of snapshot.machines) if (!now.has(m.name)) now.set(m.name, CODE[m.state]);
+  const now = new Map<string, { readonly state: string; readonly latency: number | null }>();
+  for (const m of snapshot.machines)
+    if (!now.has(m.name))
+      now.set(m.name, {
+        state: CODE[m.state],
+        latency: m.t3 === null || m.t3.latencyMs === null ? null : Math.round(m.t3.latencyMs),
+      });
   const states: Record<string, string> = {};
+  const latency: Record<string, ReadonlyArray<number | null>> = {};
   for (const name of new Set([...Object.keys(before), ...now.keys()])) {
+    const sample = now.get(name);
     const next =
-      `${(before[name] ?? "").padStart(width, UNKNOWN)}${now.get(name) ?? UNKNOWN}`.slice(
+      `${(before[name] ?? "").padStart(width, UNKNOWN)}${sample?.state ?? UNKNOWN}`.slice(
         -HISTORY_LIMIT,
       );
-    if (next.trim() !== "") states[name] = next;
+    if (next.trim() === "") continue;
+    const prior = beforeLatency[name] ?? [];
+    const padded = [...Array<null>(Math.max(0, width - prior.length)).fill(null), ...prior];
+    const aligned = padded.slice(padded.length - width);
+    states[name] = next;
+    latency[name] = [...aligned, sample?.latency ?? null].slice(-HISTORY_LIMIT);
   }
   return {
     sampleSeconds: SAMPLE_SECONDS,
     startedAt: previous?.startedAt ?? snapshot.generatedAt,
     states,
+    latency,
   };
 };
 
@@ -92,11 +134,7 @@ export const assetsIn =
 // Next names these files by their content, so a browser may keep them for good.
 const HASHED = "/_next/static/";
 
-type Reply = {
-  readonly status: number;
-  readonly headers: Readonly<Record<string, string>>;
-  readonly body: string | Uint8Array;
-};
+export type { HubRequest, Reply } from "./login.ts";
 
 const NO_STORE = { "cache-control": "no-store" };
 const TEXT = { "content-type": "text/plain; charset=utf-8" };
@@ -104,21 +142,19 @@ const TEXT = { "content-type": "text/plain; charset=utf-8" };
 const NOT_BUILT =
   "The hub page is not built. In the devbox checkout run `bun install` and `bun run build` in apps/hub/, or pass --ui.\n";
 
-export const route = (
+const LOGIN_PATH = "/api/login";
+
+const isApi = (pathname: string) => pathname === "/api" || pathname.startsWith("/api/");
+
+const onlyPost = refuse(405, "Use POST.", { allow: "POST" });
+
+const page = (
   method: string,
-  url: string,
-  snapshot: HubSnapshot,
+  pathname: string,
   asset: (pathname: string) => Asset | undefined,
 ): Reply => {
-  const { pathname } = new URL(url, "http://hub");
   if (method !== "GET")
     return { status: 405, headers: { ...TEXT, allow: "GET" }, body: "method not allowed\n" };
-  if (pathname === "/api/machines")
-    return {
-      status: 200,
-      headers: { ...NO_STORE, "content-type": "application/json; charset=utf-8" },
-      body: `${JSON.stringify(snapshot, null, 2)}\n`,
-    };
   const found = asset(pathname);
   if (found === undefined)
     return { status: 404, headers: TEXT, body: pathname === "/" ? NOT_BUILT : "not found\n" };
@@ -134,44 +170,58 @@ export const route = (
   };
 };
 
-export class HubFailed extends Schema.TaggedError<HubFailed>()("HubFailed", {
-  message: Schema.String,
-  hint: Schema.optional(Schema.String),
-}) {}
+/** What the hub knows when it answers a request. */
+export type HubState = {
+  readonly snapshot: HubSnapshot;
+  readonly token: string;
+  /** Milliseconds since the epoch. */
+  readonly now: number;
+};
 
-const listen = (
-  host: string,
-  port: number,
-  latest: () => HubSnapshot,
+/**
+ * The reply to a request, or what to ask a machine's spoke when only it can answer. Every path
+ * under /api/ but the login needs a login, and nothing that changes something is taken from a page
+ * on another site.
+ */
+export const route = (
+  request: HubRequest,
+  hub: HubState,
   asset: (pathname: string) => Asset | undefined,
-) =>
-  Effect.acquireRelease(
-    Effect.callback<http.Server, HubFailed>((resume) => {
-      const server = http.createServer((req, res) => {
-        const reply = route(req.method ?? "GET", req.url ?? "/", latest(), asset);
-        res.writeHead(reply.status, reply.headers);
-        res.end(reply.body);
-      });
-      server.once("error", (error: NodeJS.ErrnoException) =>
-        resume(
-          Effect.fail(
-            new HubFailed({
-              message: `cannot listen on ${host}:${port}: ${error.code ?? error.message}`,
-              hint: "pass another --port, or an address this machine has to --host",
-            }),
-          ),
-        ),
-      );
-      server.listen(port, host, () => resume(Effect.succeed(server)));
-    }),
-    (server) =>
-      Effect.callback<void>((resume) => {
-        server.closeAllConnections();
-        server.close(() => resume(Effect.void));
-      }),
-  );
+): Reply | Ask => {
+  const { method } = request;
+  const { pathname } = new URL(request.url, "http://hub");
+  if (crossSite(request)) return refuse(403, "This request came from a page on another site.");
+  if (!isApi(pathname)) return page(method, pathname, asset);
+  if (pathname === LOGIN_PATH)
+    return method === "POST" ? login(request, hub.token, hub.now) : onlyPost;
+  const wanted = machineAction(pathname, method);
+  if (wanted?.action !== undefined)
+    return admit(
+      request,
+      { name: wanted.name, action: wanted.action },
+      hub.snapshot,
+      hub.token,
+      hub.now,
+    );
+  if (!loggedIn(request, hub.token, hub.now)) return LOGGED_OUT;
+  if (wanted !== undefined) return refuse(405, `Use ${wanted.allow}.`, { allow: wanted.allow });
+  if (pathname === "/api/logout") return method === "POST" ? logout : onlyPost;
+  if (pathname !== "/api/machines") return refuse(404, "Nothing is here.");
+  if (method !== "GET") return refuse(405, "Use GET.", { allow: "GET" });
+  return {
+    status: 200,
+    headers: { ...NO_STORE, "content-type": "application/json; charset=utf-8" },
+    body: `${JSON.stringify(hub.snapshot, null, 2)}\n`,
+  };
+};
 
 const BUILT_PAGE = fileURLToPath(new URL("../../../hub/out", import.meta.url));
+
+/** Each machine with its tunnel, from what the hub made. */
+export const withTunnels = (
+  machines: ReadonlyArray<Machine>,
+  tunnels: Tunnels,
+): ReadonlyArray<HubMachine> => machines.map((m) => ({ ...m, tunnel: tunnelOf(tunnels, m.name) }));
 
 export const stateFile = (home: string) => join(home, ".local", "state", "devbox", "hub.json");
 
@@ -205,7 +255,7 @@ export const hub = Command.make(
   {
     host: Flag.String("host").pipe(
       Flag.withDescription(
-        "address to listen on, for example a Tailscale IP (the page has no login)",
+        "address to listen on, for example a Tailscale IP (everything under /api/ needs a login)",
       ),
       Flag.withSchema(BindHost),
       Flag.withDefault("127.0.0.1"),
@@ -221,12 +271,16 @@ export const hub = Command.make(
     ),
     ...snapshotFlags,
   },
-  ({ host, port, ui, t3, t3Port }) =>
+  ({ host, port, ui, t3, t3Port, spokePort }) =>
     Effect.gen(function* () {
       const out = yield* Output;
       const computer = yield* Host;
       const fs = yield* FileSystem.FileSystem;
-      const file = stateFile((yield* Locations).home);
+      const { home } = yield* Locations;
+      const file = stateFile(home);
+      const secrets = yield* hubSecrets(home);
+      const context = yield* Effect.context<Host | FileSystem.FileSystem>();
+      const tunnels = yield* Semaphore.make(1);
       const notify = yield* webhook;
       const resumed = yield* fs.readFileString(file).pipe(
         Effect.map((text) => restore(text, Date.now(), HISTORY_LIMIT)),
@@ -240,13 +294,19 @@ export const hub = Command.make(
       const send = (url: URL, notice: Notice) =>
         Effect.gen(function* () {
           const sent = yield* computer.post(url.href, webhookBody(url, sentence(notice)), 10_000);
-          if (!sent && !sendFailed) yield* out.warn("a notification could not be sent");
-          sendFailed = !sent;
+          const failed = Option.isNone(sent);
+          if (failed && !sendFailed) yield* out.warn("a notification could not be sent");
+          sendFailed = failed;
         });
 
       const sample = (count: number) =>
         Effect.gen(function* () {
-          const snapshot = yield* takeSnapshot({ t3, t3Port });
+          const snapshot = yield* takeSnapshot({
+            t3,
+            t3Port,
+            spokePort,
+            hubKey: secrets.fingerprint,
+          });
           if (count % ASK_LATEST_EVERY === 0)
             newest = Option.getOrElse(yield* latestT3, () => newest);
           const watched = nextWatch(watch, snapshot);
@@ -271,11 +331,69 @@ export const hub = Command.make(
                 discard: true,
               }),
             );
-          return { ...snapshot, history: saved.history, latest: { t3: newest } };
+          return {
+            ...snapshot,
+            machines: withTunnels(snapshot.machines, yield* loadTunnels(home)),
+            cloudflare: Option.match(yield* loadCloudflare(home), {
+              onNone: () => null,
+              onSome: ({ zone }) => ({ zone }),
+            }),
+            history: saved.history,
+            latest: { t3: newest },
+            key: secrets.key,
+          };
         });
 
       let latest: HubSnapshot = yield* sample(0);
-      yield* listen(host, port, () => latest, assetsIn(ui));
+      const asset = assetsIn(ui);
+      yield* listen(host, port, (req, res) => {
+        const respond = (reply: Reply) => {
+          res.writeHead(reply.status, reply.headers);
+          res.end(reply.body);
+        };
+        const url = req.url ?? "/";
+        const method = req.method ?? "GET";
+        const { pathname } = new URL(url, "http://hub");
+        const reading = method === "POST" && pathname === "/api/login";
+        if (method !== "GET" && !reading) res.setHeader("connection", "close");
+        const body = reading ? readBody(req, MAX_LOGIN_BYTES) : Promise.resolve("");
+        body
+          .then((text) => {
+            const routed = route(
+              {
+                method,
+                url,
+                headers: {
+                  authorization: header(req, "authorization"),
+                  cookie: header(req, "cookie"),
+                  origin: header(req, "origin"),
+                  host: header(req, "host"),
+                },
+                body: text,
+              },
+              { snapshot: latest, token: secrets.token, now: Date.now() },
+              asset,
+            );
+            if ("status" in routed) return routed;
+            return Effect.runPromiseWith(context)(
+              answer(routed, {
+                secrets,
+                home,
+                spokePort,
+                t3Port,
+                tunnels,
+                names: latest.machines.map((m) => m.name),
+              }).pipe(
+                Effect.tap(() =>
+                  Effect.map(loadTunnels(home), (made) => {
+                    latest = { ...latest, machines: withTunnels(latest.machines, made) };
+                  }),
+                ),
+              ),
+            );
+          })
+          .then(respond, () => respond({ status: 500, headers: TEXT, body: "the hub failed\n" }));
+      });
       yield* out.log(
         `hub: ${origin(host, port)}/ and /api/machines, checking every ${SAMPLE_SECONDS}s`,
       );
@@ -295,4 +413,5 @@ export const hub = Command.make(
   Command.withDescription(
     "Serve the hub page and your machines as JSON at /api/machines, refreshed every minute",
   ),
+  Command.withSubcommands([keyCommand, tokenCommand, cloudflareCommand]),
 );

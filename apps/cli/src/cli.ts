@@ -17,6 +17,7 @@ import { doctor } from "./migrate/doctor.ts";
 import { Locations } from "./migrate/locations.ts";
 import { moveThreads } from "./migrate/move-threads.ts";
 import { renameRoot } from "./migrate/rename-root.ts";
+import { spoke } from "./spoke/spoke.ts";
 import { T3Process } from "./migrate/t3-process.ts";
 import { Output } from "./output.ts";
 
@@ -32,6 +33,7 @@ export const devbox = Command.make("devbox").pipe(
     link,
     machines,
     hub,
+    spoke,
     migrateRoot.pipe(Command.withSubcommands([doctor, moveThreads, renameRoot])),
   ]),
 );
