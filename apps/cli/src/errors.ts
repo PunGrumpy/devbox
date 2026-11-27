@@ -25,6 +25,7 @@ export class Aborted extends Schema.TaggedError<Aborted>()("Aborted", {}) {
   }
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- a caught error can be any value
 export const hintOf = (error: unknown) =>
   Predicate.hasProperty(error, "hint") && Predicate.isString(error.hint)
     ? error.hint

@@ -17,7 +17,9 @@ export class T3Missing extends Schema.TaggedError<T3Missing>()("T3Missing", {
   override get message() {
     return `T3 Code is not installed at ${this.path}`;
   }
-  readonly hint = "run `devbox up` with the same --data, which installs it";
+  get hint() {
+    return "run `devbox up` with the same --data, which installs it";
+  }
 }
 
 export const t3Bind = (config: ServeConfig) =>

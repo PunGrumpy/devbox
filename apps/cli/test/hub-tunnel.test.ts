@@ -259,8 +259,8 @@ describe("publishing", () => {
         error: `Publishing edge-7 stopped when devbox tried to ${step}: no, said Cloudflare (<token>)`,
         step,
       });
-      expect(String(stopped.body)).not.toContain(CLOUDFLARE_TOKEN);
-      expect(String(stopped.body)).not.toContain(TUNNEL_TOKEN);
+      expect(stopped.body).not.toContain(CLOUDFLARE_TOKEN);
+      expect(stopped.body).not.toContain(TUNNEL_TOKEN);
       expect(spoke.told).toEqual([]);
       expect(cf.guarded.every(Boolean)).toBe(true);
       cf.refuse = constUndefined;
@@ -280,7 +280,7 @@ describe("publishing", () => {
         "Publishing edge-7 stopped when devbox tried to hand the tunnel to the machine: edge-7 did not take it",
       step: "hand the tunnel to the machine",
     });
-    expect(String(stopped.body)).not.toContain(TUNNEL_TOKEN);
+    expect(stopped.body).not.toContain(TUNNEL_TOKEN);
     expect(await made(m)).toMatchObject({
       "edge-7": { published: false },
     });

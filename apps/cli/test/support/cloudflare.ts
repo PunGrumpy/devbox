@@ -32,6 +32,7 @@ const NewRule = Schema.Struct({
   expression: Schema.String,
   action: Schema.String,
   description: Schema.String,
+  enabled: Schema.optional(Schema.Boolean),
 });
 
 type Rule = typeof NewRule.Type & { id: string };

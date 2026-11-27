@@ -72,6 +72,7 @@ export class Output extends Context.Service<
     readonly pairs: (
       pairs: readonly (readonly [string, string])[]
     ) => Effect.Effect<void>;
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- prints any value JSON can hold
     readonly json: (value: unknown) => Effect.Effect<void>;
     readonly step: <A, E, R>(
       message: string,

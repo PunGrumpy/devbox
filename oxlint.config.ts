@@ -32,12 +32,13 @@ const effectStyle = off([
   },
   {
     rules: [
+      "array-callback-return",
       "github/array-foreach",
       "promise/prefer-await-to-callbacks",
       "unicorn/no-array-for-each",
       "unicorn/no-array-method-this-argument",
     ],
-    why: "Effect.forEach, Effect.filter and Effect.catch are not the array and promise methods of the same names.",
+    why: "Effect.forEach, Effect.filter, Effect.map and Effect.catch are not the array and promise methods of the same names.",
   },
   {
     rules: [

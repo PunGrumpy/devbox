@@ -26,6 +26,7 @@ import {
   MAX_CLOUDFLARE_BYTES,
   machineAction,
 } from "./ask.ts";
+import type { Ask } from "./ask.ts";
 import { loadCloudflare } from "./cloudflare-auth.ts";
 import type { CloudflareLogin } from "./cloudflare-auth.ts";
 import { cloudflareCommand } from "./cloudflare-command.ts";
@@ -269,12 +270,7 @@ export interface HubState {
   readonly now: number;
 }
 
-/**
- * The reply to a request, or what to ask a machine's spoke when only it can answer. Every path
- * under /api/ but the login needs a login, and nothing that changes something is taken from a page
- * on another site.
- */
-export const route = (
+const replyOrAsk = (
   request: HubRequest,
   hub: HubState,
   asset: (pathname: string) => Asset | undefined
@@ -335,6 +331,21 @@ export const route = (
     headers: { ...NO_STORE, "content-type": "application/json; charset=utf-8" },
     body: `${JSON.stringify(hub.snapshot, null, 2)}\n`,
   } satisfies Reply;
+};
+
+/**
+ * The reply to a request, or what to ask a machine's spoke when only it can answer. Every path
+ * under /api/ but the login needs a login, and nothing that changes something is taken from a page
+ * on another site.
+ */
+export const route = (
+  request: HubRequest,
+  hub: HubState,
+  asset: (pathname: string) => Asset | undefined
+) => {
+  const answered: Reply | Ask = replyOrAsk(request, hub, asset);
+
+  return answered;
 };
 
 const BUILT_PAGE = fileURLToPath(new URL("../../../hub/out", import.meta.url));
