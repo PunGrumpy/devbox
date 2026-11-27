@@ -27,16 +27,19 @@ export interface Result {
   asked: readonly Asked[];
 }
 
-/** `pick` is a terminal: it lists the titles to tick, and each run of the picker consumes the next list. */
-const capture = (pick?: readonly ReadonlyArray<string>[]) => {
+const capture = (pick?: readonly (readonly string[])[]) => {
   const out: string[] = [];
   const err: string[] = [];
   const asked: Asked[] = [];
   const scripted = [...(pick ?? [])];
 
   const output = Output.make({
-    stdout: (text) => out.push(text),
-    stderr: (text) => err.push(text),
+    stdout: (text) => {
+      out.push(text);
+    },
+    stderr: (text) => {
+      err.push(text);
+    },
     paint: (_, text) => text,
     stdoutColor: false,
     interactive: pick !== undefined,
@@ -58,22 +61,26 @@ const capture = (pick?: readonly ReadonlyArray<string>[]) => {
   return { out, err, asked, output };
 };
 
+/**
+ * Runs `devbox` with `args` to the end. `options.pick` is a terminal: it lists the titles to tick,
+ * and each run of the picker consumes the next list.
+ */
 export const devbox = async (
   env: Record<string, string>,
   args: readonly string[],
   options: {
     t3?: RunningServer;
     host?: Host["Service"];
-    pick?: readonly ReadonlyArray<string>[];
+    pick?: readonly (readonly string[])[];
   } = {}
-): Promise<Result> => {
+) => {
   const { out, err, asked, output } = capture(options.pick);
 
   const code = await Effect.runPromise(
     runCli(args).pipe(Effect.provide(layerFor(env, output, options)))
   );
 
-  return { code, out: out.join(""), err: err.join(""), asked };
+  return { code, asked, out: out.join(""), err: err.join("") } satisfies Result;
 };
 
 const layerFor = (
@@ -108,17 +115,19 @@ export const start = (
   return {
     out: () => out.join(""),
     err: () => err.join(""),
-    stop: () => Effect.runPromise(Fiber.interrupt(fiber)),
+    stop: async () => {
+      await Effect.runPromise(Fiber.interrupt(fiber));
+    },
   };
 };
 
-export const migrate = (env: Record<string, string>, ...args: string[]) =>
-  devbox(env, ["migrate", ...args]);
+export const migrate = async (env: Record<string, string>, ...args: string[]) =>
+  await devbox(env, ["migrate", ...args]);
 
 export const runWith = async <A, E>(
   host: Host["Service"],
   effect: Effect.Effect<A, E, Host | Output | BunServices.BunServices>
-): Promise<{ value: A; err: string }> => {
+) => {
   const { err, output } = capture();
 
   const value = await Effect.runPromise(
@@ -139,3 +148,44 @@ export const runWith = async <A, E>(
 export const asOwner = (home: string) => ({
   authorization: `Bearer ${readFileSync(tokenFile(home), "utf-8").trim()}`,
 });
+
+/**
+ * Asks `look` up to `rounds` times, `everyMs` apart, and gives the first thing it finds, or
+ * undefined when it found nothing. It waits `everyMs` after every ask that finds nothing.
+ */
+export const poll: <T>(
+  look: () => T | undefined,
+  rounds: number,
+  everyMs: number
+) => Promise<T | undefined> = async (look, rounds, everyMs) => {
+  const found = look();
+
+  if (found !== undefined) {
+    return found;
+  }
+
+  await Bun.sleep(everyMs);
+
+  return rounds > 1 ? await poll(look, rounds - 1, everyMs) : undefined;
+};
+
+/** Waits, for two seconds at most, until a hub started with `start` says it listens. */
+export const untilListening = async (hub: { readonly err: () => string }) => {
+  await poll(() => (hub.err().includes("hub:") ? true : undefined), 100, 20);
+};
+
+/** The status of a response or a hub reply, once it comes. */
+export const statusOf = async (
+  response: Promise<{ readonly status: number }>
+) => {
+  const { status } = await response;
+
+  return status;
+};
+
+/** The body of a response as text, once it comes. */
+export const textOf = async (response: Promise<Response>) => {
+  const answered = await response;
+
+  return await answered.text();
+};

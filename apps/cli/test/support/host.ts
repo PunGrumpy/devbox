@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import path from "node:path";
 
 import { Effect, Option } from "effect";
+import { constUndefined } from "effect/Function";
 
 import { AGENTS } from "../../src/machine/agents.ts";
 import type {
@@ -34,7 +35,7 @@ export interface FakeMachine {
   units: Map<string, { active: boolean; enabled: boolean }>;
   processes: Proc[];
   binaries: Set<string>;
-  calls: ReadonlyArray<string>[];
+  calls: (readonly string[])[];
   probes: { readonly address: string; readonly port: number }[];
   /** URL to the body it answers with 200. Any other URL does not answer. */
   pages: Map<string, string>;
@@ -56,7 +57,7 @@ export interface FakeMachine {
   /** The directories vitals were asked for. */
   vitalsAsked: string[];
   runs: {
-    argv: ReadonlyArray<string>;
+    argv: readonly string[];
     env: Readonly<Record<string, string>> | undefined;
     timeoutMs: number | undefined;
   }[];
@@ -68,28 +69,216 @@ export interface FakeMachine {
   host: Host["Service"];
 }
 
-const ok = (stdout = ""): Ran => ({ code: 0, stdout, stderr: "" });
-const fail = (code = 1, stderr = ""): Ran => ({ code, stdout: "", stderr });
+const ok = (stdout = "") => ({ stdout, code: 0, stderr: "" }) satisfies Ran;
+
+const fail = (code = 1, stderr = "") =>
+  ({ code, stderr, stdout: "" }) satisfies Ran;
 
 const installerScript = (bin: string) => `#!/bin/bash\n# installs ${bin}\n`;
 
 const writeBin = (dir: string, bin: string) => {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, bin), "");
+  writeFileSync(path.join(dir, bin), "");
 };
 
 export const SELF = ["/opt/bun", "/opt/devbox/apps/cli/src/cli.ts"] as const;
 
-export const makeMachine = (
-  overrides: Partial<FakeMachine> = {}
-): FakeMachine => {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "devbox-machine-")));
-  const home = join(base, "home");
-  const etc = join(base, "etc");
-  mkdirSync(join(etc, "profile.d"), { recursive: true });
+type Machine = Omit<FakeMachine, "host">;
+
+type Tool = (
+  m: Machine,
+  args: readonly string[],
+  stdin: string | undefined,
+  env: Readonly<Record<string, string>>
+) => Ran | undefined;
+
+const curl: Tool = (_, args) => {
+  const url = args.at(-1);
+
+  const agent = AGENTS.find(
+    (a) => a.install._tag === "Script" && a.install.url === url
+  );
+
+  return agent
+    ? ok(installerScript(agent.bin))
+    : fail(22, `fake host: no ${url}`);
+};
+
+const tee: Tool = (_, args, stdin) => {
+  const [file] = args;
+
+  if (file === undefined) {
+    return fail(1, "fake host: tee needs a file");
+  }
+
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, stdin ?? "");
+
+  return ok(stdin);
+};
+
+const bash: Tool = (m, _, stdin, env) => {
+  const installs = /# installs (?<bin>\S+)/u.exec(stdin ?? "")?.groups?.bin;
+
+  if (installs === undefined || env.HOME === undefined) {
+    return fail(1, "fake host: bash");
+  }
+
+  if (m.brokenInstallers.has(installs)) {
+    return fail(1, `${installs}: install failed`);
+  }
+
+  writeBin(path.join(env.HOME, ".local", "bin"), installs);
+
+  return installs === "devin" ? fail(1, "Error: Login canceled") : ok();
+};
+
+const git: Tool = (m, args) => {
+  const [sub, , op, key, value] = args;
+
+  if (sub !== "config" || key === undefined) {
+    return;
+  }
+
+  const values = m.git.get(key) ?? [];
+
+  if (op === "--get-all") {
+    return values.length === 0
+      ? fail(1)
+      : ok(values.map((v) => `${v}\n`).join(""));
+  }
+
+  if (op === "--unset-all") {
+    return m.git.delete(key) ? ok() : fail(5);
+  }
+
+  if (op === "--add" && value !== undefined) {
+    m.git.set(key, [...values, value]);
+
+    return ok();
+  }
+};
+
+const npmInstall = (m: Machine, args: readonly string[]) => {
+  const prefix = args[args.indexOf("--prefix") + 1];
+  const target = args.at(-1);
+
+  if (prefix === undefined || target === undefined) {
+    return fail(1, "fake host: npm install needs a prefix and a package");
+  }
+
+  const agent = AGENTS.find(
+    (a) => a.install._tag === "Npm" && target === `${a.install.pkg}@latest`
+  );
+
+  if (agent) {
+    if (m.brokenInstallers.has(agent.bin)) {
+      return fail(1, `${agent.bin}: install failed`);
+    }
+
+    writeBin(path.join(prefix, "bin"), agent.bin);
+
+    return ok();
+  }
+
+  const version = target.replace(/^t3@/u, "");
+  const pkg = path.join(prefix, "lib", "node_modules", "t3", "package.json");
+  mkdirSync(path.dirname(pkg), { recursive: true });
+  writeFileSync(pkg, JSON.stringify({ name: "t3", version }));
+
+  return ok();
+};
+
+const npm: Tool = (m, args) => {
+  if (args[0] === "view") {
+    return m.latest === undefined ? fail(1) : ok(`${m.latest}\n`);
+  }
+
+  if (args[0] === "install") {
+    return npmInstall(m, args);
+  }
+};
+
+const systemctl: Tool = (m, args) => {
+  const user = args[0] === "--user";
+  const scope = user ? "user" : "system";
+  const [verb, unit] = user ? args.slice(1) : args;
+
+  if (verb === "show-environment") {
+    return m.userBus ? ok("PATH=/usr/bin\n") : fail(1);
+  }
+
+  const key = `${scope}:${unit}`;
+  const state = m.units.get(key) ?? { active: false, enabled: false };
+
+  if (verb === "is-active") {
+    return ok(state.active ? "active\n" : "inactive\n");
+  }
+
+  if (verb === "is-enabled") {
+    return ok(state.enabled ? "enabled\n" : "disabled\n");
+  }
+
+  if (verb === "daemon-reload") {
+    return ok();
+  }
+
+  if (verb === "enable") {
+    m.units.set(key, { ...state, enabled: true });
+
+    return ok();
+  }
+
+  if (verb === "restart") {
+    m.units.set(key, { ...state, active: true });
+
+    return ok();
+  }
+
+  if (verb === "disable") {
+    m.units.set(`${scope}:${args.at(-1)}`, {
+      active: false,
+      enabled: false,
+    });
+
+    return ok();
+  }
+};
+
+const loginctl: Tool = (m, args) => {
+  if (args[0] === "show-user") {
+    return ok(`Linger=${m.linger ? "yes" : "no"}\n`);
+  }
+
+  if (args[0] === "enable-linger") {
+    m.linger = true;
+
+    return ok();
+  }
+};
+
+const TOOLS = new Map<string, Tool>([
+  ["true", () => ok()],
+  ["curl", curl],
+  ["bash", bash],
+  ["tee", tee],
+  ["git", git],
+  ["npm", npm],
+  ["systemctl", systemctl],
+  ["loginctl", loginctl],
+]);
+
+export const makeMachine = (overrides: Partial<FakeMachine> = {}) => {
+  const base = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "devbox-machine-"))
+  );
+
+  const home = path.join(base, "home");
+  const etc = path.join(base, "etc");
+  mkdirSync(path.join(etc, "profile.d"), { recursive: true });
   mkdirSync(home, { recursive: true });
 
-  const m: FakeMachine = {
+  const machine: Machine = {
     base,
     home,
     etc,
@@ -108,8 +297,8 @@ export const makeMachine = (
     fetches: [],
     posts: [],
     webhookUp: true,
-    answerPost: () => undefined,
-    answer: () => undefined,
+    answerPost: constUndefined,
+    answer: constUndefined,
     requests: [],
     platform: "linux",
     vitals: {
@@ -121,17 +310,17 @@ export const makeMachine = (
     runs: [],
     stdin: new Map(),
     brokenInstallers: new Set(),
-    respond: () => undefined,
+    respond: constUndefined,
     nextPid: 4000,
     ...overrides,
-  } as FakeMachine;
+  };
 
-  const run = (
+  const run: (
     argv: readonly string[],
     stdin?: string,
-    env: Readonly<Record<string, string>> = {}
-  ): Ran => {
-    const custom = m.respond(argv);
+    env?: Readonly<Record<string, string>>
+  ) => Ran = (argv, stdin, env = {}) => {
+    const custom = machine.respond(argv);
 
     if (custom) {
       return custom;
@@ -142,211 +331,82 @@ export const makeMachine = (
     const bin = (sudo ? rest[1] : cmd)?.split("/").at(-1);
     const args = sudo ? rest.slice(2) : rest;
 
-    if (sudo && !m.sudo) {
+    if (sudo && !machine.sudo) {
       return fail(1, "sudo: a password is required");
-    }
-
-    if (bin === "true") {
-      return ok();
-    }
-
-    if (bin === "curl") {
-      const url = args.at(-1);
-
-      const agent = AGENTS.find(
-        (a) => a.install._tag === "Script" && a.install.url === url
-      );
-
-      return agent
-        ? ok(installerScript(agent.bin))
-        : fail(22, `fake host: no ${url}`);
     }
 
     if (bin === "setsid") {
       return run(args, stdin, env);
     }
 
-    if (bin === "bash") {
-      const installs = /# installs (\S+)/.exec(stdin ?? "")?.[1];
-
-      if (installs === undefined || env.HOME === undefined) {
-        return fail(1, "fake host: bash");
-      }
-
-      if (m.brokenInstallers.has(installs)) {
-        return fail(1, `${installs}: install failed`);
-      }
-
-      writeBin(join(env.HOME, ".local", "bin"), installs);
-
-      return installs === "devin" ? fail(1, "Error: Login canceled") : ok();
-    }
-
-    if (bin === "tee") {
-      mkdirSync(dirname(args[0]!), { recursive: true });
-      writeFileSync(args[0]!, stdin ?? "");
-
-      return ok(stdin);
-    }
-
-    if (bin === "git" && args[0] === "config") {
-      const [, , op, key, value] = args;
-      const values = m.git.get(key!) ?? [];
-
-      if (op === "--get-all") {
-        return values.length === 0
-          ? fail(1)
-          : ok(values.map((v) => `${v}\n`).join(""));
-      }
-
-      if (op === "--unset-all") {
-        return m.git.delete(key!) ? ok() : fail(5);
-      }
-
-      if (op === "--add") {
-        return (m.git.set(key!, [...values, value!]), ok());
-      }
-    }
-
-    if (bin === "npm" && args[0] === "view") {
-      return m.latest === undefined ? fail(1) : ok(`${m.latest}\n`);
-    }
-
-    if (bin === "npm" && args[0] === "install") {
-      const prefix = args[args.indexOf("--prefix") + 1]!;
-      const target = args.at(-1)!;
-
-      const agent = AGENTS.find(
-        (a) => a.install._tag === "Npm" && target === `${a.install.pkg}@latest`
-      );
-
-      if (agent) {
-        if (m.brokenInstallers.has(agent.bin)) {
-          return fail(1, `${agent.bin}: install failed`);
-        }
-
-        writeBin(join(prefix, "bin"), agent.bin);
-
-        return ok();
-      }
-
-      const version = target.replace(/^t3@/, "");
-      const pkg = join(prefix, "lib", "node_modules", "t3", "package.json");
-      mkdirSync(dirname(pkg), { recursive: true });
-      writeFileSync(pkg, JSON.stringify({ name: "t3", version }));
-
-      return ok();
-    }
-
-    if (bin === "systemctl") {
-      const user = args[0] === "--user";
-      const [verb, unit] = user ? args.slice(1) : args;
-
-      if (verb === "show-environment") {
-        return m.userBus ? ok("PATH=/usr/bin\n") : fail(1);
-      }
-
-      const key = `${user ? "user" : "system"}:${unit}`;
-      const state = m.units.get(key) ?? { active: false, enabled: false };
-
-      if (verb === "is-active") {
-        return ok(state.active ? "active\n" : "inactive\n");
-      }
-
-      if (verb === "is-enabled") {
-        return ok(state.enabled ? "enabled\n" : "disabled\n");
-      }
-
-      if (verb === "daemon-reload") {
-        return ok();
-      }
-
-      if (verb === "enable") {
-        return (m.units.set(key, { ...state, enabled: true }), ok());
-      }
-
-      if (verb === "restart") {
-        return (m.units.set(key, { ...state, active: true }), ok());
-      }
-
-      if (verb === "disable") {
-        m.units.set(`${user ? "user" : "system"}:${args.at(-1)}`, {
-          active: false,
-          enabled: false,
-        });
-
-        return ok();
-      }
-    }
-
-    if (bin === "loginctl" && args[0] === "show-user") {
-      return ok(`Linger=${m.linger ? "yes" : "no"}\n`);
-    }
-
-    if (bin === "loginctl" && args[0] === "enable-linger") {
-      return ((m.linger = true), ok());
-    }
-
-    return fail(127, `fake host: no ${argv.join(" ")}`);
+    return (
+      TOOLS.get(bin ?? "")?.(machine, args, stdin, env) ??
+      fail(127, `fake host: no ${argv.join(" ")}`)
+    );
   };
 
-  m.host = {
+  const host: Host["Service"] = {
+    etc,
     hostname: "box-1.example.internal",
     user: "agent",
-    etc,
     path: "/usr/bin:/bin",
     self: SELF,
-    systemd: m.systemd,
-    platform: m.platform,
+    systemd: machine.systemd,
+    platform: machine.platform,
     run: (argv, options = {}) =>
       Effect.sync(() => {
-        m.calls.push(argv);
-        m.runs.push({ argv, env: options.env, timeoutMs: options.timeoutMs });
+        machine.calls.push(argv);
+        machine.runs.push({
+          argv,
+          env: options.env,
+          timeoutMs: options.timeoutMs,
+        });
 
         if (options.stdin !== undefined) {
-          m.stdin.set(argv.join(" "), options.stdin);
+          machine.stdin.set(argv.join(" "), options.stdin);
         }
 
         return run(argv, options.stdin, options.env);
       }),
-    which: (name) => Effect.sync(() => m.binaries.has(name)),
-    processes: Effect.sync(() => [...m.processes]),
+    which: (name) => Effect.sync(() => machine.binaries.has(name)),
+    processes: Effect.sync(() => [...machine.processes]),
     spawnDetached: (argv) =>
       Effect.sync(() => {
-        m.calls.push(["<detached>", ...argv]);
-        const pid = (m.nextPid += 1);
-        m.processes.push({ pid, argv });
+        machine.calls.push(["<detached>", ...argv]);
+        machine.nextPid += 1;
+        const pid = machine.nextPid;
+        machine.processes.push({ pid, argv });
 
         return pid;
       }),
     stop: (pid) =>
       Effect.sync(() => {
-        m.calls.push(["<stop>", String(pid)]);
-        m.processes = m.processes.filter((p) => p.pid !== pid);
+        machine.calls.push(["<stop>", String(pid)]);
+        machine.processes = machine.processes.filter((p) => p.pid !== pid);
       }),
     answers: (port, address) =>
       Effect.sync(() => {
-        m.probes.push({ address, port });
+        machine.probes.push({ address, port });
 
         return (
-          m.processes.some((p) => p.argv.includes("serve")) ||
-          [...m.units.values()].some((u) => u.active)
+          machine.processes.some((p) => p.argv.includes("serve")) ||
+          [...machine.units.values()].some((u) => u.active)
         );
       }),
     fetchText: (url) =>
       Effect.sync(() => {
-        m.fetches.push(url);
+        machine.fetches.push(url);
 
-        return Option.map(Option.fromUndefinedOr(m.pages.get(url)), (body) => ({
-          body,
-          ms: 12,
-        }));
+        return Option.map(
+          Option.fromUndefinedOr(machine.pages.get(url)),
+          (body) => ({ body, ms: 12 })
+        );
       }),
     post: (url, message) =>
       Effect.sync(() => {
         const posted = { url, ...message };
-        m.posts.push(posted);
-        const answered = m.answerPost(posted) ?? m.webhookUp;
+        machine.posts.push(posted);
+        const answered = machine.answerPost(posted) ?? machine.webhookUp;
 
         if (answered === false) {
           return Option.none();
@@ -356,22 +416,24 @@ export const makeMachine = (
       }),
     request: (url, request) =>
       Effect.sync(() => {
-        m.requests.push({ url, ...request });
+        machine.requests.push({ url, ...request });
 
-        return Option.fromUndefinedOr(m.answer(url, request));
+        return Option.fromUndefinedOr(machine.answer(url, request));
       }),
     vitals: (dir) =>
       Effect.sync(() => {
-        m.vitalsAsked.push(dir);
+        machine.vitalsAsked.push(dir);
 
-        return m.vitals;
+        return machine.vitals;
       }),
     readLine: Effect.sync(() => {
-      m.calls.push(["<enter>"]);
+      machine.calls.push(["<enter>"]);
 
       return "";
     }),
   };
+
+  const m: FakeMachine = Object.assign(machine, { host });
 
   return m;
 };

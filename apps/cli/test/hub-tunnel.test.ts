@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
+import { constUndefined } from "effect/Function";
 
 import { bearerOf, saveCloudflare } from "../src/hub/cloudflare-auth.ts";
 import { cloudflareApi } from "../src/hub/cloudflare.ts";
@@ -29,7 +30,8 @@ import {
 import type { Call, FakeCloudflare } from "./support/cloudflare.ts";
 import { makeMachine } from "./support/host.ts";
 import type { FakeMachine } from "./support/host.ts";
-import { runWith } from "./support/run.ts";
+import { readJson } from "./support/json.ts";
+import { runWith, statusOf } from "./support/run.ts";
 
 const HOSTNAME = "t3-edge-7.example.com";
 
@@ -60,53 +62,67 @@ const jobFor = (
   spoke: Spoke,
   name = "edge-7",
   others: readonly string[] = []
-): TunnelJob => ({
-  home: m.home,
-  others,
-  machine: {
-    name,
-    tailscale: {
-      ip: "100.64.0.22",
-      dns: `${name}.tail1234.ts.net`,
-      os: "linux",
-      online: true,
-      lastSeen: null,
+) =>
+  ({
+    others,
+    home: m.home,
+    machine: {
+      name,
+      tailscale: {
+        ip: "100.64.0.22",
+        dns: `${name}.tail1234.ts.net`,
+        os: "linux",
+        online: true,
+        lastSeen: null,
+      },
     },
-  },
-  t3Port: 3773,
-  cloudflare: (account) =>
-    Effect.map(
-      bearerOf(m.home, account).pipe(
-        Effect.mapError(
-          (e) =>
-            new StepFailed({ step: "sign in to Cloudflare", said: e.message })
-        )
+    t3Port: 3773,
+    cloudflare: (account) =>
+      Effect.map(
+        bearerOf(m.home, account).pipe(
+          Effect.mapError(
+            (e) =>
+              new StepFailed({ step: "sign in to Cloudflare", said: e.message })
+          )
+        ),
+        cloudflareApi
       ),
-      cloudflareApi
-    ),
-  tell: (action, fields) =>
-    Effect.sync(() => {
-      spoke.told.push({ action, fields });
+    tell: (action, fields) =>
+      Effect.sync(() => {
+        spoke.told.push({ action, fields });
 
-      return spoke.took;
-    }),
-});
+        return spoke.took;
+      }),
+  }) satisfies TunnelJob;
 
 const publishing = async (
   m: FakeMachine,
   spoke: Spoke,
   name?: string,
   others?: readonly string[]
-) => (await runWith(m.host, publish(jobFor(m, spoke, name, others)))).value;
+) => {
+  const { value } = await runWith(
+    m.host,
+    publish(jobFor(m, spoke, name, others))
+  );
 
-const unpublishing = async (m: FakeMachine, spoke: Spoke, name?: string) =>
-  (await runWith(m.host, unpublish(jobFor(m, spoke, name)))).value;
+  return value;
+};
 
-const made = async (m: FakeMachine) =>
-  (await runWith(m.host, loadTunnels(m.home))).value;
+const unpublishing = async (m: FakeMachine, spoke: Spoke, name?: string) => {
+  const { value } = await runWith(m.host, unpublish(jobFor(m, spoke, name)));
+
+  return value;
+};
+
+const made = async (m: FakeMachine) => {
+  const { value } = await runWith(m.host, loadTunnels(m.home));
+
+  return value;
+};
 
 const bodyOf = (reply: Reply) =>
-  JSON.parse(String(reply.body)) as Record<string, string>;
+  readJson(Schema.Record(Schema.String, Schema.String), String(reply.body));
 
 const RULE_MADE = (c: Call) =>
   c.method === "POST" &&
@@ -184,8 +200,8 @@ describe("publishing", () => {
 
   test("twice leaves one rule, one tunnel and one record", async () => {
     const { m, cf, spoke } = await setUp();
-    expect((await publishing(m, spoke)).status).toBe(202);
-    expect((await publishing(m, spoke)).status).toBe(202);
+    expect(await statusOf(publishing(m, spoke))).toBe(202);
+    expect(await statusOf(publishing(m, spoke))).toBe(202);
     expect(stateOf(cf)).toEqual(PUBLISHED);
   });
 
@@ -247,8 +263,8 @@ describe("publishing", () => {
       expect(String(stopped.body)).not.toContain(TUNNEL_TOKEN);
       expect(spoke.told).toEqual([]);
       expect(cf.guarded.every(Boolean)).toBe(true);
-      cf.refuse = () => undefined;
-      expect((await publishing(m, spoke)).status).toBe(202);
+      cf.refuse = constUndefined;
+      expect(await statusOf(publishing(m, spoke))).toBe(202);
       expect(stateOf(cf)).toEqual(PUBLISHED);
       expect(cf.guarded).toEqual([true]);
     });
@@ -269,7 +285,7 @@ describe("publishing", () => {
       "edge-7": { published: false },
     });
     spoke.took = true;
-    expect((await publishing(m, spoke)).status).toBe(202);
+    expect(await statusOf(publishing(m, spoke))).toBe(202);
     expect(stateOf(cf)).toEqual(PUBLISHED);
   });
 
@@ -286,7 +302,7 @@ describe("publishing", () => {
     const { answer } = m;
     m.answer = (url, request) =>
       url.includes("/configurations") ? undefined : answer(url, request);
-    cf.override = () => undefined;
+    cf.override = constUndefined;
     const lost = bodyOf(await publishing(m, spoke));
     expect(lost.error).toBe(
       "Publishing edge-7 stopped when devbox tried to route the tunnel: Cloudflare did not answer, or its answer was too large"
@@ -314,7 +330,7 @@ describe("publishing", () => {
     );
     expect(cf.records).toEqual([theirs]);
     expect(cf.calls.filter((c) => c.method !== "GET")).toEqual([]);
-    expect((await unpublishing(m, spoke)).status).toBe(204);
+    expect(await statusOf(unpublishing(m, spoke))).toBe(204);
     expect(cf.records).toEqual([theirs]);
   });
 
@@ -332,7 +348,7 @@ describe("publishing", () => {
       makeCloudflare({ records: [{ ...theirs }] })
     );
 
-    expect((await publishing(m, spoke)).status).toBe(409);
+    expect(await statusOf(publishing(m, spoke))).toBe(409);
     expect(cf.records).toEqual([theirs]);
   });
 
@@ -351,31 +367,29 @@ describe("publishing", () => {
       })
     );
 
-    expect((await publishing(m, spoke)).status).toBe(202);
-    expect((await unpublishing(m, spoke)).status).toBe(204);
+    expect(await statusOf(publishing(m, spoke))).toBe(202);
+    expect(await statusOf(unpublishing(m, spoke))).toBe(204);
     expect(cf.tunnels.find((t) => t.id === "tun-theirs")).toMatchObject({
       deleted: false,
     });
     expect(cf.ingress.has("tun-theirs")).toBe(false);
   });
 
-  test("a name that makes no hostname in the zone: 409, and Cloudflare is not asked", async () => {
-    const { m, cf, spoke } = await setUp();
-
-    for (const name of ["edge_", "x".repeat(61), "-"]) {
+  for (const name of ["edge_", "x".repeat(61), "-"]) {
+    test(`a name that makes no hostname in the zone (${name}): 409, and Cloudflare is not asked`, async () => {
+      const { m, cf, spoke } = await setUp();
       const reply = await publishing(m, spoke, name);
       expect(reply.status).toBe(409);
       expect(bodyOf(reply).error).toBe(
         `devbox cannot make a hostname in example.com from the name ${name}.`
       );
-    }
-
-    expect(cf.calls).toEqual([]);
-  });
+      expect(cf.calls).toEqual([]);
+    });
+  }
 
   test("two names that make the same hostname: the second is refused", async () => {
     const { m, cf, spoke } = await setUp();
-    expect((await publishing(m, spoke, "edge-7")).status).toBe(202);
+    expect(await statusOf(publishing(m, spoke, "edge-7"))).toBe(202);
     const reply = await publishing(m, spoke, "Edge.7");
     expect(reply.status).toBe(409);
     expect(bodyOf(reply).error).toBe(
@@ -461,8 +475,8 @@ describe("unpublishing", () => {
       const stopped = await unpublishing(m, spoke);
       expect(stopped.status).toBe(502);
       expect(bodyOf(stopped).step).toBe(step);
-      cf.refuse = () => undefined;
-      expect((await unpublishing(m, spoke)).status).toBe(204);
+      cf.refuse = constUndefined;
+      expect(await statusOf(unpublishing(m, spoke))).toBe(204);
       expect(stateOf(cf)).toEqual({
         rules: [],
         tunnels: [],
@@ -474,7 +488,7 @@ describe("unpublishing", () => {
 
   test("with nothing published: 204", async () => {
     const { m, cf, spoke } = await setUp();
-    expect((await unpublishing(m, spoke)).status).toBe(204);
+    expect(await statusOf(unpublishing(m, spoke))).toBe(204);
     expect(cf.calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 });

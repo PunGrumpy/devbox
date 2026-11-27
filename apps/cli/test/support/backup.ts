@@ -6,16 +6,19 @@ import {
   mkdirSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import path from "node:path";
 
 import type { Ran } from "../../src/machine/host.ts";
 import type { FakeMachine } from "./host.ts";
 
-const ok = (stdout = ""): Ran => ({ code: 0, stdout, stderr: "" });
+const ok = (stdout = "") => ({ stdout, code: 0, stderr: "" }) satisfies Ran;
 
-export const makeSqlite = (path: string, rows: number, wal = false) => {
-  mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path);
+const fail = (code: number, stderr: string) =>
+  ({ code, stderr, stdout: "" }) satisfies Ran;
+
+export const makeSqlite = (file: string, rows: number, wal = false) => {
+  mkdirSync(path.dirname(file), { recursive: true });
+  const db = new Database(file);
 
   if (wal) {
     db.run("pragma journal_mode = wal");
@@ -30,16 +33,18 @@ export const makeSqlite = (path: string, rows: number, wal = false) => {
   db.close();
 };
 
-export const write = (path: string, content: string) => {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content);
+export const write = (file: string, content: string) => {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, content);
 };
 
-export const sourcesFile = (home: string, text: string) =>
-  write(join(home, ".config/devbox/backup/sources"), text);
+export const sourcesFile = (home: string, text: string) => {
+  write(path.join(home, ".config/devbox/backup/sources"), text);
+};
 
-export const envFile = (home: string, text: string) =>
-  write(join(home, ".config/devbox/backup/env"), text);
+export const envFile = (home: string, text: string) => {
+  write(path.join(home, ".config/devbox/backup/env"), text);
+};
 
 export interface FakeRepo {
   exists: boolean;
@@ -47,82 +52,98 @@ export interface FakeRepo {
   stage?: string;
 }
 
-export const withBackupTools = (
-  m: FakeMachine,
-  repo: FakeRepo = { exists: false, failCheck: false }
-) => {
+const copyInto = (source: string | undefined, dest: string) => {
+  if (source === undefined) {
+    return fail(1, "fake sqlite3: no database to copy");
+  }
+
+  mkdirSync(path.dirname(dest), { recursive: true });
+  copyFileSync(source, dest);
+
+  return ok();
+};
+
+const sqlite3 = (args: readonly string[]) => {
+  const dot = args.at(-1) ?? "";
+  const backup = /^\.backup "(?<dest>.*)"$/u.exec(dot)?.groups?.dest;
+
+  if (backup !== undefined) {
+    return copyInto(
+      args.at(-2),
+      backup.replaceAll(/\\(?<escaped>["\\])/gu, "$<escaped>")
+    );
+  }
+
+  const vacuum = /^vacuum into '(?<dest>.*)'$/u.exec(dot)?.groups?.dest;
+
+  if (vacuum !== undefined) {
+    return copyInto(args.at(-2), vacuum.replaceAll("''", "'"));
+  }
+
+  return ok("ok\n");
+};
+
+const restore = (repo: FakeRepo, args: readonly string[]) => {
+  if (repo.stage === undefined) {
+    return fail(1, "Fatal: no matching ID found for prefix latest\n");
+  }
+
+  const target = args[args.indexOf("--target") + 1];
+
+  if (target === undefined) {
+    return fail(1, "Fatal: restore needs --target\n");
+  }
+
+  if (existsSync(repo.stage)) {
+    cpSync(repo.stage, path.join(target, repo.stage), { recursive: true });
+  }
+
+  return ok();
+};
+
+const restic = (repo: FakeRepo, args: readonly string[]) => {
+  if (args[0] === "cat") {
+    return repo.exists
+      ? ok()
+      : fail(
+          10,
+          "Fatal: repository does not exist\nIs there a repository at the following location?\n"
+        );
+  }
+
+  if (args[0] === "init") {
+    repo.exists = true;
+
+    return ok();
+  }
+
+  if (args[0] === "backup") {
+    repo.stage = args.at(-1);
+
+    return ok();
+  }
+
+  if (args[0] === "restore") {
+    return restore(repo, args);
+  }
+
+  return ok();
+};
+
+export const withBackupTools = (m: FakeMachine, given?: FakeRepo) => {
+  const repo = given ?? { exists: false, failCheck: false };
   m.binaries.add("restic");
   m.binaries.add("sqlite3");
   m.respond = (argv) => {
     const [cmd, ...args] = argv;
 
     if (cmd === "sqlite3") {
-      const dot = args.at(-1) ?? "";
-      const backup = /^\.backup "(.*)"$/.exec(dot);
-
-      if (backup) {
-        const dest = backup[1]!.replaceAll(/\\(["\\])/g, "$1");
-        mkdirSync(dirname(dest), { recursive: true });
-        copyFileSync(args.at(-2)!, dest);
-
-        return ok();
-      }
-
-      const vacuum = /^vacuum into '(.*)'$/.exec(dot);
-
-      if (vacuum) {
-        const dest = vacuum[1]!.replaceAll("''", "'");
-        mkdirSync(dirname(dest), { recursive: true });
-        copyFileSync(args.at(-2)!, dest);
-
-        return ok();
-      }
-
-      return ok("ok\n");
+      return sqlite3(args);
     }
 
     if (cmd === "restic") {
-      if (args[0] === "cat") {
-        return repo.exists
-          ? ok()
-          : {
-              code: 10,
-              stdout: "",
-              stderr:
-                "Fatal: repository does not exist\nIs there a repository at the following location?\n",
-            };
-      }
-
-      if (args[0] === "init") {
-        return ((repo.exists = true), ok());
-      }
-
-      if (args[0] === "backup") {
-        return ((repo.stage = args.at(-1)), ok());
-      }
-
-      if (args[0] === "restore") {
-        if (repo.stage === undefined) {
-          return {
-            code: 1,
-            stdout: "",
-            stderr: "Fatal: no matching ID found for prefix latest\n",
-          };
-        }
-
-        const target = args[args.indexOf("--target") + 1]!;
-
-        if (existsSync(repo.stage)) {
-          cpSync(repo.stage, join(target, repo.stage), { recursive: true });
-        }
-
-        return ok();
-      }
-
-      return ok();
+      return restic(repo, args);
     }
-
-    return undefined;
   };
 
   return repo;

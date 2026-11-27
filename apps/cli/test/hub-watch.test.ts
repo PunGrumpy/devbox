@@ -1,44 +1,46 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import path from "node:path";
 
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import { HISTORY_LIMIT, stateFile } from "../src/hub/hub.ts";
-import type { HubSnapshot } from "../src/hub/hub.ts";
 import type { MachineState, Snapshot } from "../src/hub/machines.ts";
 import { restore, serialize } from "../src/hub/saved.ts";
 import { nextWatch, sentence, webhookBody } from "../src/hub/watch.ts";
 import type { Watch } from "../src/hub/watch.ts";
 import { freePort } from "../src/machine/proxy.ts";
 import { makeMachine } from "./support/host.ts";
-import { asOwner, start } from "./support/run.ts";
+import { readJson } from "./support/json.ts";
+import { asOwner, start, untilListening } from "./support/run.ts";
 
 const T0 = "2026-11-27T00:00:00.000Z";
 
-const sample = (states: Record<string, MachineState>): Snapshot => ({
-  generatedAt: T0,
-  tailscale: true,
-  machines: Object.entries(states).map(([name, state]) => ({
-    name,
-    here: false,
-    kind: "computer",
-    state,
-    tailscale: null,
-    t3: null,
-    vitals: null,
-    spoke: null,
-  })),
-});
+const sample = (states: Record<string, MachineState>) =>
+  ({
+    generatedAt: T0,
+    tailscale: true,
+    machines: Object.entries(states).map(([name, state]) => ({
+      name,
+      state,
+      here: false,
+      kind: "computer",
+      tailscale: null,
+      t3: null,
+      vitals: null,
+      spoke: null,
+    })),
+  }) satisfies Snapshot;
 
-/** Feeds samples to the reducer in turn and returns what each one announced. */
-const announce = (...samples: readonly Record<string, MachineState>[]) => {
+const announcedAfterEach = (
+  ...samples: readonly Record<string, MachineState>[]
+) => {
   let watch: Watch | undefined;
 
   return samples.map((states) => {
     const next = nextWatch(watch, sample(states));
-    watch = next.watch;
+    ({ watch } = next);
 
     return next.notices.map(sentence);
   });
@@ -46,18 +48,23 @@ const announce = (...samples: readonly Record<string, MachineState>[]) => {
 
 describe("what the hub announces", () => {
   test("the first sample only sets the baseline", () => {
-    expect(announce({ a: "offline", b: "t3" })).toEqual([[]]);
+    expect(announcedAfterEach({ a: "offline", b: "t3" })).toEqual([[]]);
   });
 
   test("one missed probe is not news", () => {
     expect(
-      announce({ a: "t3" }, { a: "offline" }, { a: "t3" }, { a: "t3" })
+      announcedAfterEach(
+        { a: "t3" },
+        { a: "offline" },
+        { a: "t3" },
+        { a: "t3" }
+      )
     ).toEqual([[], [], [], []]);
   });
 
   test("a state that holds for two samples is announced once", () => {
     expect(
-      announce(
+      announcedAfterEach(
         { a: "t3" },
         { a: "offline" },
         { a: "offline" },
@@ -68,7 +75,7 @@ describe("what the hub announces", () => {
 
   test("a recovery is announced too", () => {
     expect(
-      announce(
+      announcedAfterEach(
         { a: "t3" },
         { a: "offline" },
         { a: "offline" },
@@ -80,7 +87,7 @@ describe("what the hub announces", () => {
 
   test("T3 Code stopping and answering again have their own words", () => {
     expect(
-      announce(
+      announcedAfterEach(
         { a: "t3" },
         { a: "online" },
         { a: "online" },
@@ -98,7 +105,7 @@ describe("what the hub announces", () => {
 
   test("a machine seen later sets its baseline silently, and one that leaves is remembered", () => {
     expect(
-      announce(
+      announcedAfterEach(
         { a: "t3" },
         { a: "t3", b: "offline" },
         { b: "offline" },
@@ -140,23 +147,23 @@ describe("what a webhook is sent", () => {
   });
 });
 
-describe("what a hub takes over when it starts again", () => {
-  const saved = (savedAt: string) =>
-    serialize(
-      {
-        history: {
-          sampleSeconds: 60,
-          startedAt: T0,
-          states: { a: "2222", gone: "1   " },
-          latency: {},
-        },
-        watch: { announced: { a: "t3" }, pending: {} },
+const saved = (savedAt: string) =>
+  serialize(
+    {
+      history: {
+        sampleSeconds: 60,
+        startedAt: T0,
+        states: { a: "2222", gone: "1   " },
+        latency: {},
       },
-      savedAt
-    );
+      watch: { announced: { a: "t3" }, pending: {} },
+    },
+    savedAt
+  );
 
-  const at = (iso: string) => Date.parse(iso);
+const at = (iso: string) => Date.parse(iso);
 
+describe("what a hub takes over when it starts again", () => {
   test("the time it was down becomes unknown samples", () => {
     const resumed = restore(
       saved(T0),
@@ -217,12 +224,23 @@ const onlineComputer = () => {
   return m;
 };
 
+const Served = Schema.Struct({
+  latest: Schema.Unknown,
+  history: Schema.Struct({ states: Schema.Unknown }),
+  machines: Schema.Array(Schema.Unknown),
+});
+
+const Saved = Schema.Struct({
+  history: Schema.Struct({ states: Schema.Unknown }),
+  watch: Schema.Struct({ announced: Schema.Unknown }),
+});
+
 const running = async (
   m: ReturnType<typeof makeMachine>,
   env: Record<string, string> = {}
 ) => {
   const port = await Effect.runPromise(freePort);
-  const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
+  const empty = mkdtempSync(path.join(tmpdir(), "devbox-hub-ui-"));
 
   const hub = start(
     { HOME: m.home, ...env },
@@ -232,15 +250,13 @@ const running = async (
     }
   );
 
-  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
-    await Bun.sleep(20);
-  }
+  await untilListening(hub);
 
   const answered = await fetch(`http://127.0.0.1:${port}/api/machines`, {
     headers: asOwner(m.home),
   });
 
-  const json = (await answered.json()) as HubSnapshot;
+  const json = readJson(Served, await answered.text());
 
   return { hub, json };
 };
@@ -251,14 +267,14 @@ describe("devbox hub over a restart", () => {
     const { hub, json } = await running(m);
     await hub.stop();
     expect(json.latest).toEqual({ t3: "0.3.0" });
-    const file = JSON.parse(readFileSync(stateFile(m.home), "utf-8"));
+    const file = readJson(Saved, readFileSync(stateFile(m.home), "utf-8"));
     expect(file.history.states).toEqual({ "edge-7": "1" });
     expect(file.watch.announced).toEqual({ "edge-7": "online" });
   });
 
   test("it carries on from the saved history and announces a change that has now held", async () => {
     const m = onlineComputer();
-    mkdirSync(dirname(stateFile(m.home)), { recursive: true });
+    mkdirSync(path.dirname(stateFile(m.home)), { recursive: true });
     writeFileSync(
       stateFile(m.home),
       serialize(
@@ -296,7 +312,7 @@ describe("devbox hub over a restart", () => {
   test("a webhook that fails is reported without its address, and the hub still answers", async () => {
     const m = onlineComputer();
     m.webhookUp = false;
-    mkdirSync(dirname(stateFile(m.home)), { recursive: true });
+    mkdirSync(path.dirname(stateFile(m.home)), { recursive: true });
     writeFileSync(
       stateFile(m.home),
       serialize(
