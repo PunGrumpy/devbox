@@ -469,7 +469,7 @@ const ask = (
   method: string,
   name: string,
   headers: HubRequest["headers"] = { authorization: `Bearer ${TOKEN}` },
-  cloudflare: HubSnapshot["cloudflare"] = { zone: "example.com" },
+  cloudflare: HubSnapshot["cloudflare"] = { zone: "example.com", kind: "token" },
 ) =>
   route(
     {
@@ -483,7 +483,7 @@ const ask = (
   );
 
 const replied = (routed: ReturnType<typeof ask>): Reply => {
-  if (!("status" in routed)) throw new Error(`asked ${routed.machine.name} instead of replying`);
+  if (!("status" in routed)) throw new Error(`asked ${routed.ask} instead of replying`);
   return routed;
 };
 
@@ -519,7 +519,7 @@ describe("the tunnel routes pass the same admission step as update and pair", ()
       const routed = ask(method, "edge-7", undefined, null);
       expect(replied(routed).status).toBe(409);
       expect(errorOf(routed)).toBe(
-        "The hub has no Cloudflare login. Run devbox hub cloudflare token.",
+        "The hub has no Cloudflare login. Connect one under Settings on the hub page, or run devbox hub cloudflare token.",
       );
     });
 
@@ -618,7 +618,7 @@ for (const kind of ["token", "oauth"] as const)
 
     test("the snapshot names the zone, and no machine has a tunnel yet", async () => {
       const seen = (await machines()).snapshot;
-      expect(seen.cloudflare).toEqual({ zone: "example.com" });
+      expect(seen.cloudflare).toEqual({ zone: "example.com", kind });
       expect(seen.machines.map((x) => x.tunnel)).toEqual([null, null]);
     });
 
@@ -715,6 +715,211 @@ for (const kind of ["token", "oauth"] as const)
       expect(cf.calls.length).toBe(from);
     });
   });
+
+const settings = (
+  method: string,
+  body: string | null = "",
+  headers: HubRequest["headers"] = { authorization: `Bearer ${TOKEN}` },
+) =>
+  route(
+    {
+      method,
+      url: "/api/cloudflare",
+      headers: { host: "hub.tail1234.ts.net:3780", ...headers },
+      body,
+    },
+    { snapshot: snapshot(null), token: TOKEN, now: NOW },
+    () => undefined,
+  );
+
+describe("the Cloudflare login over the hub's API", () => {
+  test("needs a login before it says anything, whatever the method", () => {
+    for (const method of ["GET", "PUT", "DELETE", "POST"])
+      expect(replied(settings(method, "", {})).status).toBe(401);
+  });
+
+  test("is refused to a page on another site, even with the token: 403", () => {
+    for (const method of ["PUT", "DELETE"]) {
+      const routed = settings(method, JSON.stringify({ token: CLOUDFLARE_TOKEN }), {
+        authorization: `Bearer ${TOKEN}`,
+        origin: "https://example.com",
+      });
+      expect(replied(routed).status).toBe(403);
+    }
+  });
+
+  test("PUT asks to connect with the token and the account and zone it names", () => {
+    expect(settings("PUT", JSON.stringify({ token: CLOUDFLARE_TOKEN }))).toEqual({
+      ask: "connect",
+      token: CLOUDFLARE_TOKEN,
+      account: Option.none(),
+      zone: Option.none(),
+    });
+    const named = JSON.stringify({
+      token: CLOUDFLARE_TOKEN,
+      account: ACCOUNT.id,
+      zone: "example.org",
+    });
+    expect(settings("PUT", named)).toEqual({
+      ask: "connect",
+      token: CLOUDFLARE_TOKEN,
+      account: Option.some(ACCOUNT.id),
+      zone: Option.some("example.org"),
+    });
+  });
+
+  test("DELETE asks to disconnect, and any other method: 405", () => {
+    expect(settings("DELETE")).toEqual({ ask: "disconnect" });
+    for (const method of ["GET", "POST", "PATCH"]) {
+      const r = replied(settings(method));
+      expect(r.status).toBe(405);
+      expect(r.headers.allow).toBe("PUT, DELETE");
+    }
+  });
+
+  test("a body that is not {token, account?, zone?}: 400, and the reply never holds the token", () => {
+    for (const body of [
+      "",
+      "null",
+      "[]",
+      CLOUDFLARE_TOKEN,
+      JSON.stringify({ token: 7 }),
+      JSON.stringify({ token: "" }),
+      JSON.stringify({ token: `${CLOUDFLARE_TOKEN} two` }),
+      JSON.stringify({ token: "x".repeat(1025) }),
+      JSON.stringify({ secret: CLOUDFLARE_TOKEN }),
+      JSON.stringify({ token: CLOUDFLARE_TOKEN, account: 7 }),
+      JSON.stringify({ token: CLOUDFLARE_TOKEN, admin: true }),
+    ]) {
+      const r = replied(settings("PUT", body));
+      expect(r.status).toBe(400);
+      expect(String(r.body)).not.toContain(CLOUDFLARE_TOKEN);
+    }
+  });
+
+  test("a body longer than the hub reads: 413, and the connection closes", () => {
+    const r = replied(settings("PUT", null));
+    expect(r.status).toBe(413);
+    expect(r.headers.connection).toBe("close");
+  });
+});
+
+describe("devbox hub, connected to Cloudflare from its page", async () => {
+  const work = { id: "acc0000000000000000000000000002", name: "Work" };
+  const cf = makeCloudflare({
+    accounts: [ACCOUNT, work],
+    zones: [
+      { ...ZONE, account: ACCOUNT.id },
+      { id: "zone000000000000000000000000002", name: "example.org", account: ACCOUNT.id },
+    ],
+  });
+  const m = makeMachine();
+  m.answer = (url, request) => cf.answer(url, request);
+  const port = await Effect.runPromise(freePort);
+  const empty = mkdtempSync(join(tmpdir(), "devbox-hub-ui-"));
+  const hub = start({ HOME: m.home }, ["hub", "--port", String(port), "--ui", empty], {
+    host: m.host,
+  });
+  for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) await Bun.sleep(20);
+  afterAll(() => hub.stop());
+  const base = `http://127.0.0.1:${port}`;
+  const token = (await devbox({ HOME: m.home }, ["hub", "token"], { host: m.host })).out.trim();
+  const page = { authorization: `Bearer ${token}`, origin: base };
+  const replies: Array<string> = [];
+
+  const send = async (method: string, body?: object | string) => {
+    const response = await fetch(`${base}/api/cloudflare`, {
+      method,
+      headers: page,
+      ...(body === undefined
+        ? {}
+        : { body: typeof body === "string" ? body : JSON.stringify(body) }),
+    });
+    const text = await response.text();
+    replies.push(text);
+    return { status: response.status, json: text === "" ? undefined : JSON.parse(text) };
+  };
+
+  const loginNow = async () => {
+    const text = await (await fetch(`${base}/api/machines`, { headers: page })).text();
+    replies.push(text);
+    return (JSON.parse(text) as HubSnapshot).cloudflare;
+  };
+
+  test("with no login saved, the snapshot says so", async () => {
+    expect(await loginNow()).toBeNull();
+  });
+
+  test("a token that sees two accounts: 409 that names them, and nothing is saved", async () => {
+    expect(await send("PUT", { token: CLOUDFLARE_TOKEN })).toEqual({
+      status: 409,
+      json: {
+        error: 'The token sees 2 accounts. Name one as "account".',
+        accounts: [ACCOUNT, work],
+      },
+    });
+    expect(existsSync(cloudflareFile(m.home))).toBe(false);
+  });
+
+  test("with the account named but two zones: 409 that names the zones", async () => {
+    expect(await send("PUT", { token: CLOUDFLARE_TOKEN, account: ACCOUNT.id })).toEqual({
+      status: 409,
+      json: {
+        error: 'The token sees 2 zones. Name one as "zone".',
+        zones: [
+          { id: ZONE.id, name: "example.com" },
+          { id: "zone000000000000000000000000002", name: "example.org" },
+        ],
+      },
+    });
+    expect(existsSync(cloudflareFile(m.home))).toBe(false);
+  });
+
+  test("with both named: 200, the login is saved, and the very next snapshot shows it", async () => {
+    const saved = await send("PUT", {
+      token: CLOUDFLARE_TOKEN,
+      account: ACCOUNT.id,
+      zone: "Example.ORG",
+    });
+    expect(saved).toEqual({ status: 200, json: { zone: "example.org", kind: "token" } });
+    expect(statSync(cloudflareFile(m.home)).mode & 0o777).toBe(0o600);
+    expect(savedFile(m)).toMatchObject({ login: { kind: "token" }, zone: "example.org" });
+    expect(await loginNow()).toEqual({ zone: "example.org", kind: "token" });
+  });
+
+  test("a token Cloudflare refuses: 502 with what Cloudflare said, and the saved login stays", async () => {
+    cf.refuse = () => `Invalid API Token ${CLOUDFLARE_TOKEN}`;
+    const refused = await send("PUT", { token: CLOUDFLARE_TOKEN, account: ACCOUNT.id });
+    cf.refuse = () => undefined;
+    expect(refused).toEqual({
+      status: 502,
+      json: {
+        error: "Cloudflare refused to list the accounts this token sees: Invalid API Token <token>",
+      },
+    });
+    expect(await loginNow()).toEqual({ zone: "example.org", kind: "token" });
+  });
+
+  test("a body past two kilobytes is cut off, and the hub still answers", async () => {
+    expect((await send("PUT", JSON.stringify({ token: "x".repeat(4096) }))).status).toBe(413);
+    expect(await loginNow()).toEqual({ zone: "example.org", kind: "token" });
+  });
+
+  test("DELETE: 204, the file is gone, the very next snapshot has no login, and again is 204", async () => {
+    expect(await send("DELETE")).toEqual({ status: 204, json: undefined });
+    expect(existsSync(cloudflareFile(m.home))).toBe(false);
+    expect(await loginNow()).toBeNull();
+    expect((await send("DELETE")).status).toBe(204);
+  });
+
+  test("the token is in no reply and never in the hub's log", () => {
+    expect(replies.length).toBeGreaterThan(5);
+    for (const text of [...replies, hub.err(), hub.out()]) {
+      expect(text).not.toContain(CLOUDFLARE_TOKEN);
+      expect(text).not.toContain(token);
+    }
+  });
+});
 
 describe("a request devbox makes", () => {
   test("gives any status with its body, and nothing for an answer too large to read", async () => {

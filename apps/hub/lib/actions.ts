@@ -8,8 +8,10 @@ const HTTP_ACCEPTED = 202;
 const HTTP_NO_CONTENT = 204;
 const HTTP_UNAUTHORIZED = 401;
 const HTTP_FORBIDDEN = 403;
+const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
 const HTTP_CONFLICT = 409;
+const HTTP_TOO_LARGE = 413;
 const HTTP_BAD_GATEWAY = 502;
 
 const MINUTES_VALID = 15;
@@ -22,13 +24,36 @@ export const PAIR_TTL_MS = MINUTES_VALID * SECONDS_PER_MINUTE * MS_PER_SECOND;
 /** The four machine actions that share the ask, confirm, send and report lifecycle. */
 export type MachineAction = "pair" | "publish" | "unpublish" | "update";
 
+/** Saving and forgetting the hub's Cloudflare login, from the Settings section. */
+export type CloudflareAction = "connect" | "disconnect";
+
+/** Every request the page sends that changes something on the hub. */
+export type HubAction = CloudflareAction | MachineAction;
+
+/** An account or a zone a Cloudflare token sees. */
+export interface Named {
+  readonly id: string;
+  readonly name: string;
+}
+
+/** The accounts or the zones to pick one from, when a token sees several. */
+export interface Choices {
+  readonly options: readonly Named[];
+  readonly what: "account" | "zone";
+}
+
 export interface ActionReply {
+  readonly accounts?: readonly Named[] | null;
   readonly error?: string | null;
+  readonly kind?: Cloudflare["kind"] | null;
   readonly step?: string | null;
   readonly url?: string | null;
+  readonly zone?: string | null;
+  readonly zones?: readonly Named[] | null;
 }
 
 export interface ActionOutcome {
+  readonly choices?: Choices;
   readonly message: string;
   readonly ok: boolean;
   readonly signedOut: boolean;
@@ -46,10 +71,16 @@ export type MachineActionState =
       readonly url: string | null;
     };
 
+const namedSchema = z.object({ id: z.string(), name: z.string() });
+
 const replyBodySchema = z.object({
+  accounts: z.array(namedSchema).optional(),
   error: z.string().optional(),
+  kind: z.enum(["token", "oauth"]).optional(),
   step: z.string().optional(),
   url: z.string().optional(),
+  zone: z.string().optional(),
+  zones: z.array(namedSchema).optional(),
 });
 
 const safeLink = (value: string | null | undefined) => {
@@ -107,21 +138,25 @@ const stepFailure = (
   return `${verb} ${name} failed at ${trimStop(error)}.`;
 };
 
-const ok = (message: string, url: string | null = null) =>
-  ({
-    message,
-    url,
-    ok: true,
-    signedOut: false,
-  }) satisfies ActionOutcome;
+const ok: (message: string, url?: string | null) => ActionOutcome = (
+  message,
+  url = null
+) => ({
+  message,
+  url,
+  ok: true,
+  signedOut: false,
+});
 
-const fail = (message: string, signedOut = false) =>
-  ({
-    message,
-    signedOut,
-    ok: false,
-    url: null,
-  }) satisfies ActionOutcome;
+const fail: (message: string, signedOut?: boolean) => ActionOutcome = (
+  message,
+  signedOut = false
+) => ({
+  message,
+  signedOut,
+  ok: false,
+  url: null,
+});
 
 type ReplyHandler = (name: string, reply: ActionReply) => ActionOutcome;
 
@@ -129,7 +164,7 @@ interface ActionSpec {
   readonly busyLabel: string;
   readonly confirm: ((name: string, zone: string | null) => string) | null;
   readonly label: string;
-  readonly method: "DELETE" | "POST";
+  readonly method: "DELETE" | "POST" | "PUT";
   readonly path: (name: string) => string;
   readonly replies: ReadonlyMap<number, ReplyHandler>;
   readonly sending: (name: string) => string;
@@ -149,6 +184,24 @@ export const needsUpdate = (machine: Machine, latest: string | null) => {
 
 /** The command to run on a machine so its spoke trusts this hub. */
 export const trustCommand = (key: string) => `devbox up --spoke --trust ${key}`;
+
+/** The command that sets up a spoke on a machine, listening on its Tailscale address. */
+export const spokeCommand = (ip: string, key: string) =>
+  `devbox up --host ${ip} --spoke --trust ${key}`;
+
+/** The machines online on the tailnet with no devbox spoke, each with its Tailscale address. */
+export const withoutSpoke = (machines: readonly Machine[]) =>
+  machines.flatMap(({ name, spoke, tailscale }) =>
+    spoke === null && tailscale?.online === true && tailscale.ip !== ""
+      ? [{ ip: tailscale.ip, name }]
+      : []
+  );
+
+/** How the hub signs in to Cloudflare, as the Settings section says it. */
+export const connectedSentence = ({ kind, zone }: Cloudflare) =>
+  kind === "token"
+    ? `Connected to ${zone} with an API token.`
+    : `Connected to ${zone} through OAuth.`;
 
 /** Whether a machine can hand out a pairing link through this hub. */
 export const canPair = (machine: Machine) =>
@@ -195,8 +248,106 @@ const SHARED_REPLIES = new Map<number, ReplyHandler>([
   [HTTP_UNAUTHORIZED, () => fail("Your session ended. Sign in again.", true)],
 ]);
 
-/** The single table describing every machine action: route, copy, confirmation, and replies. */
-export const MACHINE_ACTIONS = {
+const sentenceOf = (text: string | null | undefined, fallback: string) => {
+  const trimmed = text?.trim() ?? "";
+
+  if (trimmed === "") {
+    return fallback;
+  }
+
+  return SENTENCE_END.test(trimmed) ? trimmed : `${trimmed}.`;
+};
+
+const choicesOf = (reply: ActionReply) => {
+  if (reply.accounts !== null && reply.accounts !== undefined) {
+    return { options: reply.accounts, what: "account" } satisfies Choices;
+  }
+
+  if (reply.zones !== null && reply.zones !== undefined) {
+    return { options: reply.zones, what: "zone" } satisfies Choices;
+  }
+
+  return null;
+};
+
+const OLD_HUB = fail(
+  "This hub cannot do that from the page. Update devbox on the hub machine."
+);
+
+/** The single table describing every hub action: route, copy, confirmation, and replies. */
+export const HUB_ACTIONS = {
+  connect: {
+    busyLabel: "Connecting…",
+    confirm: null,
+    label: "Connect",
+    method: "PUT",
+    path: () => "/api/cloudflare",
+    replies: new Map<number, ReplyHandler>([
+      [
+        HTTP_BAD_GATEWAY,
+        (_name, reply) =>
+          fail(sentenceOf(reply.error, "Cloudflare did not accept the token.")),
+      ],
+      [
+        HTTP_BAD_REQUEST,
+        () => fail("That does not look like a Cloudflare API token."),
+      ],
+      [
+        HTTP_CONFLICT,
+        (_name, reply) => {
+          const choices = choicesOf(reply);
+
+          if (choices === null) {
+            return fail(
+              sentenceOf(reply.error, "The token does not see one zone to use.")
+            );
+          }
+
+          return {
+            ...fail(
+              `The token sees more than one ${choices.what}. Pick one, then paste the token again.`
+            ),
+            choices,
+          };
+        },
+      ],
+      [HTTP_FORBIDDEN, () => fail("The hub refused the request.")],
+      [HTTP_NOT_FOUND, () => OLD_HUB],
+      [
+        HTTP_OK,
+        (_name, reply) =>
+          ok(
+            reply.zone === null || reply.zone === undefined
+              ? "Connected to Cloudflare."
+              : connectedSentence({
+                  kind: reply.kind ?? "token",
+                  zone: reply.zone,
+                })
+          ),
+      ],
+      [
+        HTTP_TOO_LARGE,
+        () => fail("That is longer than a Cloudflare API token."),
+      ],
+    ]),
+    sending: () => "Checking the token with Cloudflare…",
+    ttlMs: null,
+  },
+  disconnect: {
+    busyLabel: "Disconnecting…",
+    confirm: () =>
+      "Machines that are public stay public, but the hub can no longer publish or unpublish.",
+    label: "Disconnect",
+    method: "DELETE",
+    path: () => "/api/cloudflare",
+    replies: new Map<number, ReplyHandler>([
+      [HTTP_FORBIDDEN, () => fail("The hub refused the request.")],
+      [HTTP_NO_CONTENT, () => ok("The hub forgot its Cloudflare login.")],
+      [HTTP_NOT_FOUND, () => OLD_HUB],
+    ]),
+    sending: () => "Forgetting the Cloudflare login…",
+    ttlMs: null,
+  },
   pair: {
     busyLabel: "Pairing…",
     confirm: null,
@@ -322,11 +473,11 @@ export const MACHINE_ACTIONS = {
     sending: (name) => `Asking ${name} to update…`,
     ttlMs: null,
   },
-} satisfies Record<MachineAction, ActionSpec>;
+} satisfies Record<HubAction, ActionSpec>;
 
-/** Turns a hub reply status (or null on a network failure) for any machine action into an outcome. */
+/** Turns a hub reply status (or null on a network failure) for any hub action into an outcome. */
 export const describeActionReply = (
-  action: MachineAction,
+  action: HubAction,
   name: string,
   status: number | null,
   reply: ActionReply = {}
@@ -336,7 +487,7 @@ export const describeActionReply = (
   }
 
   const handler =
-    MACHINE_ACTIONS[action].replies.get(status) ?? SHARED_REPLIES.get(status);
+    HUB_ACTIONS[action].replies.get(status) ?? SHARED_REPLIES.get(status);
 
   if (handler !== undefined) {
     return handler(name, reply);
@@ -345,19 +496,29 @@ export const describeActionReply = (
   return fail(`The hub answered with status ${status}.`);
 };
 
-/** Sends a machine action request to the hub using the session cookie. */
-export const requestAction = async (
-  action: MachineAction,
+/** What the page sends to connect Cloudflare: the token, and the account and zone once picked. */
+export interface ConnectRequest {
+  account?: string;
+  token: string;
+  zone?: string;
+}
+
+const send = async (
+  action: HubAction,
   name: string,
-  request: FetchLike = fetch
+  request: FetchLike,
+  connect?: ConnectRequest
 ) => {
-  const spec = MACHINE_ACTIONS[action];
+  const spec = HUB_ACTIONS[action];
+  const init: RequestInit = { cache: "no-store", method: spec.method };
+
+  if (connect !== undefined) {
+    init.body = JSON.stringify(connect);
+    init.headers = { "content-type": "application/json" };
+  }
 
   try {
-    const response = await request(spec.path(name), {
-      cache: "no-store",
-      method: spec.method,
-    });
+    const response = await request(spec.path(name), init);
 
     if (response.status === HTTP_NO_CONTENT) {
       return describeActionReply(action, name, response.status);
@@ -377,3 +538,16 @@ export const requestAction = async (
     return describeActionReply(action, name, null);
   }
 };
+
+/** Sends a machine action, or a disconnect, to the hub using the session cookie. */
+export const requestAction = async (
+  action: Exclude<HubAction, "connect">,
+  name: string,
+  request: FetchLike = fetch
+) => await send(action, name, request);
+
+/** Sends an API token to the hub once. The page keeps neither the token nor the request. */
+export const requestConnect = async (
+  connect: ConnectRequest,
+  request: FetchLike = fetch
+) => await send("connect", "", request, connect);

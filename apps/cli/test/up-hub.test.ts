@@ -51,6 +51,7 @@ describe("devbox up --hub", () => {
     expect(first.err).toContain("enabled devbox-hub.service on 127.0.0.1:3780");
     expect(first.err).toContain("built the hub page");
     expect(builds(m)).toBe(1);
+    expect(m.calls).toContainEqual(["/opt/bun", "install", "--frozen-lockfile", "--filter", "hub"]);
     expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf8")).toBe("tree-1\n");
 
     const before = m.calls.length;

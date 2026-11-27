@@ -61,7 +61,7 @@ const answer = (r: HubRequest, now = NOW, token = TOKEN) =>
 
 const reply = (r: HubRequest, now = NOW, token = TOKEN): Reply => {
   const routed = answer(r, now, token);
-  if (!("status" in routed)) throw new Error(`asked ${routed.machine.name} instead of replying`);
+  if (!("status" in routed)) throw new Error(`asked ${routed.ask} instead of replying`);
   return routed;
 };
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { CopyLink, useCopied } from "@/components/copy";
 import { CloseIcon } from "@/components/icons";
-import { MACHINE_ACTIONS, requestAction, trustCommand } from "@/lib/actions";
+import { HUB_ACTIONS, requestAction, trustCommand } from "@/lib/actions";
 import type { MachineAction, MachineActionState } from "@/lib/actions";
 import { markSignedOut } from "@/lib/store";
 
@@ -54,7 +54,7 @@ export const useMachineAction = (name: string) => {
       url: outcome.url,
     });
 
-    const { ttlMs } = MACHINE_ACTIONS[action];
+    const { ttlMs } = HUB_ACTIONS[action];
 
     if (outcome.ok && ttlMs !== null) {
       timer.current = setTimeout(() => {
@@ -66,7 +66,7 @@ export const useMachineAction = (name: string) => {
   const handleTrigger = (action: MachineAction) => {
     clearTimeout(timer.current);
 
-    if (MACHINE_ACTIONS[action].confirm === null) {
+    if (HUB_ACTIONS[action].confirm === null) {
       void send(action);
 
       return;
@@ -107,7 +107,7 @@ export const ActionButton = ({
   onTrigger,
   state,
 }: ActionButtonProps) => {
-  const spec = MACHINE_ACTIONS[action];
+  const spec = HUB_ACTIONS[action];
   const confirming = state?.phase === "confirming" && state.action === action;
   const sending = state?.phase === "sending" && state.action === action;
   const disabled = confirming || state?.phase === "sending";
@@ -223,7 +223,7 @@ export const ActionResult = ({ name, onDismiss, state }: ActionResultProps) => {
         aria-live="polite"
         className="border-rule text-nav text-muted mt-4 border-t pt-3"
       >
-        {MACHINE_ACTIONS[state.action].sending(name)}
+        {HUB_ACTIONS[state.action].sending(name)}
       </p>
     );
   }
@@ -272,7 +272,7 @@ export const ActionNotice = ({
   }
 
   if (state.phase === "confirming") {
-    const spec = MACHINE_ACTIONS[state.action];
+    const spec = HUB_ACTIONS[state.action];
 
     if (spec.confirm === null) {
       return null;

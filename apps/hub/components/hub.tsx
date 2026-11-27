@@ -7,6 +7,7 @@ import { HubLogo, OsIcon } from "@/components/icons";
 import { LoginGate } from "@/components/login";
 import { MachineCard } from "@/components/machine-card";
 import { Menu } from "@/components/menu";
+import { Settings } from "@/components/settings";
 import { Sidebar } from "@/components/sidebar";
 import { latencyBuckets, latencyPercentiles } from "@/lib/latency";
 import {
@@ -196,6 +197,11 @@ const HubContent = ({ snapshot, status }: HubContentProps) => {
         ) : null}
 
         <Agents />
+        <Settings
+          cloudflare={snapshot.cloudflare}
+          hubKey={snapshot.key}
+          machines={machines}
+        />
       </main>
     </div>
   );

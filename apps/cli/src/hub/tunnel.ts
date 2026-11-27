@@ -124,7 +124,10 @@ export type TunnelJob = {
   ) => Effect.Effect<boolean, never, Host>;
 };
 
-const noLogin = refuse(409, "The hub has no Cloudflare login. Run devbox hub cloudflare token.");
+export const NO_LOGIN = refuse(
+  409,
+  "The hub has no Cloudflare login. Connect one under Settings on the hub page, or run devbox hub cloudflare token.",
+);
 
 const asReply = (name: string, doing: string) => (error: StepFailed) =>
   json(502, {
@@ -155,7 +158,7 @@ export const publish = (job: TunnelJob) =>
     const { home, machine } = job;
     const { name } = machine;
     const saved = yield* loadCloudflare(home);
-    if (Option.isNone(saved)) return noLogin;
+    if (Option.isNone(saved)) return NO_LOGIN;
     const account = saved.value;
     const ip = machine.tailscale?.ip ?? "";
     if (ip === "") return refuse(409, `${name} has no Tailscale address to send the tunnel to.`);
@@ -240,7 +243,7 @@ export const unpublish = (job: TunnelJob) =>
     const { home, machine } = job;
     const { name } = machine;
     const saved = yield* loadCloudflare(home);
-    if (Option.isNone(saved)) return noLogin;
+    if (Option.isNone(saved)) return NO_LOGIN;
     if ((machine.tailscale?.ip ?? "") === "")
       return refuse(409, `${name} has no Tailscale address to take the tunnel from.`);
     const tunnels = yield* loadTunnels(home);

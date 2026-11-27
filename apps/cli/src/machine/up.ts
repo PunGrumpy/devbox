@@ -549,7 +549,7 @@ const apply = (
           const cwd = join(checkout, HUB_DIR);
           const bun = ctx.self[0] ?? "bun";
           for (const { argv, at } of [
-            { argv: [bun, "install", "--frozen-lockfile", "--filter", "devbox-hub"], at: checkout },
+            { argv: [bun, "install", "--frozen-lockfile", "--filter", "hub"], at: checkout },
             { argv: [bun, "run", "build"], at: cwd },
           ]) {
             const ran = yield* host.run(argv, { cwd: at, inherit: true });

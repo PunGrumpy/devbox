@@ -40,6 +40,7 @@ const tunnelSchema = z.object({
 });
 
 const cloudflareSchema = z.object({
+  kind: z.enum(["token", "oauth"]),
   zone: z.string(),
 });
 

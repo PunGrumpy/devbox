@@ -220,7 +220,7 @@ To hear when a machine drops off, set `DEVBOX_HUB_NOTIFY` to one webhook URL in 
 The page is a Next.js app that builds to static files, so the hub needs no Node server. Build it once on the machine that runs the hub, and again after an update:
 
 ```sh
-bun install --frozen-lockfile --filter devbox-hub && bun run --cwd apps/hub build
+bun install --frozen-lockfile --filter hub && bun run --cwd apps/hub build
 ```
 
 `devbox hub` then serves `apps/hub/out` from this checkout. `--ui <dir>` serves another build, which a compiled `devbox` binary needs. Without a build, `/` answers 404 with this command and the JSON still works.
@@ -241,6 +241,8 @@ The hub can update T3 Code on a machine whose spoke trusts it. On first start th
 devbox up --spoke --trust "$(ssh hub-machine devbox hub key)"
 ```
 
+Under **Settings**, **Add a machine** on the hub page gives that command with the key and the machine's Tailscale address filled in, for every machine online on the tailnet whose spoke does not answer. Run it with the flags you set the machine up with, since `devbox up` keeps only the ones you pass.
+
 The page sends `POST /api/machines/<name>/update` or `POST /api/machines/<name>/pair` with its login. The hub refuses a request without a login, one from a page on another site, and one for a machine whose spoke does not trust it. It then asks the spoke for a challenge, a random nonce the spoke hands out at `GET /api/challenge` and keeps for a minute, and signs a request to `POST /api/do` that answers it with its key. The body names what it asks for, `{"at": ..., "nonce": ..., "do": "update"}`, so a signature for one action cannot be used for another. The spoke takes a request only when the key is one it trusts, the signature matches the exact body, the time in it is within a minute of its clock, its nonce is one this spoke handed out and has not used, and it knows the action. So a request is taken once, and only by the spoke it was signed for. There is no shared secret, so a machine that is broken into holds nothing that asks the others for anything.
 
 To update, the spoke runs `devbox up` again with the flags this machine was last set up with, which `devbox up` records in `~/.config/devbox/machine.json`. That installs the newest T3 Code and restarts it. The hub answers 202 once the spoke has taken the request.
@@ -251,13 +253,15 @@ To pair, the spoke runs `devbox pair --json --label hub` on its machine and answ
 
 The hub can publish a machine through a Cloudflare Tunnel. It needs a Cloudflare login for that, either an API token or "Login with Cloudflare" through an OAuth client of your own. Either way the login lands in `~/.local/state/devbox/cloudflare.json`, readable by you alone, and a new login replaces the one before it. No token is ever printed or logged. When the login sees more than one account or zone, devbox names them and asks for `--account <id>` or `--zone <domain>`.
 
-The API token is the proven way. Give the hub a token with Account › Cloudflare Tunnel › Edit, Zone › Zone › Read, Zone › DNS › Edit and Zone › Zone WAF › Edit, on stdin only:
+The API token is the proven way. Make a token with Account › Cloudflare Tunnel › Edit, Zone › Zone › Read, Zone › DNS › Edit and Zone › Zone WAF › Edit, and paste it under **Settings**, **Cloudflare** on the hub page. When the token sees more than one account or zone, the page asks which, and you paste the token again with your choice. The page keeps the token nowhere. At a terminal, give it on stdin only:
 
 ```sh
 devbox hub cloudflare token < cloudflare-token
 ```
 
-It checks the token with Cloudflare before it saves it.
+Both check the token with Cloudflare before they save it.
+
+The page sends `PUT /api/cloudflare` with `{"token": "...", "account": "<id>", "zone": "<domain>"}`, the last two only when the token sees more than one. Like every request that changes something, it needs a login and a page on the hub's own site. It answers 200 with `{"zone": "example.com", "kind": "token"}`, 409 with `{"error": ..., "accounts": [{"id", "name"}]}` or `"zones"` when it needs a choice, 502 with what Cloudflare said when it refuses the token, and 400 for any other body. It reads 2 KB of the body at most. `DELETE /api/cloudflare` forgets the login and answers 204. `/api/machines` names the zone and the kind of login in `cloudflare`, or `null`, as soon as either changes.
 
 The OAuth way follows Cloudflare's documentation and has not been run against a real Cloudflare account yet. To use it, create a client once in the Cloudflare dashboard under **Manage Account** > **OAuth clients**:
 
@@ -276,7 +280,7 @@ It prints an address. Open it in a browser on the hub machine and select **Autho
 
 The hub renews an OAuth login with its refresh token when it needs Cloudflare and the access token has less than five minutes left, and saves the new tokens. Two requests that need it at once renew it once. If Cloudflare refuses a renewal, for example after you revoke the hub under **Manage OAuth authorizations** in your profile, the publish fails with a 502 that says to sign in again.
 
-`devbox hub cloudflare status` says `token` or `oauth`, the zone and the account, and never a token. `devbox hub cloudflare logout` deletes the file.
+`devbox hub cloudflare status` says `token` or `oauth`, the zone and the account, and never a token. `devbox hub cloudflare logout`, or **Disconnect** on the page, deletes the file. Machines that are public stay public, but the hub can no longer publish or unpublish them until it has a login again.
 
 ### Publish a machine from the hub
 
@@ -418,7 +422,7 @@ This repo is a [Turborepo](https://turborepo.dev) workspace on Bun, with one loc
 | Package      | Where      | What it is                                               |
 | ------------ | ---------- | -------------------------------------------------------- |
 | `devbox`     | `apps/cli` | The command-line tool, on Bun and Effect.                |
-| `devbox-hub` | `apps/hub` | The hub page, a Next.js app that exports static files.   |
+| `hub`        | `apps/hub` | The hub page, a Next.js app that exports static files.   |
 
 ```sh
 bun install          # every package
@@ -428,6 +432,6 @@ bun run test         # the commands in-process against fixture databases, and th
 bun run build        # apps/cli/dist/devbox and apps/hub/out
 ```
 
-Each command runs through `turbo`, which skips a package whose inputs have not changed. Add `--filter devbox` or `--filter devbox-hub` after `--` to run one package: `bun run test -- --filter devbox`. `turbo` hides `CLAUDE_CONFIG_DIR` from the tests, which must not see it. To run them without `turbo`, use `env -u CLAUDE_CONFIG_DIR bun test` in `apps/cli`.
+Each command runs through `turbo`, which skips a package whose inputs have not changed. Add `--filter devbox` or `--filter hub` after `--` to run one package: `bun run test -- --filter devbox`. `turbo` hides `CLAUDE_CONFIG_DIR` from the tests, which must not see it. To run them without `turbo`, use `env -u CLAUDE_CONFIG_DIR bun test` in `apps/cli`.
 
 `install.sh` installs only what the CLI needs (`bun install --production --filter devbox`), so a machine does not download the page's dependencies unless `devbox up --hub` builds the page. `src/cli.ts` at the root hands over to `apps/cli/src/cli.ts`. It is there for wrappers and systemd units written before the CLI moved.

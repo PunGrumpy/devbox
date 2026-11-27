@@ -45,19 +45,21 @@ export const Nav = ({
     <div>
       <h2 className="text-muted pb-3">On this page</h2>
       <ul>
-        {[...sections, { key: "agents", label: "For agents" }].map(
-          ({ key, label }) => (
-            <li key={key}>
-              <a
-                className="nav-link text-soft"
-                href={`#${key}`}
-                onClick={onNavigate}
-              >
-                {label}
-              </a>
-            </li>
-          )
-        )}
+        {[
+          ...sections,
+          { key: "agents", label: "For agents" },
+          { key: "settings", label: "Settings" },
+        ].map(({ key, label }) => (
+          <li key={key}>
+            <a
+              className="nav-link text-soft"
+              href={`#${key}`}
+              onClick={onNavigate}
+            >
+              {label}
+            </a>
+          </li>
+        ))}
       </ul>
     </div>
   </>

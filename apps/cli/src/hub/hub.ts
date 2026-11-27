@@ -15,8 +15,16 @@ import {
   snapshotFlags,
   takeSnapshot,
 } from "./machines.ts";
-import { admit, answer, type Ask, machineAction } from "./ask.ts";
-import { loadCloudflare } from "./cloudflare-auth.ts";
+import {
+  admit,
+  answer,
+  type Ask,
+  CLOUDFLARE_PATH,
+  cloudflareAsk,
+  MAX_CLOUDFLARE_BYTES,
+  machineAction,
+} from "./ask.ts";
+import { type CloudflareLogin, loadCloudflare } from "./cloudflare-auth.ts";
 import { cloudflareCommand } from "./cloudflare-command.ts";
 import { header, listen, readBody } from "./listen.ts";
 import {
@@ -32,7 +40,7 @@ import {
 } from "./login.ts";
 import { restore, serialize } from "./saved.ts";
 import { hubSecrets, keyCommand, tokenCommand } from "./secrets.ts";
-import { loadTunnels, tunnelOf, type Tunnels } from "./tunnel.ts";
+import { loadTunnels, tunnelOf } from "./tunnel.ts";
 import { nextWatch, type Notice, sentence, type Watch, webhookBody } from "./watch.ts";
 
 export type History = {
@@ -46,15 +54,23 @@ export type History = {
 /** A machine as the hub shows it, with the address of its tunnel once it answers. */
 export type HubMachine = Machine & { readonly tunnel: { readonly url: string } | null };
 
-export type HubSnapshot = Omit<Snapshot, "machines"> & {
-  readonly machines: ReadonlyArray<HubMachine>;
-  /** The zone the hub publishes machines in, or null when no Cloudflare login is saved. */
-  readonly cloudflare: { readonly zone: string } | null;
+/** What a check finds, which the hub keeps until the next one. */
+export type Sample = Snapshot & {
   readonly history: History;
   /** The newest T3 Code on the nightly channel, or null while the registry has not answered. */
   readonly latest: { readonly t3: string | null };
   /** The hub's public key in base64url, which a spoke is told to trust. */
   readonly key: string;
+};
+
+/** The last check, with what the hub has made and how it signs in to Cloudflare as they are now. */
+export type HubSnapshot = Omit<Sample, "machines"> & {
+  readonly machines: ReadonlyArray<HubMachine>;
+  /** The zone the hub publishes machines in and how it signs in, or null with no login saved. */
+  readonly cloudflare: {
+    readonly zone: string;
+    readonly kind: CloudflareLogin["kind"];
+  } | null;
 };
 
 const SAMPLE_SECONDS = 60;
@@ -144,6 +160,12 @@ const NOT_BUILT =
 
 const LOGIN_PATH = "/api/login";
 
+/** The requests whose body the hub reads, and how many bytes of it at most. */
+const BODIES: ReadonlyMap<string, number> = new Map([
+  [`POST ${LOGIN_PATH}`, MAX_LOGIN_BYTES],
+  [`PUT ${CLOUDFLARE_PATH}`, MAX_CLOUDFLARE_BYTES],
+]);
+
 const isApi = (pathname: string) => pathname === "/api" || pathname.startsWith("/api/");
 
 const onlyPost = refuse(405, "Use POST.", { allow: "POST" });
@@ -206,6 +228,7 @@ export const route = (
   if (!loggedIn(request, hub.token, hub.now)) return LOGGED_OUT;
   if (wanted !== undefined) return refuse(405, `Use ${wanted.allow}.`, { allow: wanted.allow });
   if (pathname === "/api/logout") return method === "POST" ? logout : onlyPost;
+  if (pathname === CLOUDFLARE_PATH) return cloudflareAsk(request);
   if (pathname !== "/api/machines") return refuse(404, "Nothing is here.");
   if (method !== "GET") return refuse(405, "Use GET.", { allow: "GET" });
   return {
@@ -217,11 +240,23 @@ export const route = (
 
 const BUILT_PAGE = fileURLToPath(new URL("../../../hub/out", import.meta.url));
 
-/** Each machine with its tunnel, from what the hub made. */
-export const withTunnels = (
-  machines: ReadonlyArray<Machine>,
-  tunnels: Tunnels,
-): ReadonlyArray<HubMachine> => machines.map((m) => ({ ...m, tunnel: tunnelOf(tunnels, m.name) }));
+/**
+ * The last check with each machine's tunnel and the Cloudflare login read from their files now,
+ * so a request sees a change the moment it is saved, whoever saved it.
+ */
+const current = (sample: Sample, home: string) =>
+  Effect.gen(function* () {
+    const tunnels = yield* loadTunnels(home);
+    const saved = yield* loadCloudflare(home);
+    return {
+      ...sample,
+      machines: sample.machines.map((m) => ({ ...m, tunnel: tunnelOf(tunnels, m.name) })),
+      cloudflare: Option.match(saved, {
+        onNone: () => null,
+        onSome: ({ zone, login: { kind } }) => ({ zone, kind }),
+      }),
+    } satisfies HubSnapshot;
+  });
 
 export const stateFile = (home: string) => join(home, ".local", "state", "devbox", "hub.json");
 
@@ -333,18 +368,13 @@ export const hub = Command.make(
             );
           return {
             ...snapshot,
-            machines: withTunnels(snapshot.machines, yield* loadTunnels(home)),
-            cloudflare: Option.match(yield* loadCloudflare(home), {
-              onNone: () => null,
-              onSome: ({ zone }) => ({ zone }),
-            }),
             history: saved.history,
             latest: { t3: newest },
             key: secrets.key,
-          };
+          } satisfies Sample;
         });
 
-      let latest: HubSnapshot = yield* sample(0);
+      let latest = yield* sample(0);
       const asset = assetsIn(ui);
       yield* listen(host, port, (req, res) => {
         const respond = (reply: Reply) => {
@@ -354,11 +384,13 @@ export const hub = Command.make(
         const url = req.url ?? "/";
         const method = req.method ?? "GET";
         const { pathname } = new URL(url, "http://hub");
-        const reading = method === "POST" && pathname === "/api/login";
-        if (method !== "GET" && !reading) res.setHeader("connection", "close");
-        const body = reading ? readBody(req, MAX_LOGIN_BYTES) : Promise.resolve("");
-        body
-          .then((text) => {
+        const limit = BODIES.get(`${method} ${pathname}`);
+        if (method !== "GET" && limit === undefined) res.setHeader("connection", "close");
+        Promise.all([
+          limit === undefined ? Promise.resolve("") : readBody(req, limit),
+          Effect.runPromiseWith(context)(current(latest, home)),
+        ])
+          .then(([text, snapshot]) => {
             const routed = route(
               {
                 method,
@@ -371,7 +403,7 @@ export const hub = Command.make(
                 },
                 body: text,
               },
-              { snapshot: latest, token: secrets.token, now: Date.now() },
+              { snapshot, token: secrets.token, now: Date.now() },
               asset,
             );
             if ("status" in routed) return routed;
@@ -382,14 +414,8 @@ export const hub = Command.make(
                 spokePort,
                 t3Port,
                 tunnels,
-                names: latest.machines.map((m) => m.name),
-              }).pipe(
-                Effect.tap(() =>
-                  Effect.map(loadTunnels(home), (made) => {
-                    latest = { ...latest, machines: withTunnels(latest.machines, made) };
-                  }),
-                ),
-              ),
+                names: snapshot.machines.map((m) => m.name),
+              }),
             );
           })
           .then(respond, () => respond({ status: 500, headers: TEXT, body: "the hub failed\n" }));
