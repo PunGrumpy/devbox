@@ -1,11 +1,33 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
+
+import { Schema } from "effect";
 
 import type { Ran } from "../src/machine/host.ts";
 import { appLink } from "../src/machine/link.ts";
 import { makeMachine } from "./support/host.ts";
+import { readJson } from "./support/json.ts";
 import { devbox } from "./support/run.ts";
+
+const PairJsonSchema = Schema.Struct({
+  url: Schema.String,
+  token: Schema.String,
+});
+
+interface MachineRecord {
+  name: string;
+  url?: string;
+  port: number;
+  data: string;
+  baseDir: string;
+  t3: string;
+}
+
+interface TailscaleSelf {
+  DNSName?: string | number;
+  HostName?: string;
+}
 
 const T3_PAIR_OUTPUT = `Pairing with edge-7 (http://127.0.0.1:3773).
 
@@ -16,11 +38,11 @@ Token: KJJDV5SUA4NL
 Expires: 2026-11-17T12:09:22.174Z
 `;
 
-const boxWith = (machine: object, tailscale?: Ran) => {
+const boxWith = (machine: MachineRecord, tailscale?: Ran) => {
   const m = makeMachine();
-  mkdirSync(join(m.home, ".config/devbox"), { recursive: true });
+  mkdirSync(path.join(m.home, ".config/devbox"), { recursive: true });
   writeFileSync(
-    join(m.home, ".config/devbox/machine.json"),
+    path.join(m.home, ".config/devbox/machine.json"),
     JSON.stringify(machine)
   );
   m.respond = (argv) => {
@@ -31,26 +53,29 @@ const boxWith = (machine: object, tailscale?: Ran) => {
     if (argv[0] === "tailscale") {
       return tailscale;
     }
-
-    return undefined;
   };
 
   return m;
 };
 
-const tailscaleSelf = (self: unknown): Ran => ({
-  code: 0,
-  stdout: JSON.stringify({ BackendState: "Running", Self: self }),
-  stderr: "",
-});
+const tailscaleSelf = (self: TailscaleSelf) =>
+  ({
+    code: 0,
+    stdout: JSON.stringify({ BackendState: "Running", Self: self }),
+    stderr: "",
+  }) satisfies Ran;
 
-const MACHINE = {
+const MACHINE_WITHOUT_URL: MachineRecord = {
   name: "edge-7",
-  url: "https://edge-7.example.com",
   port: 3773,
   data: "/d",
   baseDir: "/d/.t3",
   t3: "/d/.local/bin/t3",
+};
+
+const MACHINE: MachineRecord = {
+  ...MACHINE_WITHOUT_URL,
+  url: "https://edge-7.example.com",
 };
 
 describe("devbox pair", () => {
@@ -85,18 +110,20 @@ describe("devbox pair", () => {
   });
 
   test("without a public URL it offers the hostname and port", async () => {
-    const m = boxWith({ ...MACHINE, url: undefined });
+    const m = boxWith(MACHINE_WITHOUT_URL);
 
     const r = await devbox({ HOME: m.home }, ["pair", "--json"], {
       host: m.host,
     });
 
-    expect(JSON.parse(r.out).url).toBe("http://box-1.example.internal:3773");
+    expect(readJson(PairJsonSchema, r.out).url).toBe(
+      "http://box-1.example.internal:3773"
+    );
   });
 
   test("without a public URL it offers the Tailscale name, which t3 environment link accepts over http", async () => {
     const m = boxWith(
-      { ...MACHINE, url: undefined },
+      MACHINE_WITHOUT_URL,
       tailscaleSelf({ DNSName: "box-1.tail585c0b.ts.net.", HostName: "box-1" })
     );
 
@@ -104,7 +131,9 @@ describe("devbox pair", () => {
       host: m.host,
     });
 
-    expect(JSON.parse(r.out).url).toBe("http://box-1.tail585c0b.ts.net:3773");
+    expect(readJson(PairJsonSchema, r.out).url).toBe(
+      "http://box-1.tail585c0b.ts.net:3773"
+    );
     expect(m.calls).toContainEqual(["tailscale", "status", "--self", "--json"]);
   });
 
@@ -118,13 +147,15 @@ describe("devbox pair", () => {
       host: m.host,
     });
 
-    expect(JSON.parse(r.out).url).toBe("https://edge-7.example.com");
+    expect(readJson(PairJsonSchema, r.out).url).toBe(
+      "https://edge-7.example.com"
+    );
     expect(m.calls.some((c) => c[0] === "tailscale")).toBe(false);
   });
 
   test("--url beats the Tailscale name and Tailscale is not asked", async () => {
     const m = boxWith(
-      { ...MACHINE, url: undefined },
+      MACHINE_WITHOUT_URL,
       tailscaleSelf({ DNSName: "box-1.tail585c0b.ts.net." })
     );
 
@@ -154,7 +185,7 @@ describe("devbox pair", () => {
       }
     );
 
-    expect(JSON.parse(r.out).url).toBe("https://t.example.com");
+    expect(readJson(PairJsonSchema, r.out).url).toBe("https://t.example.com");
   });
 
   test("--url drops a trailing slash from the pairing url", async () => {
@@ -169,7 +200,7 @@ describe("devbox pair", () => {
     );
 
     expect(r.err).toMatch(
-      /^ *pairing url\s+https:\/\/t\.example\.com\/pair#token=KJJDV5SUA4NL$/m
+      /^ *pairing url\s+https:\/\/t\.example\.com\/pair#token=KJJDV5SUA4NL$/mu
     );
   });
 
@@ -209,14 +240,16 @@ describe("devbox pair", () => {
     ["its DNSName is empty", tailscaleSelf({ DNSName: "" })],
     ["its DNSName is not a string", tailscaleSelf({ DNSName: 7 })],
   ])("when %s it keeps the hostname URL", async (_, tailscale) => {
-    const m = boxWith({ ...MACHINE, url: undefined }, tailscale);
+    const m = boxWith(MACHINE_WITHOUT_URL, tailscale);
 
     const r = await devbox({ HOME: m.home }, ["pair", "--json"], {
       host: m.host,
     });
 
     expect(r.code).toBe(0);
-    expect(JSON.parse(r.out).url).toBe("http://box-1.example.internal:3773");
+    expect(readJson(PairJsonSchema, r.out).url).toBe(
+      "http://box-1.example.internal:3773"
+    );
   });
 
   test("it fails clearly before up has run, and when t3 prints no token", async () => {
@@ -249,7 +282,13 @@ const sshAnswers = (
 ) => {
   m.respond = (argv) => {
     if (argv[0] === "ssh") {
-      return { code: 0, stdout: stdout(argv[6]!), stderr: "" };
+      const host = argv.at(6);
+
+      if (host === undefined) {
+        throw new Error("expected ssh host argument");
+      }
+
+      return { code: 0, stdout: stdout(host), stderr: "" };
     }
 
     if (
@@ -260,8 +299,6 @@ const sshAnswers = (
     ) {
       return { code: 0, stdout: "", stderr: "" };
     }
-
-    return undefined;
   };
 };
 
@@ -360,8 +397,8 @@ describe("devbox link", () => {
     });
 
     expect(r.code).toBe(0);
-    const opened = m.calls.find((c) => c[0] === "xdg-open" || c[0] === "open")!;
-    expect(opened[1]).toBe(
+    const opened = m.calls.find((c) => c[0] === "xdg-open" || c[0] === "open");
+    expect(opened?.[1]).toBe(
       "t3code://pair?pairingUrl=https%3A%2F%2Fa.example.com%3A8443%2Fpair%23token%3DTOK"
     );
     expect(appLink("https://x/pair#token=a&b=c")).toBe(
