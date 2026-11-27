@@ -122,8 +122,7 @@ export const Hub = () => {
         </p>
         <p className="text-soft mt-4">
           The hub checks every {snapshot?.history.sampleSeconds ?? 60} seconds
-          and keeps the last 24 hours in memory. Each bar under a machine is 30
-          minutes.
+          and keeps the last 24 hours. Each bar under a machine is 30 minutes.
         </p>
         {snapshot && !snapshot.tailscale ? (
           <p className="border-rule rounded-panel text-nav text-soft mt-4 border p-4">
