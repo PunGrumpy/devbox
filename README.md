@@ -52,7 +52,7 @@ What it does:
 
 `devbox serve` takes the same flags. It probes user namespaces and turns off Chrome's sandbox when the machine blocks them, starts the proxy when `--public-url` is set, and runs `t3 serve`. Once T3 answers it installs the browser's libraries with apt, Go, Rust and Starship with [mise](https://mise.jdx.dev/) (and `gh` when the machine has none), updates the agent CLIs it keeps current, and installs the agent skills from [my dotfiles](https://github.com/PunGrumpy/dotfiles) for the chosen agents that take skills. It also sets up [the shell](#shell). That never blocks T3. The skills list is parsed as data, never run, and installs again when it changes or when you choose another agent.
 
-When Claude Code is one of the agents, it also links `CLAUDE.md` in every Claude home to [`instructions/AGENTS.md`](instructions/AGENTS.md) in this checkout: `$CLAUDE_CONFIG_DIR`, and the `homePath` of each Claude provider instance in T3's `settings.json`. A new machine has none of the memory agents built up elsewhere, and that memory holds paths, shells and credentials of the machine it was written on, so the rules travel and the memory does not. Because they are links, updating this checkout updates every home. `devbox` replaces a `CLAUDE.md` that is an exact copy of the file, and leaves any other `CLAUDE.md` or link alone with a note.
+When Claude Code is one of the agents, it also links `CLAUDE.md` in every Claude home to [`apps/cli/instructions/AGENTS.md`](apps/cli/instructions/AGENTS.md) in this checkout: `$CLAUDE_CONFIG_DIR`, and the `homePath` of each Claude provider instance in T3's `settings.json`. A new machine has none of the memory agents built up elsewhere, and that memory holds paths, shells and credentials of the machine it was written on, so the rules travel and the memory does not. Because they are links, updating this checkout updates every home. `devbox` replaces a `CLAUDE.md` that is an exact copy of the file, and leaves any other `CLAUDE.md` or link alone with a note.
 
 Logs of a detached `devbox serve` go to `<data>/.devbox-logs/serve.log`. A systemd unit logs to the journal: `journalctl -u devbox` or `journalctl --user -u devbox`.
 
@@ -61,7 +61,7 @@ Logs of a detached `devbox serve` go to `<data>/.devbox-logs/serve.log`. A syste
 `devbox serve` gives you zsh with a [Starship](https://starship.rs) prompt in the style of the [Geist terminal](https://vercel.com/geist/terminal). The prompt adds the host name, so a devbox never looks like your laptop. Colors and the font come from your own terminal app.
 
 - With passwordless sudo it installs zsh with apt and makes it your login shell. Without it, it prints the command for an admin to run.
-- It links `~/.zprofile`, `~/.zshrc` and `~/.config/starship.toml` to [`shell/`](shell) in this checkout, and leaves a file that is not its own alone with a note. Put settings for one machine in `~/.zshrc.local`.
+- It links `~/.zprofile`, `~/.zshrc` and `~/.config/starship.toml` to [`apps/cli/shell/`](apps/cli/shell) in this checkout, and leaves a file that is not its own alone with a note. Put settings for one machine in `~/.zshrc.local`.
 - T3 Code and its agents keep `SHELL=/bin/bash`, so agent commands run as before.
 
 ### Agent CLIs
@@ -144,10 +144,10 @@ Use one tunnel and one hostname for each machine. T3 answers at the root of its 
 Only `/workspace` survives a rebuild, so the box sets itself up on every start. In the Upstash Console, under **Settings → Init Command**, paste:
 
 ```sh
-d=/workspace/home/devbox; git -C $d pull -q --ff-only 2>/dev/null || git clone -q https://github.com/PunGrumpy/devbox $d; sh $d/upstash/start.sh
+d=/workspace/home/devbox; git -C $d pull -q --ff-only 2>/dev/null || git clone -q https://github.com/PunGrumpy/devbox $d; sh $d/scripts/upstash-start.sh
 ```
 
-[`upstash/start.sh`](upstash/start.sh) runs `devbox up --data /workspace/home --name upstash-<box name> --public-url https://<box id>-3773.preview.box.upstash.com`, and logs to `/workspace/home/.devbox-logs/start.log`. The box writes the Init Command into `/workspace/home/.box/startup.sh` only when it starts. To run it again, pause and resume the box with the [`@upstash/box`](https://upstash.com/docs/box) SDK.
+[`scripts/upstash-start.sh`](scripts/upstash-start.sh) runs `devbox up --data /workspace/home --name upstash-<box name> --public-url https://<box id>-3773.preview.box.upstash.com`, and logs to `/workspace/home/.devbox-logs/start.log`. The box writes the Init Command into `/workspace/home/.box/startup.sh` only when it starts. To run it again, pause and resume the box with the [`@upstash/box`](https://upstash.com/docs/box) SDK.
 
 Upstash's GitHub connection logs gh in with an app token. To use your own account and keep it after a rebuild, log in once; the next start links `~/.config/gh` to it:
 
@@ -162,10 +162,10 @@ The box has no AppArmor and blocks user namespaces, so Chrome runs with `--no-sa
 Create a machine with T3 Code turned on, then run this on it, and again to update:
 
 ```sh
-git -C ~/devbox pull -q --ff-only 2>/dev/null || git clone -q https://github.com/PunGrumpy/devbox ~/devbox; sh ~/devbox/instabox/setup.sh
+git -C ~/devbox pull -q --ff-only 2>/dev/null || git clone -q https://github.com/PunGrumpy/devbox ~/devbox; sh ~/devbox/scripts/instabox-setup.sh
 ```
 
-[`instabox/setup.sh`](instabox/setup.sh) turns off instabox's own `t3-instabox` unit and runs `devbox up --port 3774 --public-url https://3774-<id>.instabox.tech` with instabox's T3 data directory and `/data/workspace`, so threads carry over. The skills from the private `PunGrumpy/agents` repo need your gh login: run `gh auth login --web --git-protocol https`, then the setup again.
+[`scripts/instabox-setup.sh`](scripts/instabox-setup.sh) turns off instabox's own `t3-instabox` unit and runs `devbox up --port 3774 --public-url https://3774-<id>.instabox.tech` with instabox's T3 data directory and `/data/workspace`, so threads carry over. The skills from the private `PunGrumpy/agents` repo need your gh login: run `gh auth login --web --git-protocol https`, then the setup again.
 
 `ssh.instabox.sh` cannot take your own SSH key. Log in with an `ibssh_` token as the user name, and keep it out of this repo. A new token revokes the old one: `npx instabox@latest ssh-token <machine> --ttl never`.
 
@@ -225,7 +225,7 @@ bun install --frozen-lockfile --filter hub && bun run --cwd apps/hub build
 
 `devbox hub` then serves `apps/hub/out` from this checkout. `--ui <dir>` serves another build, which a compiled `devbox` binary needs. Without a build, `/` answers 404 with this command and the JSON still works.
 
-To work on the page, run `bun run dev` at the root of this checkout and open `http://localhost:3790`. It starts two things: the hub from source on port 3780, restarted whenever the CLI's code changes, and Next, which serves the page on port 3790 and forwards everything under `/api/` to the hub at `DEVBOX_HUB_URL` (default `http://127.0.0.1:3780`). Sign in with the token that `bun src/cli.ts hub token` prints. When a hub already listens on port 3780, the page talks to that one. The page is checked with [Ultracite](https://www.ultracite.dev) and [tsrs](https://github.com/oxc-project/tsrs). See [Develop](#develop).
+To work on the page, run `bun run dev` at the root of this checkout and open `http://localhost:3790`. It starts two things: the hub from source on port 3780, restarted whenever the CLI's code changes, and Next, which serves the page on port 3790 and forwards everything under `/api/` to the hub at `DEVBOX_HUB_URL` (default `http://127.0.0.1:3780`). Sign in with the token that `bun apps/cli/src/cli.ts hub token` prints. When a hub already listens on port 3780, the page talks to that one. The page is checked with [Ultracite](https://www.ultracite.dev) and [tsrs](https://github.com/oxc-project/tsrs). See [Develop](#develop).
 
 The page's line icons come from [Hugeicons](https://hugeicons.com) (MIT) and its Linux mark from [Unicons](https://github.com/Iconscout/unicons) (Apache 2.0).
 
@@ -435,4 +435,4 @@ bun run build        # apps/cli/dist/devbox and apps/hub/out
 
 Each command runs through `turbo`, which skips a package whose inputs have not changed. Add `--filter devbox` or `--filter hub` after `--` to run one package: `bun run test -- --filter devbox`. `turbo` hides `CLAUDE_CONFIG_DIR` from the tests, which must not see it. To run them without `turbo`, use `env -u CLAUDE_CONFIG_DIR bun test` in `apps/cli`.
 
-`install.sh` installs only what the CLI needs (`bun install --production --filter devbox`), so a machine does not download the page's dependencies unless `devbox up --hub` builds the page. `src/cli.ts` at the root hands over to `apps/cli/src/cli.ts`. It is there for wrappers and systemd units written before the CLI moved.
+`install.sh` installs only what the CLI needs (`bun install --production --filter devbox`), so a machine does not download the page's dependencies unless `devbox up --hub` builds the page.

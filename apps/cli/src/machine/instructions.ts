@@ -5,7 +5,7 @@ import { join } from "node:path";
 // One file for every agent. Claude Code reads CLAUDE.md, not AGENTS.md, so each Claude
 // home gets a link to it and a `git pull` of this repo updates them all.
 export const INSTRUCTIONS_FILE = fileURLToPath(
-  new URL("../../../../instructions/AGENTS.md", import.meta.url),
+  new URL("../../instructions/AGENTS.md", import.meta.url),
 );
 
 const T3Settings = Schema.fromJsonString(
@@ -53,14 +53,17 @@ export const InstructionsLink = Data.taggedEnum<InstructionsLink>();
 
 export type InstructionsSource = { readonly path: string; readonly text: string };
 
-// A regular file that is a byte-for-byte copy of the source loses nothing as a link.
+// A regular file that is a byte-for-byte copy of the source loses nothing as a link. Neither does
+// a link whose target is gone, which is what a link becomes when its source moves in this repo.
 export const instructionsLink = (
   now: { readonly target: Option.Option<string>; readonly text: Option.Option<string> },
   source: InstructionsSource,
 ): InstructionsLink =>
   Option.match(now.target, {
-    onSome: (target) =>
-      target === source.path ? InstructionsLink.Linked() : InstructionsLink.NotOurs(),
+    onSome: (target) => {
+      if (target === source.path) return InstructionsLink.Linked();
+      return Option.isNone(now.text) ? InstructionsLink.Link() : InstructionsLink.NotOurs();
+    },
     onNone: () =>
       Option.isNone(now.text) || now.text.value === source.text
         ? InstructionsLink.Link()
