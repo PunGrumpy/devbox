@@ -29,7 +29,10 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": [
+        "DEVBOX_HUB_URL"
+      ]
     }
   }
 }

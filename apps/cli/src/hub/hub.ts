@@ -400,6 +400,7 @@ export const hub = Command.make(
                   cookie: header(req, "cookie"),
                   origin: header(req, "origin"),
                   host: header(req, "host"),
+                  "x-forwarded-host": header(req, "x-forwarded-host"),
                 },
                 body: text,
               },

@@ -141,6 +141,16 @@ describe("devbox hub with spokes", async () => {
     expect(m.posts).toEqual([]);
   });
 
+  test("through a proxy, the page is the one the browser asked, which X-Forwarded-Host names", async () => {
+    const forwarded = { "x-forwarded-host": "localhost:3790" };
+    const logout = (headers: Record<string, string>) =>
+      fetch(`${base}/api/logout`, { method: "POST", headers: { ...owner, ...headers } });
+    expect((await logout({ origin: "http://localhost:3790", ...forwarded })).status).toBe(204);
+    expect((await logout({ origin: "https://example.com", ...forwarded })).status).toBe(403);
+    expect((await logout({ origin: base, ...forwarded })).status).toBe(403);
+    expect((await logout({ origin: "http://localhost:3790" })).status).toBe(403);
+  });
+
   test("for a machine the hub does not know: 404", async () => {
     expect((await ask("edge-99")).status).toBe(404);
     expect((await ask("</script><script>alert(1)</script>")).status).toBe(404);

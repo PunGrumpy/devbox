@@ -82,9 +82,14 @@ export const LOGGED_OUT = refuse(401, "Sign in with the token that devbox hub to
 /**
  * A browser names the page that sent a request in `Origin`. A request that changes something is
  * taken only from the hub's own page, or from a client that is not a browser and sends none.
+ *
+ * A proxy in front of the hub, such as the page's dev server, asks under its own name for the hub
+ * and puts the name the browser asked in `X-Forwarded-Host`. A page on another site cannot set that
+ * header, because the browser would first ask the hub's leave, which this check refuses.
  */
 export const crossSite = (request: HubRequest): boolean => {
-  const { origin, host } = request.headers;
+  const { origin } = request.headers;
+  const host = request.headers["x-forwarded-host"]?.split(",")[0]?.trim() || request.headers.host;
   if (request.method === "GET" || origin === undefined) return false;
   if (host === undefined || !URL.canParse(origin)) return true;
   return new URL(origin).host.toLowerCase() !== host.toLowerCase();
