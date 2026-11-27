@@ -269,6 +269,10 @@ export const restoreArgs = (
   ...(include === undefined ? [] : ["--include", globEscape(include)]),
 ];
 
+/**
+ * How long `sqlite3 .backup` may run before the copy falls back to `VACUUM INTO`.
+ * `.backup` starts over whenever another connection writes while it copies, so a very busy database never finishes.
+ */
 export const BACKUP_TIMEOUT_MS = 120_000;
 
 export const sqliteBackupArgs = (live: string, dest: string) => [

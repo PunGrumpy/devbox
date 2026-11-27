@@ -93,8 +93,7 @@ export class Output extends Context.Service<
   static readonly make = (streams: Streams) => {
     const { paint } = streams;
 
-    // oxlint-disable-next-line landmines-types/no-explicit-return-types -- a recursive function needs its return type to infer itself
-    const show = (cell: Cell, toned: Paint): string => {
+    const show: (cell: Cell, toned: Paint) => string = (cell, toned) => {
       if (Predicate.isString(cell)) {
         return cell;
       }
