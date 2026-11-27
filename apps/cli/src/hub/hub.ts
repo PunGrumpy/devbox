@@ -6,6 +6,7 @@ import {
   Config,
   DateTime,
   Effect,
+  Exit,
   FileSystem,
   Option,
   Schema,
@@ -25,7 +26,6 @@ import {
   MAX_CLOUDFLARE_BYTES,
   machineAction,
 } from "./ask.ts";
-import type { Ask } from "./ask.ts";
 import { loadCloudflare } from "./cloudflare-auth.ts";
 import type { CloudflareLogin } from "./cloudflare-auth.ts";
 import { cloudflareCommand } from "./cloudflare-command.ts";
@@ -70,7 +70,11 @@ export type Sample = Snapshot & {
   readonly key: string;
 };
 
-/** The last check, with what the hub has made and how it signs in to Cloudflare as they are now. */
+/**
+ * The last check, with what the hub has made and how it signs in to Cloudflare as they are now.
+ * Those are read from their files for each request, so a request sees a change the moment it is
+ * saved, whoever saved it.
+ */
 export type HubSnapshot = Omit<Sample, "machines"> & {
   readonly machines: readonly HubMachine[];
   /** The zone the hub publishes machines in and how it signs in, or null with no login saved. */
@@ -82,7 +86,7 @@ export type HubSnapshot = Omit<Sample, "machines"> & {
 
 const SAMPLE_SECONDS = 60;
 
-// 24 hours of samples.
+/** 24 hours of samples. */
 export const HISTORY_LIMIT = 1440;
 
 const CODE: Record<MachineState, string> = {
@@ -101,7 +105,7 @@ const UNKNOWN = " ";
 export const nextHistory = (
   previous: History | undefined,
   snapshot: Snapshot
-): History => {
+) => {
   const before = previous?.states ?? {};
   const beforeLatency = previous?.latency ?? {};
 
@@ -145,7 +149,7 @@ export const nextHistory = (
     const prior = beforeLatency[name] ?? [];
 
     const padded = [
-      ...Array<null>(Math.max(0, width - prior.length)).fill(null),
+      ...Array.from({ length: Math.max(0, width - prior.length) }, () => null),
       ...prior,
     ];
 
@@ -159,7 +163,7 @@ export const nextHistory = (
     startedAt: previous?.startedAt ?? snapshot.generatedAt,
     states,
     latency,
-  };
+  } satisfies History;
 };
 
 export interface Asset {
@@ -167,7 +171,11 @@ export interface Asset {
   readonly path: string;
 }
 
-const CONTENT_TYPES: Readonly<Record<string, string>> = {
+interface ContentTypes {
+  readonly [extension: string]: string;
+}
+
+const CONTENT_TYPES: ContentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".ico": "image/x-icon",
@@ -179,32 +187,23 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".woff2": "font/woff2",
 };
 
+const assetUnder = (root: string, pathname: string) => {
+  const wanted = decodeURIComponent(pathname);
+  const file = wanted.endsWith("/") ? `${wanted}index.html` : wanted;
+  const target = path.resolve(root, `.${file}`);
+
+  return target.startsWith(`${root}${path.sep}`)
+    ? ({ body: readFileSync(target), path: target } satisfies Asset)
+    : undefined;
+};
+
+const readAsset = Option.liftThrowable(assetUnder);
+
 /** Reads a request path from the built page in `dir`, and nothing from outside it. */
-export const assetsIn =
-  (dir: string) =>
-  (pathname: string): Asset | undefined => {
-    const root = path.resolve(dir);
+export const assetsIn = (dir: string) => (pathname: string) =>
+  Option.getOrUndefined(readAsset(path.resolve(dir), pathname));
 
-    try {
-      const wanted = decodeURIComponent(pathname);
-
-      const target = path.resolve(
-        root,
-        `.${wanted.endsWith("/") ? `${wanted}index.html` : wanted}`
-      );
-
-      if (!target.startsWith(`${root}${path.sep}`)) {
-        return undefined;
-      }
-
-      return { body: readFileSync(target), path: target };
-    } catch {
-      return undefined;
-    }
-  };
-
-// Next names these files by their content, so a browser may keep them for good.
-const HASHED = "/_next/static/";
+const NEXT_CONTENT_HASHED = "/_next/static/";
 
 export type { HubRequest, Reply } from "./login.ts";
 
@@ -216,8 +215,7 @@ const NOT_BUILT =
 
 const LOGIN_PATH = "/api/login";
 
-/** The requests whose body the hub reads, and how many bytes of it at most. */
-const BODIES: ReadonlyMap<string, number> = new Map([
+const MAX_BODY_BYTES_READ: ReadonlyMap<string, number> = new Map([
   [`POST ${LOGIN_PATH}`, MAX_LOGIN_BYTES],
   [`PUT ${CLOUDFLARE_PATH}`, MAX_CLOUDFLARE_BYTES],
 ]);
@@ -231,13 +229,13 @@ const page = (
   method: string,
   pathname: string,
   asset: (pathname: string) => Asset | undefined
-): Reply => {
+) => {
   if (method !== "GET") {
     return {
       status: 405,
       headers: { ...TEXT, allow: "GET" },
       body: "method not allowed\n",
-    };
+    } satisfies Reply;
   }
 
   const found = asset(pathname);
@@ -247,20 +245,20 @@ const page = (
       status: 404,
       headers: TEXT,
       body: pathname === "/" ? NOT_BUILT : "not found\n",
-    };
+    } satisfies Reply;
   }
 
   return {
     status: 200,
     headers: {
-      "cache-control": pathname.startsWith(HASHED)
+      "cache-control": pathname.startsWith(NEXT_CONTENT_HASHED)
         ? "public, max-age=31536000, immutable"
         : "no-store",
       "content-type":
         CONTENT_TYPES[path.extname(found.path)] ?? "application/octet-stream",
     },
     body: found.body,
-  };
+  } satisfies Reply;
 };
 
 /** What the hub knows when it answers a request. */
@@ -280,7 +278,7 @@ export const route = (
   request: HubRequest,
   hub: HubState,
   asset: (pathname: string) => Asset | undefined
-): Reply | Ask => {
+) => {
   const { method } = request;
   const { pathname } = new URL(request.url, "http://hub");
 
@@ -336,15 +334,11 @@ export const route = (
     status: 200,
     headers: { ...NO_STORE, "content-type": "application/json; charset=utf-8" },
     body: `${JSON.stringify(hub.snapshot, null, 2)}\n`,
-  };
+  } satisfies Reply;
 };
 
 const BUILT_PAGE = fileURLToPath(new URL("../../../hub/out", import.meta.url));
 
-/**
- * The last check with each machine's tunnel and the Cloudflare login read from their files now,
- * so a request sees a change the moment it is saved, whoever saved it.
- */
 const current = (sample: Sample, home: string) =>
   Effect.gen(function* () {
     const tunnels = yield* loadTunnels(home);
@@ -372,8 +366,7 @@ const Manifest = Schema.fromJsonString(
   Schema.Struct({ version: Schema.String })
 );
 
-// Once an hour.
-const ASK_LATEST_EVERY = 60;
+const ASK_LATEST_EVERY = (60 * 60) / SAMPLE_SECONDS;
 
 const latestT3 = Effect.gen(function* () {
   const host = yield* Host;
@@ -386,7 +379,6 @@ const latestT3 = Effect.gen(function* () {
   );
 });
 
-/** The webhook the owner named, or none when it is unset or not a URL. */
 const webhook = Effect.gen(function* () {
   const out = yield* Output;
 
@@ -492,8 +484,7 @@ export const hub = Command.make(
             watch: watched.watch,
           };
 
-          history = saved.history;
-          watch = saved.watch;
+          ({ history, watch } = saved);
           yield* fs
             .makeDirectory(path.dirname(file), { recursive: true })
             .pipe(
@@ -538,52 +529,63 @@ export const hub = Command.make(
         const url = req.url ?? "/";
         const method = req.method ?? "GET";
         const { pathname } = new URL(url, "http://hub");
-        const limit = BODIES.get(`${method} ${pathname}`);
+        const limit = MAX_BODY_BYTES_READ.get(`${method} ${pathname}`);
 
         if (method !== "GET" && limit === undefined) {
           res.setHeader("connection", "close");
         }
 
-        Promise.all([
-          limit === undefined ? Promise.resolve("") : readBody(req, limit),
-          Effect.runPromiseWith(context)(current(latest, home)),
-        ])
-          .then(([text, snapshot]) => {
-            const routed = route(
-              {
-                method,
-                url,
-                headers: {
-                  authorization: header(req, "authorization"),
-                  cookie: header(req, "cookie"),
-                  origin: header(req, "origin"),
-                  host: header(req, "host"),
-                  "x-forwarded-host": header(req, "x-forwarded-host"),
-                },
-                body: text,
-              },
-              { snapshot, token: secrets.token, now: Date.now() },
-              asset
-            );
+        const body =
+          limit === undefined ? Promise.resolve("") : readBody(req, limit);
 
-            if ("status" in routed) {
-              return routed;
-            }
+        const state = current(latest, home);
 
-            return Effect.runPromiseWith(context)(
-              answer(routed, {
-                secrets,
-                home,
-                spokePort,
-                t3Port,
-                tunnels,
-                names: snapshot.machines.map((m) => m.name),
-              })
-            );
-          })
-          .then(respond, () =>
-            respond({ status: 500, headers: TEXT, body: "the hub failed\n" })
+        const replied = Effect.gen(function* () {
+          const [text, snapshot] = yield* Effect.all(
+            [Effect.promise(async () => await body), state],
+            { concurrency: "unbounded" }
           );
+
+          const routed = route(
+            {
+              method,
+              url,
+              headers: {
+                authorization: header(req, "authorization"),
+                cookie: header(req, "cookie"),
+                origin: header(req, "origin"),
+                host: header(req, "host"),
+                "x-forwarded-host": header(req, "x-forwarded-host"),
+              },
+              body: text,
+            },
+            { snapshot, token: secrets.token, now: Date.now() },
+            asset
+          );
+
+          if ("status" in routed) {
+            return routed;
+          }
+
+          return yield* answer(routed, {
+            secrets,
+            home,
+            spokePort,
+            t3Port,
+            tunnels,
+            names: snapshot.machines.map((m) => m.name),
+          });
+        });
+
+        Effect.runCallbackWith(context)(replied, {
+          onExit: (exit) => {
+            respond(
+              Exit.isSuccess(exit)
+                ? exit.value
+                : { status: 500, headers: TEXT, body: "the hub failed\n" }
+            );
+          },
+        });
       });
       yield* out.log(
         `hub: ${origin(host, port)}/ and /api/machines, checking every ${SAMPLE_SECONDS}s`
