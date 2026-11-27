@@ -3,14 +3,15 @@ import path from "node:path";
 import { Clock, Effect, FileSystem, Option, Schema, Semaphore } from "effect";
 
 import { postForm, renew } from "./cloudflare-oauth.ts";
-import type { IsoTimestamp, PostForm } from "./cloudflare-oauth.ts";
+import type { PostForm } from "./cloudflare-oauth.ts";
 
 export interface OAuthLogin {
   readonly kind: "oauth";
   readonly clientId: string;
   readonly accessToken: string;
   readonly refreshToken: string;
-  readonly expiresAt: IsoTimestamp;
+  /** When the access token ends, as an ISO 8601 timestamp. */
+  readonly expiresAt: string;
 }
 
 export type CloudflareLogin =
@@ -69,9 +70,10 @@ export const loadCloudflare = (home: string) =>
       .pipe(Effect.option);
 
     return Option.flatMap(text, (t) => {
-      const saved = Schema.decodeUnknownOption(Saved)(t);
+      const saved: Option.Option<CloudflareAccount> =
+        Schema.decodeUnknownOption(Saved)(t);
 
-      return Option.map(saved, (account): CloudflareAccount => account);
+      return saved;
     });
   });
 

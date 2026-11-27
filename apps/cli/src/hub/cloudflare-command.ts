@@ -54,7 +54,6 @@ const FLAG: Readonly<Record<PickOne["what"], string>> = {
   zone: "--zone <domain>",
 };
 
-/** What a command prints when the login does not settle its account or zone. */
 const asCommandError = ({ what, choices, named }: PickOne) => {
   const listed = choices
     .map((c) => (what === "account" ? `${c.id} (${c.name})` : c.name))

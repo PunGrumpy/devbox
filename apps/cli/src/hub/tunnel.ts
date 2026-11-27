@@ -6,12 +6,8 @@ import type { Host } from "../machine/host.ts";
 import type { Fields } from "../spoke/signed.ts";
 import { loadCloudflare } from "./cloudflare-auth.ts";
 import type { CloudflareAccount } from "./cloudflare-auth.ts";
-import type {
-  CloudflareApi,
-  CloudflareRefused,
-  DnsRecord,
-  NewRule,
-} from "./cloudflare.ts";
+import type { CloudflareRefused } from "./cloudflare-refused.ts";
+import type { CloudflareApi, DnsRecord, NewRule } from "./cloudflare.ts";
 import { json, refuse } from "./login.ts";
 import type { Reply } from "./login.ts";
 import { origin } from "./machines.ts";
