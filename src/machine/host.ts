@@ -40,6 +40,12 @@ export class Host extends Context.Service<
     readonly answers: (port: number, address: string) => Effect.Effect<boolean>;
     /** The body of a 200 answer and how long it took, or none for anything else. */
     readonly fetchText: (url: string, timeoutMs: number) => Effect.Effect<Option.Option<Fetched>>;
+    /** Whether a POST was answered with a 2xx. */
+    readonly post: (
+      url: string,
+      message: { readonly body: string; readonly contentType: string },
+      timeoutMs: number,
+    ) => Effect.Effect<boolean>;
     readonly readLine: Effect.Effect<string>;
   }
 >()("devbox/machine/Host") {
@@ -134,6 +140,19 @@ export class Host extends Context.Service<
           return Option.none();
         }
       }),
+    post: (url, { body, contentType }, timeoutMs) =>
+      Effect.promise(() =>
+        fetch(url, {
+          method: "POST",
+          headers: { "content-type": contentType },
+          body,
+          redirect: "manual",
+          signal: AbortSignal.timeout(timeoutMs),
+        }).then(
+          (response) => response.ok,
+          () => false,
+        ),
+      ),
     readLine: Effect.promise(
       () =>
         new Promise<string>((resolve) => {

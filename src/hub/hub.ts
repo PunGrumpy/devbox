@@ -1,10 +1,12 @@
-import { Effect, Schema } from "effect";
+import { Config, DateTime, Effect, FileSystem, Option, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 import { readFileSync } from "node:fs";
 import http from "node:http";
-import { extname, resolve, sep } from "node:path";
+import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BindHost, Port } from "../machine/config.ts";
+import { Host } from "../machine/host.ts";
+import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
 import {
   type MachineState,
@@ -13,6 +15,8 @@ import {
   snapshotFlags,
   takeSnapshot,
 } from "./machines.ts";
+import { restore, serialize } from "./saved.ts";
+import { nextWatch, type Notice, sentence, type Watch, webhookBody } from "./watch.ts";
 
 export type History = {
   readonly sampleSeconds: number;
@@ -20,7 +24,11 @@ export type History = {
   readonly states: Readonly<Record<string, string>>;
 };
 
-export type HubSnapshot = Snapshot & { readonly history: History };
+export type HubSnapshot = Snapshot & {
+  readonly history: History;
+  /** The newest T3 Code on the nightly channel, or null while the registry has not answered. */
+  readonly latest: { readonly t3: string | null };
+};
 
 const SAMPLE_SECONDS = 60;
 // 24 hours of samples.
@@ -165,6 +173,33 @@ const listen = (
 
 const BUILT_PAGE = fileURLToPath(new URL("../../hub/out", import.meta.url));
 
+export const stateFile = (home: string) => join(home, ".local", "state", "devbox", "hub.json");
+
+const REGISTRY = "https://registry.npmjs.org/t3/nightly";
+const Manifest = Schema.fromJsonString(Schema.Struct({ version: Schema.String }));
+// Once an hour.
+const ASK_LATEST_EVERY = 60;
+
+const latestT3 = Effect.gen(function* () {
+  const host = yield* Host;
+  return Option.flatMap(yield* host.fetchText(REGISTRY, 10_000), ({ body }) =>
+    Option.map(Schema.decodeUnknownOption(Manifest)(body), ({ version }) => version),
+  );
+});
+
+/** The webhook the owner named, or none when it is unset or not a URL. */
+const webhook = Effect.gen(function* () {
+  const out = yield* Output;
+  const named = Option.getOrElse(
+    yield* Config.option(Config.String("DEVBOX_HUB_NOTIFY")),
+    () => "",
+  );
+  if (named === "") return Option.none<URL>();
+  if (URL.canParse(named)) return Option.some(new URL(named));
+  yield* out.warn("DEVBOX_HUB_NOTIFY is not a URL, so nothing will be sent");
+  return Option.none<URL>();
+}).pipe(Effect.orDie);
+
 export const hub = Command.make(
   "hub",
   {
@@ -189,15 +224,63 @@ export const hub = Command.make(
   ({ host, port, ui, t3, t3Port }) =>
     Effect.gen(function* () {
       const out = yield* Output;
-      const first = yield* takeSnapshot({ t3, t3Port });
-      let latest: HubSnapshot = { ...first, history: nextHistory(undefined, first) };
+      const computer = yield* Host;
+      const fs = yield* FileSystem.FileSystem;
+      const file = stateFile((yield* Locations).home);
+      const notify = yield* webhook;
+      const resumed = yield* fs.readFileString(file).pipe(
+        Effect.map((text) => restore(text, Date.now(), HISTORY_LIMIT)),
+        Effect.orElseSucceed(() => Option.none()),
+      );
+      let history: History | undefined = Option.getOrUndefined(resumed)?.history;
+      let watch: Watch | undefined = Option.getOrUndefined(resumed)?.watch;
+      let newest: string | null = null;
+      let sendFailed = false;
+
+      const send = (url: URL, notice: Notice) =>
+        Effect.gen(function* () {
+          const sent = yield* computer.post(url.href, webhookBody(url, sentence(notice)), 10_000);
+          if (!sent && !sendFailed) yield* out.warn("a notification could not be sent");
+          sendFailed = !sent;
+        });
+
+      const sample = (count: number) =>
+        Effect.gen(function* () {
+          const snapshot = yield* takeSnapshot({ t3, t3Port });
+          if (count % ASK_LATEST_EVERY === 0)
+            newest = Option.getOrElse(yield* latestT3, () => newest);
+          const watched = nextWatch(watch, snapshot);
+          const saved = { history: nextHistory(history, snapshot), watch: watched.watch };
+          history = saved.history;
+          watch = saved.watch;
+          yield* fs.makeDirectory(dirname(file), { recursive: true }).pipe(
+            Effect.andThen(
+              fs.writeFileString(`${file}.tmp`, serialize(saved, DateTime.formatIso(yield* DateTime.now))),
+            ),
+            Effect.andThen(fs.rename(`${file}.tmp`, file)),
+            Effect.ignore,
+          );
+          if (Option.isSome(notify))
+            yield* Effect.forkScoped(
+              Effect.forEach(watched.notices, (notice) => send(notify.value, notice), {
+                discard: true,
+              }),
+            );
+          return { ...snapshot, history: saved.history, latest: { t3: newest } };
+        });
+
+      let latest: HubSnapshot = yield* sample(0);
       yield* listen(host, port, () => latest, assetsIn(ui));
       yield* out.log(
         `hub: ${origin(host, port)}/ and /api/machines, checking every ${SAMPLE_SECONDS}s`,
       );
-      return yield* takeSnapshot({ t3, t3Port }).pipe(
+      let count = 0;
+      return yield* Effect.suspend(() => {
+        count += 1;
+        return sample(count);
+      }).pipe(
         Effect.map((next) => {
-          latest = { ...next, history: nextHistory(latest.history, next) };
+          latest = next;
         }),
         Effect.delay(`${SAMPLE_SECONDS} seconds`),
         Effect.forever,

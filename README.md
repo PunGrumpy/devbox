@@ -189,6 +189,10 @@ devbox hub --host "$(tailscale ip -4)"
 
 The page has no login. Keep it on `127.0.0.1` or a Tailscale address.
 
+The hub saves its history to `~/.local/state/devbox/hub.json` after every check and takes it up again when it starts. The time it was down shows as unknown. Under each machine the page says how much of the last 24 hours it was online, and names a newer T3 Code when the nightly channel has one.
+
+To hear when a machine drops off, set `DEVBOX_HUB_NOTIFY` to one webhook URL in the hub's environment. A change is sent once it has held for two checks, so one missed answer is not news. Discord gets `{"content": "edge-7 went offline"}`, Slack gets `{"text": ...}`, and any other address, such as an [ntfy](https://ntfy.sh) topic, gets the sentence as plain text. The address is never logged.
+
 The page is a Next.js app that builds to static files, so the hub needs no Node server. Build it once on the machine that runs the hub, and again after an update:
 
 ```sh

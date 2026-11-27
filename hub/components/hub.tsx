@@ -7,7 +7,15 @@ import { Field } from "@/components/field";
 import { HubLogo, OsIcon } from "@/components/icons";
 import { MachineCard } from "@/components/machine-card";
 import { Filters, Sidebar } from "@/components/sidebar";
-import { ago, bars, FILTERS, groupByOs, lead, summarize } from "@/lib/machines";
+import {
+  ago,
+  bars,
+  daySentences,
+  FILTERS,
+  groupByOs,
+  lead,
+  summarize,
+} from "@/lib/machines";
 import type { FilterKey, Machine, Snapshot } from "@/lib/machines";
 import {
   getHubState,
@@ -148,6 +156,11 @@ export const Hub = () => {
                   bars={bars(
                     snapshot?.history.states[machine.name] ?? "",
                     snapshot?.history.sampleSeconds ?? 60
+                  )}
+                  day={daySentences(
+                    machine,
+                    snapshot?.history.states[machine.name] ?? "",
+                    snapshot?.latest.t3 ?? null
                   )}
                   key={machine.name}
                   machine={machine}

@@ -67,7 +67,7 @@ const layerFor = (
     Layer.succeed(T3Process, { running: Effect.succeed(Option.fromUndefinedOr(options.t3)) }),
   ).pipe(
     Layer.provideMerge(BunServices.layer),
-    Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+    Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
   );
 
 /** Starts a command that runs until stopped, such as `hub`. */

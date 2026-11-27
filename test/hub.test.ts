@@ -66,6 +66,9 @@ const builtPage = () => {
   return ui;
 };
 
+/** The hub keeps its history under HOME, so every test gets a home of its own. */
+const freshHome = () => mkdtempSync(join(tmpdir(), "devbox-hub-home-"));
+
 /** A path sent as written, because fetch would resolve the dots before it left. */
 const rawStatus = (port: number, path: string) =>
   new Promise<number>((done, fail) => {
@@ -107,6 +110,7 @@ describe("devbox hub", async () => {
       startedAt: json.generatedAt,
       states: { "edge-7": "2", [SNEAKY]: "2" },
     });
+    expect(json.latest).toEqual({ t3: null });
   });
 
   test("/ serves the built page", async () => {
@@ -149,7 +153,7 @@ describe("devbox hub", async () => {
 test("without a built page, / says how to build it and the JSON still answers", async () => {
   const port = await Effect.runPromise(freePort);
   const empty = mkdtempSync(join(tmpdir(), "devbox-hub-empty-"));
-  const running = start({}, ["hub", "--port", String(port), "--ui", empty]);
+  const running = start({ HOME: freshHome() }, ["hub", "--port", String(port), "--ui", empty]);
   for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
   try {
     const page = await fetch(`http://127.0.0.1:${port}/`);
@@ -163,7 +167,7 @@ test("without a built page, / says how to build it and the JSON still answers", 
 
 test("the hub closes its port when stopped", async () => {
   const port = await Effect.runPromise(freePort);
-  const running = start({}, ["hub", "--port", String(port)]);
+  const running = start({ HOME: freshHome() }, ["hub", "--port", String(port)]);
   for (let i = 0; i < 100 && !running.err().includes("hub:"); i += 1) await Bun.sleep(20);
   expect((await fetch(`http://127.0.0.1:${port}/api/machines`)).status).toBe(200);
   await running.stop();
@@ -173,7 +177,7 @@ test("the hub closes its port when stopped", async () => {
 test("a port in use fails with a hint", async () => {
   const taken = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
   try {
-    const r = await devbox({}, ["hub", "--port", String(taken.port)]);
+    const r = await devbox({ HOME: freshHome() }, ["hub", "--port", String(taken.port)]);
     expect(r.code).toBe(1);
     expect(r.err).toContain(`cannot listen on 127.0.0.1:${taken.port}`);
     expect(r.err).toContain("--port");

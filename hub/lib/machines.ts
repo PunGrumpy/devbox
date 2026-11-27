@@ -43,6 +43,7 @@ export const snapshotSchema = z.object({
     states: z.record(z.string(), z.string()),
   }),
   machines: z.array(machineSchema),
+  latest: z.object({ t3: z.string().nullable() }).catch({ t3: null }),
   tailscale: z.boolean(),
 });
 
@@ -243,4 +244,41 @@ export const groupByOs = (machines: readonly Machine[]) => {
       label: key === ELSEWHERE ? "Elsewhere" : (OS_LABELS.get(key) ?? key),
       machines: members,
     }));
+};
+
+const UPTIME_MIN_SAMPLES = 30;
+const PERCENT = 100;
+
+/**
+ * The share of a machine's known samples in which it was online, as a whole percent. Too few
+ * samples say nothing yet, so they give null.
+ */
+export const uptime = (states: string) => {
+  const known = states.replaceAll(" ", "");
+
+  if (known.length < UPTIME_MIN_SAMPLES) {
+    return null;
+  }
+
+  const up = known.replaceAll("0", "").length;
+
+  return Math.round((up / known.length) * PERCENT);
+};
+
+/** What the paragraph under a card adds about the last day and a newer T3 Code, if anything. */
+export const daySentences = (
+  machine: Machine,
+  states: string,
+  latest: string | null
+) => {
+  const share = uptime(states);
+  const version = machine.t3?.version ?? null;
+  const behind = latest !== null && version !== null && version !== latest;
+
+  return [
+    share === null ? null : `Online ${share}% of the last 24 hours.`,
+    behind ? `T3 Code ${latest} is out.` : null,
+  ]
+    .filter((sentence) => sentence !== null)
+    .join(" ");
 };

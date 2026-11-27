@@ -9,6 +9,8 @@ import {
   span,
   summarize,
   t3Sentence,
+  daySentences,
+  uptime,
 } from "@/lib/machines";
 import type { Machine } from "@/lib/machines";
 
@@ -185,5 +187,50 @@ describe("summarize", () => {
       linked: 1,
       ready: 1,
     });
+  });
+});
+
+describe("uptime", () => {
+  test("says nothing until thirty samples are known", () => {
+    expect(uptime("2".repeat(29))).toBeNull();
+    expect(uptime(`${" ".repeat(100)}${"2".repeat(29)}`)).toBeNull();
+  });
+
+  test("counts online and T3 Code samples as up, and skips unknown ones", () => {
+    expect(uptime("2".repeat(40))).toBe(100);
+    expect(uptime(`${"1".repeat(20)}${" ".repeat(50)}${"0".repeat(20)}`)).toBe(
+      50
+    );
+    expect(uptime(`${"0".repeat(10)}${"2".repeat(20)}`)).toBe(67);
+  });
+});
+
+const running = (version: string | null) =>
+  machine({
+    state: "t3",
+    t3: {
+      environmentId: "id",
+      label: "edge-7",
+      latencyMs: 12,
+      link: null,
+      url: "https://edge-7.example.com",
+      version,
+    },
+  });
+
+describe("daySentences", () => {
+  test("names a newer T3 Code only when both versions are known and differ", () => {
+    expect(daySentences(running("0.1.13"), "", "0.1.14")).toBe(
+      "T3 Code 0.1.14 is out."
+    );
+    expect(daySentences(running("0.1.14"), "", "0.1.14")).toBe("");
+    expect(daySentences(running(null), "", "0.1.14")).toBe("");
+    expect(daySentences(running("0.1.13"), "", null)).toBe("");
+  });
+
+  test("puts the day before the update", () => {
+    expect(daySentences(running("0.1.13"), "2".repeat(60), "0.1.14")).toBe(
+      "Online 100% of the last 24 hours. T3 Code 0.1.14 is out."
+    );
   });
 });

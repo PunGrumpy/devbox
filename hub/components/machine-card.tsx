@@ -28,11 +28,12 @@ const Address = ({ machine }: { machine: Machine }) => {
 
 interface MachineCardProps {
   bars: readonly BarState[];
+  day: string;
   machine: Machine;
   now: number;
 }
 
-export const MachineCard = ({ bars, machine, now }: MachineCardProps) => {
+export const MachineCard = ({ bars, day, machine, now }: MachineCardProps) => {
   const url = machine.t3?.url ?? null;
 
   return (
@@ -66,7 +67,7 @@ export const MachineCard = ({ bars, machine, now }: MachineCardProps) => {
       </div>
       <p className="text-nav text-soft mt-4">
         <Address machine={machine} />{" "}
-        {linkSentence(machine.t3?.link ?? null, now)}
+        {linkSentence(machine.t3?.link ?? null, now)} {day}
       </p>
     </li>
   );

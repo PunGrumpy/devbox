@@ -23,6 +23,9 @@ export type FakeMachine = {
   /** URL to the body it answers with 200. Any other URL does not answer. */
   pages: Map<string, string>;
   fetches: Array<string>;
+  posts: Array<{ readonly url: string; readonly body: string; readonly contentType: string }>;
+  /** Whether a webhook answers. */
+  webhookUp: boolean;
   runs: Array<{
     argv: ReadonlyArray<string>;
     env: Readonly<Record<string, string>> | undefined;
@@ -71,6 +74,8 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
     probes: [],
     pages: new Map(),
     fetches: [],
+    posts: [],
+    webhookUp: true,
     runs: [],
     stdin: new Map(),
     brokenInstallers: new Set(),
@@ -195,6 +200,11 @@ export const makeMachine = (overrides: Partial<FakeMachine> = {}): FakeMachine =
       Effect.sync(() => {
         m.fetches.push(url);
         return Option.map(Option.fromUndefinedOr(m.pages.get(url)), (body) => ({ body, ms: 12 }));
+      }),
+    post: (url, message) =>
+      Effect.sync(() => {
+        m.posts.push({ url, ...message });
+        return m.webhookUp;
       }),
     readLine: Effect.sync(() => {
       m.calls.push(["<enter>"]);
