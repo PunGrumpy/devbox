@@ -47,17 +47,20 @@ export const processEnv = (
   Object.fromEntries(
     settings.flatMap((setting) => {
       switch (setting._tag) {
-        case "Git":
+        case "Git": {
           return [];
-        case "Env":
+        }
+        case "Env": {
           return [[setting.name, setting.value]];
-        case "Path":
+        }
+        case "Path": {
           return [
             [
               "PATH",
               [...setting.dirs, path].filter((part) => part !== "").join(":"),
             ],
           ];
+        }
       }
     })
   );
@@ -71,14 +74,17 @@ export const profileScript = (
   `if [ "$(id -un)" = ${shellQuote(user)} ]; then\n${settings
     .flatMap((setting) => {
       switch (setting._tag) {
-        case "Git":
+        case "Git": {
           return [];
-        case "Env":
+        }
+        case "Env": {
           return [`export ${setting.name}=${shellQuote(setting.value)}`];
-        case "Path":
+        }
+        case "Path": {
           return [
             `export PATH=${setting.dirs.map(shellQuote).join(":")}:"$PATH"`,
           ];
+        }
       }
     })
     .map((line) => `  ${line}\n`)

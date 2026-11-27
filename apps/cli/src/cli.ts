@@ -60,11 +60,13 @@ const presenter = Layer.effect(
     return {
       present: (event) => {
         switch (event._tag) {
-          case "Help":
+          case "Help": {
             return out.stdout(`${formatter.formatHelpDoc(event.helpDoc)}\n`);
-          case "Version":
+          }
+          case "Version": {
             return out.stdout(`${event.version}\n`);
-          case "InvalidInvocation":
+          }
+          case "InvalidInvocation": {
             return Effect.forEach(
               event.errors,
               (error) =>
@@ -74,6 +76,7 @@ const presenter = Layer.effect(
                 ),
               { discard: true }
             );
+          }
         }
       },
     };

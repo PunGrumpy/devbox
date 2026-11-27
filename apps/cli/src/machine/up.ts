@@ -75,9 +75,10 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
     );
 
     switch (config.supervisor) {
-      case "detached":
+      case "detached": {
         return Supervisor.Detached();
-      case "system":
+      }
+      case "system": {
         if (host.systemd && sudo) {
           return Supervisor.Systemd({ scope: "system" });
         }
@@ -85,7 +86,8 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
         return yield* new UpFailed({
           message: "a system unit needs systemd and passwordless sudo",
         });
-      case "user":
+      }
+      case "user": {
         if (yield* userBus) {
           return Supervisor.Systemd({ scope: "user" });
         }
@@ -93,7 +95,8 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
         return yield* new UpFailed({
           message: "systemctl --user does not answer here",
         });
-      case "auto":
+      }
+      case "auto": {
         if (host.systemd && sudo) {
           return Supervisor.Systemd({ scope: "system" });
         }
@@ -103,6 +106,7 @@ const resolveSupervisor = (config: MachineConfig, sudo: boolean) =>
         }
 
         return Supervisor.Detached();
+      }
     }
   });
 

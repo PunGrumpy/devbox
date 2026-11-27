@@ -326,12 +326,15 @@ export const admit = (
 /** Runs what an admitted request asks for. */
 export const answer = (asked: Ask, context: AskContext) => {
   switch (asked.ask) {
-    case "connect":
+    case "connect": {
       return connect(asked, context.home);
-    case "disconnect":
+    }
+    case "disconnect": {
       return disconnect(context.home);
-    default:
+    }
+    default: {
       return ACTIONS[asked.ask](asked.machine, context);
+    }
   }
 };
 

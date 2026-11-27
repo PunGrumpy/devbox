@@ -252,21 +252,24 @@ export const linkInstructions = (
           };
 
           switch (instructionsLink(now, source)._tag) {
-            case "Linked":
+            case "Linked": {
               return false;
-            case "NotOurs":
+            }
+            case "NotOurs": {
               yield* out.warn(
                 `instructions: left ${path} alone, it is not a copy of ${sourcePath}`
               );
 
               return false;
-            case "Link":
+            }
+            case "Link": {
               return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
                 Effect.andThen(fs.remove(path, { force: true })),
                 Effect.andThen(fs.symlink(sourcePath, path)),
                 Effect.as(true),
                 Effect.orElseSucceed(() => false)
               );
+            }
           }
         })
     );
