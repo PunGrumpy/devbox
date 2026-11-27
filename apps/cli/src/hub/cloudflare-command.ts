@@ -1,20 +1,19 @@
-import { Effect, FileSystem, Option, Stdio, Stream } from "effect";
+import { Effect, Option, Schema, Stdio, Stream } from "effect";
 import { Command, Flag } from "effect/cli";
 import { UsageError } from "../errors.ts";
 import { Locations } from "../migrate/locations.ts";
 import { Output } from "../output.ts";
 import {
   CloudflareFailed,
-  cloudflareFile,
+  forgetCloudflare,
   loadCloudflare,
   saveCloudflare,
 } from "./cloudflare-auth.ts";
 import { loginCommand, type SignedIn } from "./cloudflare-oauth.ts";
-import { type CloudflareApi, cloudflareApi, failed, type Named } from "./cloudflare.ts";
+import { ApiToken, cloudflareApi, type PickOne, placeOf, saveToken } from "./cloudflare.ts";
 import { loadTunnels } from "./tunnel.ts";
 
 const MAX_TOKEN_CHARS = 1024;
-const TOKEN = /^[\x21-\x7e]{1,1024}$/;
 
 const tokenFromStdin = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio;
@@ -29,7 +28,7 @@ const tokenFromStdin = Effect.gen(function* () {
       read.length > MAX_TOKEN_CHARS ? read : read + decoder.decode(chunk, { stream: true }),
   ).pipe(Effect.orElseSucceed(() => ""));
   const token = text.trim();
-  if (!TOKEN.test(token))
+  if (!Schema.is(ApiToken)(token))
     return yield* new UsageError({
       message: "expected one Cloudflare API token on stdin",
       hint: "pipe it in, for example `devbox hub cloudflare token < token-file`",
@@ -37,66 +36,31 @@ const tokenFromStdin = Effect.gen(function* () {
   return token;
 });
 
-const choose = <A extends Named>(
-  what: string,
-  flag: string,
-  choices: ReadonlyArray<A>,
-  wanted: Option.Option<string>,
-  matches: (choice: A, wanted: string) => boolean,
-  label: (choice: A) => string,
-) =>
-  Effect.gen(function* () {
-    const listed = choices.map(label).join(", ");
-    if (Option.isSome(wanted)) {
-      const found = choices.find((c) => matches(c, wanted.value));
-      if (found !== undefined) return found;
-      return yield* new UsageError({
-        message: `the token sees no ${what} ${wanted.value}`,
-        hint: choices.length === 0 ? `give the token access to one` : `it sees ${listed}`,
-      });
-    }
-    const [only, ...others] = choices;
-    if (only !== undefined && others.length === 0) return only;
-    if (only === undefined)
-      return yield* new CloudflareFailed({
-        message: `the token sees no ${what}`,
-        hint: `give it access to the ${what} that holds your domain`,
-      });
-    return yield* new UsageError({
-      message: `the token sees ${choices.length} ${what}s: ${listed}`,
-      hint: `pass ${flag} to pick one`,
-    });
-  });
+const FLAG: Readonly<Record<PickOne["what"], string>> = {
+  account: "--account <id>",
+  zone: "--zone <domain>",
+};
 
-const placeOf = (
-  api: CloudflareApi,
-  wanted: { readonly account: Option.Option<string>; readonly zone: Option.Option<string> },
-) =>
-  Effect.gen(function* () {
-    const accounts = yield* api.accounts.pipe(
-      Effect.mapError(failed("list the accounts this token sees")),
-    );
-    const account = yield* choose(
-      "account",
-      "--account <id>",
-      accounts,
-      wanted.account,
-      (a, id) => a.id === id,
-      (a) => `${a.id} (${a.name})`,
-    );
-    const zones = yield* api
-      .zones(account.id)
-      .pipe(Effect.mapError(failed("list the zones this token sees")));
-    const zone = yield* choose(
-      "zone",
-      "--zone <domain>",
-      zones,
-      wanted.zone,
-      (z, name) => z.name.toLowerCase() === name.toLowerCase(),
-      (z) => z.name,
-    );
-    return { accountId: account.id, zoneId: zone.id, zone: zone.name.toLowerCase() };
+/** What a command prints when the login does not settle its account or zone. */
+const asCommandError = ({ what, choices, named }: PickOne) => {
+  const listed = choices
+    .map((c) => (what === "account" ? `${c.id} (${c.name})` : c.name))
+    .join(", ");
+  if (named !== undefined)
+    return new UsageError({
+      message: `the token sees no ${what} ${named}`,
+      hint: choices.length === 0 ? "give the token access to one" : `it sees ${listed}`,
+    });
+  if (choices.length === 0)
+    return new CloudflareFailed({
+      message: `the token sees no ${what}`,
+      hint: `give it access to the ${what} that holds your domain`,
+    });
+  return new UsageError({
+    message: `the token sees ${choices.length} ${what}s: ${listed}`,
+    hint: `pass ${FLAG[what]} to pick one`,
   });
+};
 
 const tokenCommand = Command.make(
   "token",
@@ -117,18 +81,10 @@ const tokenCommand = Command.make(
       const out = yield* Output;
       const { home } = yield* Locations;
       const token = yield* tokenFromStdin;
-      const api = cloudflareApi(token);
-      const place = yield* placeOf(api, wanted);
-      const verified = yield* api
-        .verify(place.accountId)
-        .pipe(Effect.mapError(failed("verify the token")));
-      if (verified.status !== "active")
-        return yield* new CloudflareFailed({
-          message: `Cloudflare says the token is ${verified.status}`,
-          hint: "make a new one in the Cloudflare dashboard",
-        });
-      yield* saveCloudflare(home, { login: { kind: "token", token }, ...place });
-      yield* out.success(`saved a Cloudflare API token for ${place.zone}`);
+      const saved = yield* saveToken(home, token, wanted).pipe(
+        Effect.catchTag("PickOne", (pick) => Effect.fail(asCommandError(pick))),
+      );
+      yield* out.success(`saved a Cloudflare API token for ${saved.zone}`);
     }),
 ).pipe(
   Command.withDescription(
@@ -140,7 +96,9 @@ const tokenCommand = Command.make(
 export const saveLogin = ({ clientId, tokens, account, zone }: SignedIn) =>
   Effect.gen(function* () {
     const { home } = yield* Locations;
-    const place = yield* placeOf(cloudflareApi(tokens.accessToken), { account, zone });
+    const place = yield* placeOf(cloudflareApi(tokens.accessToken), { account, zone }).pipe(
+      Effect.catchTag("PickOne", (pick) => Effect.fail(asCommandError(pick))),
+    );
     yield* saveCloudflare(home, { login: { kind: "oauth", clientId, ...tokens }, ...place });
   });
 
@@ -159,14 +117,9 @@ const statusCommand = Command.make("status", {}, () =>
 const logoutCommand = Command.make("logout", {}, () =>
   Effect.gen(function* () {
     const out = yield* Output;
-    const fs = yield* FileSystem.FileSystem;
     const { home } = yield* Locations;
-    const path = cloudflareFile(home);
-    if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false))))
+    if (!(yield* forgetCloudflare(home)))
       return yield* out.stdout("No Cloudflare login was saved.\n");
-    yield* fs
-      .remove(path)
-      .pipe(Effect.mapError(() => new CloudflareFailed({ message: `cannot delete ${path}` })));
     yield* out.success("forgot the Cloudflare login");
     const published = Object.keys(yield* loadTunnels(home));
     if (published.length > 0)

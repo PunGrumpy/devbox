@@ -137,6 +137,8 @@ const tabAfter = (key: string, at: number, count: number) => {
 
 export interface CommandTab {
   label: string;
+  /** A sentence above the tabs that changes with the selected one. */
+  lead?: string;
   text: string;
 }
 
@@ -189,8 +191,15 @@ export const CommandTabs = ({ items }: { items: readonly CommandTab[] }) => {
     }
   };
 
+  const lead = items[selected]?.lead;
+
   return (
     <div className="mt-4">
+      {lead === undefined ? null : (
+        <p aria-live="polite" className="text-soft mb-4">
+          {lead}
+        </p>
+      )}
       <div
         className="text-nav relative -mx-1 flex [scrollbar-width:none] gap-1 overflow-x-auto px-1"
         role="tablist"

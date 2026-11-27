@@ -1,6 +1,6 @@
 import { Effect, Option, Schema } from "effect";
 import { Host } from "../machine/host.ts";
-import { CloudflareFailed } from "./cloudflare-auth.ts";
+import { type CloudflareAccount, CloudflareFailed, saveCloudflare } from "./cloudflare-auth.ts";
 
 const API = "https://api.cloudflare.com/client/v4";
 const TIMEOUT_MS = 20_000;
@@ -259,3 +259,80 @@ export type CloudflareApi = ReturnType<typeof cloudflareApi>;
 /** A refusal as an error a command prints, which says what Cloudflare said. */
 export const failed = (doing: string) => (error: CloudflareRefused) =>
   new CloudflareFailed({ message: `Cloudflare refused to ${doing}: ${error.said}` });
+
+/** One Cloudflare API token: printable ASCII, no spaces, at most 1024 characters. */
+export const ApiToken = Schema.String.pipe(Schema.check(Schema.isPattern(/^[\x21-\x7e]{1,1024}$/)));
+
+/**
+ * The token does not settle which account or zone to use: it sees none, it sees several and none
+ * was named, or it does not see the one named. `choices` is what it sees.
+ */
+export class PickOne extends Schema.TaggedError<PickOne>()("PickOne", {
+  what: Schema.Literals(["account", "zone"]),
+  choices: Schema.Array(Named),
+  named: Schema.optional(Schema.String),
+}) {}
+
+const choose = <A extends Named>(
+  what: PickOne["what"],
+  choices: ReadonlyArray<A>,
+  wanted: Option.Option<string>,
+  matches: (choice: A, wanted: string) => boolean,
+) => {
+  const named = Option.getOrUndefined(wanted);
+  const only = choices.length === 1 ? choices[0] : undefined;
+  const found = named === undefined ? only : choices.find((c) => matches(c, named));
+  return found === undefined
+    ? Effect.fail(
+        new PickOne({ what, choices: choices.map(({ id, name }) => ({ id, name })), named }),
+      )
+    : Effect.succeed(found);
+};
+
+/** The account and zone a login works in: the ones `wanted` names, or the only ones it sees. */
+export const placeOf = (
+  api: CloudflareApi,
+  wanted: { readonly account: Option.Option<string>; readonly zone: Option.Option<string> },
+) =>
+  Effect.gen(function* () {
+    const accounts = yield* api.accounts.pipe(
+      Effect.mapError(failed("list the accounts this token sees")),
+    );
+    const account = yield* choose("account", accounts, wanted.account, (a, id) => a.id === id);
+    const zones = yield* api
+      .zones(account.id)
+      .pipe(Effect.mapError(failed("list the zones this token sees")));
+    const zone = yield* choose(
+      "zone",
+      zones,
+      wanted.zone,
+      (z, name) => z.name.toLowerCase() === name.toLowerCase(),
+    );
+    return { accountId: account.id, zoneId: zone.id, zone: zone.name.toLowerCase() };
+  });
+
+/**
+ * Checks an API token with Cloudflare, picks its account and zone, and saves it as the hub's
+ * login in place of any before it. `devbox hub cloudflare token` and `PUT /api/cloudflare` both
+ * come here.
+ */
+export const saveToken = (
+  home: string,
+  token: string,
+  wanted: { readonly account: Option.Option<string>; readonly zone: Option.Option<string> },
+) =>
+  Effect.gen(function* () {
+    const api = cloudflareApi(token);
+    const place = yield* placeOf(api, wanted);
+    const verified = yield* api
+      .verify(place.accountId)
+      .pipe(Effect.mapError(failed("verify the token")));
+    if (verified.status !== "active")
+      return yield* new CloudflareFailed({
+        message: `Cloudflare says the token is ${verified.status}`,
+        hint: "make a new one in the Cloudflare dashboard",
+      });
+    const account: CloudflareAccount = { login: { kind: "token", token }, ...place };
+    yield* saveCloudflare(home, account);
+    return account;
+  });

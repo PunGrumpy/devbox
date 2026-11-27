@@ -82,6 +82,18 @@ export const saveCloudflare = (home: string, account: CloudflareAccount) =>
     ),
   );
 
+/** Deletes the saved login. Whether there was one to delete. */
+export const forgetCloudflare = (home: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = cloudflareFile(home);
+    if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)))) return false;
+    yield* fs
+      .remove(path)
+      .pipe(Effect.mapError(() => new CloudflareFailed({ message: `cannot delete ${path}` })));
+    return true;
+  });
+
 const RENEW_BEFORE_MS = 5 * 60 * 1000;
 
 const fresh = (login: OAuthLogin, now: number) =>

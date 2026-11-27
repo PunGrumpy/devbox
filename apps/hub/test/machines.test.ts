@@ -274,7 +274,7 @@ describe("snapshotSchema", () => {
 
   test("keeps vitals, spoke, key, tunnel and cloudflare when present", () => {
     const parsed = snapshotSchema.parse({
-      cloudflare: { zone: "example.com" },
+      cloudflare: { kind: "oauth", zone: "example.com" },
       generatedAt: "2026-11-27T02:49:48Z",
       history: {
         sampleSeconds: 60,
@@ -304,7 +304,7 @@ describe("snapshotSchema", () => {
     });
 
     expect(parsed.key).toBe("hub-public-key-sample");
-    expect(parsed.cloudflare).toEqual({ zone: "example.com" });
+    expect(parsed.cloudflare).toEqual({ kind: "oauth", zone: "example.com" });
     expect(parsed.machines[0]?.spoke).toBe("trusted");
     expect(parsed.machines[0]?.tunnel).toEqual({
       url: "https://t3-edge-7.example.com",

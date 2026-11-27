@@ -2,12 +2,12 @@ import { Effect, type FileSystem, Option, Schema, type Semaphore } from "effect"
 import { Host } from "../machine/host.ts";
 import { type Do, type Fields, Nonce, signRequest } from "../spoke/signed.ts";
 import { PAIR_MS } from "../spoke/spoke.ts";
-import { bearerOf } from "./cloudflare-auth.ts";
-import { cloudflareApi } from "./cloudflare.ts";
+import { bearerOf, forgetCloudflare } from "./cloudflare-auth.ts";
+import { ApiToken, cloudflareApi, type PickOne, saveToken } from "./cloudflare.ts";
 import { type HubRequest, json, LOGGED_OUT, loggedIn, type Reply, refuse } from "./login.ts";
 import { type Machine, origin, type Snapshot, spokeAddresses } from "./machines.ts";
 import type { HubSecrets } from "./secrets.ts";
-import { publish, StepFailed, TUNNEL_MS, type TunnelJob, unpublish } from "./tunnel.ts";
+import { NO_LOGIN, publish, StepFailed, TUNNEL_MS, type TunnelJob, unpublish } from "./tunnel.ts";
 
 const Paired = Schema.fromJsonString(
   Schema.Struct({ url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/))) }),
@@ -118,8 +118,89 @@ export const machineAction = (
   }
 };
 
-/** A request the hub has admitted, which only the machine's spoke can answer. */
-export type Ask = { readonly ask: Action; readonly machine: Machine };
+/**
+ * A request the hub has admitted: one that only a machine's spoke can answer, or one that saves
+ * or forgets the hub's Cloudflare login.
+ */
+export type Ask =
+  | { readonly ask: Action; readonly machine: Machine }
+  | {
+      readonly ask: "connect";
+      readonly token: string;
+      readonly account: Option.Option<string>;
+      readonly zone: Option.Option<string>;
+    }
+  | { readonly ask: "disconnect" };
+
+export const CLOUDFLARE_PATH = "/api/cloudflare";
+
+/** Room for the longest token devbox takes, an account id and a domain. */
+export const MAX_CLOUDFLARE_BYTES = 2048;
+
+const Connect = Schema.fromJsonString(
+  Schema.Struct({
+    token: ApiToken,
+    account: Schema.optional(Schema.String),
+    zone: Schema.optional(Schema.String),
+  }),
+);
+
+/**
+ * `PUT /api/cloudflare` saves an API token as the hub's Cloudflare login and `DELETE` forgets
+ * it. The caller is already logged in. The reply when the request is not one of those, or what
+ * to ask.
+ */
+export const cloudflareAsk = (request: HubRequest): Reply | Ask => {
+  if (request.method === "DELETE") return { ask: "disconnect" };
+  if (request.method !== "PUT") return refuse(405, "Use PUT or DELETE.", { allow: "PUT, DELETE" });
+  if (request.body === null)
+    return refuse(413, "A Cloudflare API token is not that long.", { connection: "close" });
+  const sent = Schema.decodeUnknownOption(Connect)(request.body, { onExcessProperty: "error" });
+  if (Option.isNone(sent))
+    return refuse(
+      400,
+      'Send {"token": "<Cloudflare API token>"}, with "account" and "zone" when the token sees more than one.',
+    );
+  const { token, account, zone } = sent.value;
+  return {
+    ask: "connect",
+    token,
+    account: Option.fromUndefinedOr(account),
+    zone: Option.fromUndefinedOr(zone),
+  };
+};
+
+const pickSentence = ({ what, choices, named }: PickOne) => {
+  if (named !== undefined) return `The token sees no ${what} ${named}.`;
+  if (choices.length === 0)
+    return `The token sees no ${what}. Give it access to the ${what} that holds your domain.`;
+  return `The token sees ${choices.length} ${what}s. Name one as "${what}".`;
+};
+
+const connect = (asked: Extract<Ask, { ask: "connect" }>, home: string) =>
+  saveToken(home, asked.token, asked).pipe(
+    Effect.map(({ zone }) => json(200, { zone, kind: "token" })),
+    Effect.catchTags({
+      PickOne: (pick) =>
+        Effect.succeed(
+          json(409, {
+            error: pickSentence(pick),
+            [pick.what === "account" ? "accounts" : "zones"]: pick.choices,
+          }),
+        ),
+      CloudflareFailed: (error) => Effect.succeed(refuse(502, error.message)),
+    }),
+  );
+
+const NO_CONTENT: Reply = { status: 204, headers: { "cache-control": "no-store" }, body: "" };
+
+const disconnect = (home: string) =>
+  forgetCloudflare(home).pipe(
+    Effect.as(NO_CONTENT),
+    Effect.catchTag("CloudflareFailed", () =>
+      Effect.succeed(refuse(500, "The hub could not delete its Cloudflare login.")),
+    ),
+  );
 
 const TUNNELS: ReadonlySet<Action> = new Set(["tunnel", "untunnel"]);
 
@@ -131,7 +212,7 @@ const TUNNELS: ReadonlySet<Action> = new Set(["tunnel", "untunnel"]);
 export const admit = (
   request: HubRequest,
   wanted: { readonly name: string | undefined; readonly action: Action },
-  snapshot: Snapshot & { readonly cloudflare?: { readonly zone: string } | null },
+  snapshot: Snapshot & { readonly cloudflare: { readonly zone: string } | null },
   token: string,
   now: number,
 ): Reply | Ask => {
@@ -148,8 +229,7 @@ export const admit = (
     );
   const [machine] = trusted;
   if (TUNNELS.has(wanted.action)) {
-    if (snapshot.cloudflare === undefined || snapshot.cloudflare === null)
-      return refuse(409, "The hub has no Cloudflare login. Run devbox hub cloudflare token.");
+    if (snapshot.cloudflare === null) return NO_LOGIN;
     if (machine.tailscale === null || machine.tailscale.ip === "")
       return refuse(409, `${machine.name} has no Tailscale address for a tunnel to reach.`);
   }
@@ -157,8 +237,16 @@ export const admit = (
 };
 
 /** Runs what an admitted request asks for. */
-export const answer = ({ ask, machine }: Ask, context: AskContext) =>
-  ACTIONS[ask](machine, context);
+export const answer = (asked: Ask, context: AskContext) => {
+  switch (asked.ask) {
+    case "connect":
+      return connect(asked, context.home);
+    case "disconnect":
+      return disconnect(context.home);
+    default:
+      return ACTIONS[asked.ask](asked.machine, context);
+  }
+};
 
 const Challenge = Schema.fromJsonString(Schema.Struct({ nonce: Nonce }));
 
