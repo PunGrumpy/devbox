@@ -329,9 +329,11 @@ export const answer = (asked: Ask, context: AskContext) => {
     case "connect": {
       return connect(asked, context.home);
     }
+
     case "disconnect": {
       return disconnect(context.home);
     }
+
     default: {
       return ACTIONS[asked.ask](asked.machine, context);
     }

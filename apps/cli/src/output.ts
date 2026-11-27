@@ -247,8 +247,7 @@ export class Output extends Context.Service<
       stderr: (value) => process.stderr.write(value),
       paint: colorFor(process.stderr),
       stdoutColor: colorFor(process.stdout)("bold", "x") !== "x",
-      interactive:
-        process.stdin.isTTY === true && process.stderr.isTTY === true,
+      interactive: process.stdin.isTTY && process.stderr.isTTY,
       readAnswer: Effect.callback<string>((resume) => {
         process.stdin.resume();
         process.stdin.once("data", (chunk: Buffer | string) => {

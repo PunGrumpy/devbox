@@ -2,7 +2,8 @@ import { join } from "node:path";
 
 import { Effect, FileSystem, Result, Schema } from "effect";
 
-import { AbsolutePath, absolutePath } from "../migrate/paths.ts";
+import type { AbsolutePath } from "../migrate/paths.ts";
+import { absolutePath } from "../migrate/paths.ts";
 
 export const backupPaths = (home: string) => {
   const dir = join(home, ".config", "devbox", "backup");

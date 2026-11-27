@@ -69,7 +69,7 @@ const unitPath = (m: ReturnType<typeof makeMachine>) =>
   join(m.home, ".config/systemd/user/cloudflared-t3.service");
 
 const machineJson = (m: ReturnType<typeof makeMachine>) =>
-  readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8");
+  readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8");
 
 const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
   devbox({ HOME: m.home, PATH: "/usr/bin:/bin" }, ["up", ...args], {
@@ -79,7 +79,7 @@ const up = (m: ReturnType<typeof makeMachine>, ...args: string[]) =>
 const readmeUnit = () => {
   const readme = readFileSync(
     join(import.meta.dir, "..", "..", "..", "README.md"),
-    "utf8"
+    "utf-8"
   );
 
   const section = readme.slice(
@@ -110,7 +110,7 @@ describe("devbox up --tunnel", () => {
       "--yes",
       "cloudflared",
     ]);
-    expect(readFileSync(unitPath(m), "utf8")).toBe(readmeUnit());
+    expect(readFileSync(unitPath(m), "utf-8")).toBe(readmeUnit());
     expect(m.units.get("user:cloudflared-t3.service")).toEqual({
       active: true,
       enabled: true,
@@ -148,7 +148,7 @@ describe("devbox up --tunnel", () => {
       active: false,
       enabled: false,
     });
-    expect(readFileSync(tokenPath(m), "utf8")).toBe(TOKEN);
+    expect(readFileSync(tokenPath(m), "utf-8")).toBe(TOKEN);
     expect((await up(m)).err).toContain("No changes.");
   });
 
@@ -184,7 +184,7 @@ describe("devbox up --tunnel", () => {
     expect(lstatSync(tokenPath(m)).isFile()).toBe(true);
     expect(`${r.out}${r.err}`).not.toContain(TOKEN);
     expect(machineJson(m)).not.toContain(TOKEN);
-    expect(readFileSync(unitPath(m), "utf8")).not.toContain(TOKEN);
+    expect(readFileSync(unitPath(m), "utf-8")).not.toContain(TOKEN);
     expect(JSON.stringify(m.calls)).not.toContain(TOKEN);
   });
 
@@ -195,7 +195,7 @@ describe("devbox up --tunnel", () => {
 
     const unit = readFileSync(
       join(m.etc, "systemd/system/cloudflared-t3.service"),
-      "utf8"
+      "utf-8"
     );
 
     expect(unit).toContain("User=agent\n");

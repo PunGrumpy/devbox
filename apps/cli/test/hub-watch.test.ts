@@ -251,7 +251,7 @@ describe("devbox hub over a restart", () => {
     const { hub, json } = await running(m);
     await hub.stop();
     expect(json.latest).toEqual({ t3: "0.3.0" });
-    const file = JSON.parse(readFileSync(stateFile(m.home), "utf8"));
+    const file = JSON.parse(readFileSync(stateFile(m.home), "utf-8"));
     expect(file.history.states).toEqual({ "edge-7": "1" });
     expect(file.watch.announced).toEqual({ "edge-7": "online" });
   });

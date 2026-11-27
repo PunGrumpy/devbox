@@ -180,7 +180,7 @@ export interface World {
 }
 
 export const slug = (path: string): string =>
-  path.replace(/[^A-Za-z0-9]/g, "-");
+  path.replaceAll(/[^A-Za-z0-9]/g, "-");
 
 export const makeWorld = (): World => {
   const base = realpathSync(

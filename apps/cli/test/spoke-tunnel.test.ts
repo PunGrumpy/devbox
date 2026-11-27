@@ -114,7 +114,7 @@ const tokenPath = (m: Machine) =>
   join(m.home, ".config", "cloudflared", "token");
 
 const machineJson = (m: Machine) =>
-  readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8");
+  readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8");
 
 const recorded = (m: Machine): readonly string[] =>
   JSON.parse(machineJson(m)).up;
@@ -153,7 +153,7 @@ describe("a tunnel request", async () => {
   test("saves the token for this user alone and runs devbox up with the tunnel at the address", async () => {
     const response = await ask(base, "tunnel", { token: TOKEN, url: URL });
     expect(response.status).toBe(202);
-    expect(readFileSync(tokenPath(m), "utf8")).toBe(TOKEN);
+    expect(readFileSync(tokenPath(m), "utf-8")).toBe(TOKEN);
     expect(statSync(tokenPath(m)).mode & 0o777).toBe(0o600);
     expect(readdirSync(join(m.home, ".config", "cloudflared"))).toEqual([
       "token",
@@ -192,7 +192,7 @@ describe("a tunnel request", async () => {
     writeFileSync(tokenPath(m), "the token cloudflared runs with");
     const response = await ask(base, "tunnel", { token: TOKEN, url: URL });
     expect(response.status).toBe(409);
-    expect(readFileSync(tokenPath(m), "utf8")).toBe(
+    expect(readFileSync(tokenPath(m), "utf-8")).toBe(
       "the token cloudflared runs with"
     );
     started(m);

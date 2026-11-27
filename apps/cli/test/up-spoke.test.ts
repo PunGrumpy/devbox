@@ -19,7 +19,7 @@ const unitPath = (m: ReturnType<typeof makeMachine>) =>
   join(m.home, ".config/systemd/user/devbox-spoke.service");
 
 const recorded = (m: ReturnType<typeof makeMachine>) =>
-  JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8"))
+  JSON.parse(readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8"))
     .up;
 
 describe("devbox up --spoke", () => {
@@ -27,7 +27,7 @@ describe("devbox up --spoke", () => {
     const m = makeMachine({ userBus: true });
     const first = await up(m, "--spoke");
     expect(first.code).toBe(0);
-    const unit = readFileSync(unitPath(m), "utf8");
+    const unit = readFileSync(unitPath(m), "utf-8");
     expect(unit).toContain(
       `ExecStart=${SELF.join(" ")} spoke --host 127.0.0.1 --port 3782\n`
     );
@@ -58,7 +58,7 @@ describe("devbox up --spoke", () => {
     );
 
     expect(r.code).toBe(0);
-    expect(readFileSync(unitPath(m), "utf8")).toContain(
+    expect(readFileSync(unitPath(m), "utf-8")).toContain(
       `spoke --host 100.64.0.21 --port 3782 --trust ${KEY_A} --trust ${KEY_B}\n`
     );
     expect(recorded(m)).toEqual([
@@ -100,7 +100,7 @@ describe("devbox up --spoke", () => {
     m.units.set("user:devbox-spoke.service", { active: true, enabled: true });
     const second = await up(m, "--spoke", "--trust", KEY_B);
     expect(second.err).toContain("enabled devbox-spoke.service");
-    expect(readFileSync(unitPath(m), "utf8")).not.toContain(KEY_A);
+    expect(readFileSync(unitPath(m), "utf-8")).not.toContain(KEY_A);
   });
 
   test("without --spoke it stops the spoke and removes its unit", async () => {

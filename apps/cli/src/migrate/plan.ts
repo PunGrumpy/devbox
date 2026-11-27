@@ -1,4 +1,5 @@
-import { Data, Effect, Schema, Scope } from "effect";
+import type { Scope } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import type { SqlError } from "effect/sql";
 

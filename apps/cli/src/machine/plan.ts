@@ -520,11 +520,12 @@ export const plan = (
   }
 
   for (const id of Option.getOrElse(facts.agents.saved, () => [])) {
-    if (!config.agents.ids.includes(id))
+    if (!config.agents.ids.includes(id)) {
       skips.push({
         what: agentName(id),
         why: `no longer chosen, left installed. ${removeHint(id, config.data)}`,
       });
+    }
   }
 
   if (Option.contains(facts.linger, false)) {

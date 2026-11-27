@@ -67,6 +67,6 @@ export const readBody = (req: http.IncomingMessage, limit: number) =>
         chunks.push(chunk);
       }
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
     req.on("error", () => resolve(null));
   });

@@ -119,7 +119,7 @@ describe("devbox hub with spokes", async () => {
     expect(statSync(tokenFile(m.home)).mode & 0o777).toBe(0o600);
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(Buffer.from(token, "base64url")).toHaveLength(32);
-    expect(readFileSync(keyFile(m.home), "utf8")).toContain("PRIVATE KEY");
+    expect(readFileSync(keyFile(m.home), "utf-8")).toContain("PRIVATE KEY");
   });
 
   test("the snapshot carries the public key, and never the token or the private key", async () => {

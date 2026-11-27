@@ -116,7 +116,7 @@ export const nextHistory = (
   >();
 
   for (const m of snapshot.machines) {
-    if (!now.has(m.name))
+    if (!now.has(m.name)) {
       now.set(m.name, {
         state: CODE[m.state],
         latency:
@@ -124,6 +124,7 @@ export const nextHistory = (
             ? null
             : Math.round(m.t3.latencyMs),
       });
+    }
   }
 
   const states: Record<string, string> = {};

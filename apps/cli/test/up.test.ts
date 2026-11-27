@@ -46,7 +46,7 @@ describe("flags become one machine config", () => {
     expect(r.err).toContain("channel     nightly");
     expect(
       JSON.parse(
-        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")
+        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8")
       )
     ).toEqual({
       name: "box-1.example.internal",
@@ -115,7 +115,7 @@ describe("flags become one machine config", () => {
     ]);
     expect(
       JSON.parse(
-        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")
+        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8")
       ).url
     ).toBe("https://edge-7.example.com");
     expect(r.err).toContain("T3 Code answers on https://edge-7.example.com");
@@ -144,7 +144,7 @@ describe("linked environments", () => {
     const m = makeMachine();
     const first = await up(m, "--supervisor", "detached");
     expect(first.err).toContain(`wrote ${settingsFile(m)}`);
-    expect(JSON.parse(readFileSync(settingsFile(m), "utf8"))).toEqual({
+    expect(JSON.parse(readFileSync(settingsFile(m), "utf-8"))).toEqual({
       linkedEnvironmentsEnabled: true,
     });
     expect(statSync(settingsFile(m)).mode & 0o777).toBe(0o600);
@@ -169,7 +169,7 @@ describe("linked environments", () => {
     );
     const r = await up(m, "--supervisor", "detached");
     expect(r.code).toBe(0);
-    expect(JSON.parse(readFileSync(settingsFile(m), "utf8"))).toEqual({
+    expect(JSON.parse(readFileSync(settingsFile(m), "utf-8"))).toEqual({
       guestSharingEnabled: true,
       linkedEnvironmentsEnabled: true,
       nested: { a: [1] },
@@ -183,7 +183,7 @@ describe("linked environments", () => {
     const text = '{"linkedEnvironmentsEnabled":true,   "a": 1}';
     writeFileSync(settingsFile(m), text);
     const r = await up(m, "--supervisor", "detached");
-    expect(readFileSync(settingsFile(m), "utf8")).toBe(text);
+    expect(readFileSync(settingsFile(m), "utf-8")).toBe(text);
     expect(r.err).not.toContain("settings.json");
   });
 
@@ -201,7 +201,7 @@ describe("linked environments", () => {
       const r = await up(m, "--supervisor", "detached");
       expect(r.code).toBe(0);
       expect(r.err).toContain(`skipped ${settingsFile(m)}: not a JSON object`);
-      expect(readFileSync(settingsFile(m), "utf8")).toBe(text);
+      expect(readFileSync(settingsFile(m), "utf-8")).toBe(text);
     }
   );
 
@@ -210,7 +210,7 @@ describe("linked environments", () => {
     const baseDir = join(m.base, "t3-home");
     await up(m, "--supervisor", "detached", "--base-dir", baseDir);
     expect(
-      JSON.parse(readFileSync(join(baseDir, "userdata/settings.json"), "utf8"))
+      JSON.parse(readFileSync(join(baseDir, "userdata/settings.json"), "utf-8"))
     ).toEqual({
       linkedEnvironmentsEnabled: true,
     });
@@ -240,7 +240,7 @@ describe("--host", () => {
     expect(r.err).toContain("host        0.0.0.0");
     expect(
       JSON.parse(
-        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")
+        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8")
       )
     ).not.toHaveProperty("host");
   });
@@ -252,7 +252,7 @@ describe("--host", () => {
 
     const unit = readFileSync(
       join(m.home, ".config/systemd/user/devbox.service"),
-      "utf8"
+      "utf-8"
     );
 
     expect(unit).toContain(
@@ -260,7 +260,7 @@ describe("--host", () => {
     );
     expect(
       JSON.parse(
-        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf8")
+        readFileSync(join(m.home, ".config/devbox/machine.json"), "utf-8")
       ).host
     ).toBe(TAILNET);
     expect(m.probes.at(-1)).toEqual({ address: TAILNET, port: 3773 });
@@ -385,10 +385,10 @@ describe("devbox up converges", () => {
       "PRETTY_HOSTNAME=old\nCHASSIS=vm\n"
     );
     await up(m, "--supervisor", "detached", "--name", "edge-7");
-    expect(readFileSync(join(m.etc, "machine-info"), "utf8")).toBe(
+    expect(readFileSync(join(m.etc, "machine-info"), "utf-8")).toBe(
       "PRETTY_HOSTNAME=edge-7\nCHASSIS=vm\n"
     );
-    const profile = readFileSync(join(m.etc, "profile.d/devbox.sh"), "utf8");
+    const profile = readFileSync(join(m.etc, "profile.d/devbox.sh"), "utf-8");
     expect(profile).toContain(`export CLAUDE_CONFIG_DIR='${m.home}/.claude'`);
     expect(profile).toContain(
       `export PATH='${m.home}/.local/bin':'${m.home}/.local/share/mise/shims':"$PATH"`
@@ -461,7 +461,7 @@ describe("devbox up converges", () => {
 
     const unit = readFileSync(
       join(m.home, ".config/systemd/user/devbox.service"),
-      "utf8"
+      "utf-8"
     );
 
     expect(unit).toContain(
@@ -492,7 +492,7 @@ describe("devbox up converges", () => {
 
     const unit = readFileSync(
       join(m.etc, "systemd/system/devbox.service"),
-      "utf8"
+      "utf-8"
     );
 
     expect(unit).toContain("User=agent\n");
@@ -529,7 +529,7 @@ describe("devbox up converges", () => {
     expect(r.code).toBe(0);
     expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
     expect(
-      readFileSync(join(data, ".agents/skills/tdd/SKILL.md"), "utf8")
+      readFileSync(join(data, ".agents/skills/tdd/SKILL.md"), "utf-8")
     ).toBe("keep me\n");
   });
 
@@ -543,14 +543,14 @@ describe("devbox up converges", () => {
     const r = await up(m, "--supervisor", "detached", "--data", data);
     expect(r.code).toBe(0);
     expect(readlinkSync(join(m.home, ".agents"))).toBe(join(data, ".agents"));
-    expect(readFileSync(join(data, ".agents/data.md"), "utf8")).toBe("data\n");
+    expect(readFileSync(join(data, ".agents/data.md"), "utf-8")).toBe("data\n");
 
     const aside = readdirSync(m.home).find((name) =>
       name.startsWith(".agents.devbox-")
     );
 
     expect(aside).toBeDefined();
-    expect(readFileSync(join(m.home, aside!, "home.md"), "utf8")).toBe(
+    expect(readFileSync(join(m.home, aside!, "home.md"), "utf-8")).toBe(
       "home\n"
     );
   });
@@ -615,14 +615,14 @@ describe("devbox up converges", () => {
     writeFileSync(join(m.home, ".agents/home.md"), "home\n");
     const r = await up(m, "--supervisor", "detached", "--data", data);
     expect(r.code).toBe(0);
-    expect(readFileSync(join(data, ".agents/home.md"), "utf8")).toBe("home\n");
+    expect(readFileSync(join(data, ".agents/home.md"), "utf-8")).toBe("home\n");
   });
 
   test("npm runs with the mise data dir from --data", async () => {
     const m = makeMachine();
     const data = join(m.base, "persist");
     const seen: (string | undefined)[] = [];
-    const host = m.host;
+    const { host } = m;
     m.host = {
       ...host,
       run: (argv, options) => {

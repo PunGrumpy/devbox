@@ -75,7 +75,7 @@ const TEMP_SUFFIX = ".devbox-migrate.tmp";
 const NO_HARD_LINKS = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS"]);
 
 const errnoOf = (error: PlatformError): string | undefined => {
-  const cause = error.reason.cause;
+  const { cause } = error.reason;
 
   return cause instanceof Error &&
     "code" in cause &&

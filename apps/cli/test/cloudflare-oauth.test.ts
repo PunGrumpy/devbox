@@ -76,7 +76,7 @@ const fails = async <A>(effect: Effect.Effect<A, OAuthFailed>) => {
   )?.error;
 
   if (!(error instanceof OAuthFailed)) {
-    throw new Error("expected OAuthFailed");
+    throw new TypeError("expected OAuthFailed");
   }
 
   return error;

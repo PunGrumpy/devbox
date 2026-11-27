@@ -51,7 +51,7 @@ export const probeHost = (bind: string): string =>
   bind === ALL_INTERFACES || bind === "::" ? "127.0.0.1" : bind;
 
 export const Port = Schema.Int.pipe(
-  Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))
+  Schema.check(Schema.isBetween({ minimum: 1, maximum: 65_535 }))
 );
 
 const Channel = Schema.String.pipe(

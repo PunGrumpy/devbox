@@ -100,7 +100,7 @@ const restoredAt = (
 ) => join(target, m.home, rel);
 
 const onRestore = (m: ReturnType<typeof makeMachine>, also: () => void) => {
-  const respond = m.respond;
+  const { respond } = m;
   m.respond = (argv) => {
     const ran = respond(argv);
 
@@ -211,13 +211,13 @@ describe("config files", () => {
     const first = await backup(m, "sources");
     expect(first.code).toBe(0);
     const dir = join(m.home, ".config/devbox/backup");
-    expect(readFileSync(join(dir, "sources"), "utf8")).toBe(DEFAULT_SOURCES);
-    expect(readFileSync(join(dir, "excludes"), "utf8")).toContain(
+    expect(readFileSync(join(dir, "sources"), "utf-8")).toBe(DEFAULT_SOURCES);
+    expect(readFileSync(join(dir, "excludes"), "utf-8")).toContain(
       "$HOME/.codex/logs_*.sqlite*"
     );
     expect(statSync(join(dir, "env")).mode & 0o777).toBe(0o600);
     expect(first.err).toContain(`created ${dir}/env`);
-    const env = readFileSync(join(dir, "env"), "utf8");
+    const env = readFileSync(join(dir, "env"), "utf-8");
     expect(env).toContain("RESTIC_REPOSITORY=\n");
     expect(env).toContain(`RESTIC_PASSWORD_FILE=${dir}/restic-password\n`);
 
@@ -226,8 +226,8 @@ describe("config files", () => {
     chmodSync(join(dir, "env"), 0o640);
     const second = await backup(m, "sources");
     expect(second.err).not.toContain("created");
-    expect(readFileSync(join(dir, "sources"), "utf8")).toBe("mine ~/mine\n");
-    expect(readFileSync(join(dir, "env"), "utf8")).toBe(
+    expect(readFileSync(join(dir, "sources"), "utf-8")).toBe("mine ~/mine\n");
+    expect(readFileSync(join(dir, "env"), "utf-8")).toBe(
       "RESTIC_REPOSITORY=kept\n"
     );
     expect(statSync(join(dir, "env")).mode & 0o777).toBe(0o640);
@@ -315,7 +315,7 @@ describe("devbox backup run", () => {
 
     const lines = readFileSync(
       join(stateDir(m), "sqlite-excludes"),
-      "utf8"
+      "utf-8"
     ).split("\n");
 
     const live = [
@@ -521,7 +521,7 @@ describe("devbox backup run", () => {
     expect(busy.code).toBe(1);
     expect(busy.err).toContain("another devbox backup is running (pid 4242)");
     expect(resticCalls(m)).toEqual([]);
-    expect(readFileSync(lock, "utf8")).toBe("4242\n");
+    expect(readFileSync(lock, "utf-8")).toBe("4242\n");
 
     m.processes.length = 0;
     const after = await backup(m, "run");
@@ -703,7 +703,7 @@ describe("what discovery leaves alone", () => {
       false
     );
     expect(
-      readFileSync(join(stateDir(m), "sqlite-excludes"), "utf8")
+      readFileSync(join(stateDir(m), "sqlite-excludes"), "utf-8")
     ).not.toContain("logs_1");
   });
 
@@ -887,14 +887,14 @@ describe("devbox backup restore", () => {
     const r = await backup(m, "restore", target);
     expect(r.code).toBe(1);
     expect(r.err).toContain("is not empty");
-    expect(readFileSync(join(target, "keep.txt"), "utf8")).toBe("mine\n");
+    expect(readFileSync(join(target, "keep.txt"), "utf-8")).toBe("mine\n");
   });
 
   test("a manifest that points outside the target writes nothing outside it", async () => {
     const { m } = fixture();
     await backup(m, "run");
     const manifest = join(stateDir(m), "sqlite/.manifest.json");
-    const entries = JSON.parse(readFileSync(manifest, "utf8"));
+    const entries = JSON.parse(readFileSync(manifest, "utf-8"));
     entries[0].relative = "../../../../../../../../escaped.sqlite";
     write(manifest, JSON.stringify(entries));
     const target = join(m.base, "deep/er/restored");

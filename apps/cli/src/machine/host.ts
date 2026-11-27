@@ -95,7 +95,7 @@ const capped = async (response: Response): Promise<string | undefined> => {
     chunks.push(value);
   }
 
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks).toString("utf-8");
 };
 
 export class Host extends Context.Service<
@@ -207,7 +207,7 @@ export class Host extends Context.Service<
         }
 
         try {
-          const argv = readFileSync(`/proc/${entry}/cmdline`, "utf8")
+          const argv = readFileSync(`/proc/${entry}/cmdline`, "utf-8")
             .split("\0")
             .slice(0, -1);
 

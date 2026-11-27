@@ -255,6 +255,7 @@ export const linkInstructions = (
             case "Linked": {
               return false;
             }
+
             case "NotOurs": {
               yield* out.warn(
                 `instructions: left ${path} alone, it is not a copy of ${sourcePath}`
@@ -262,6 +263,7 @@ export const linkInstructions = (
 
               return false;
             }
+
             case "Link": {
               return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
                 Effect.andThen(fs.remove(path, { force: true })),

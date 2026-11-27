@@ -50,9 +50,11 @@ export const processEnv = (
         case "Git": {
           return [];
         }
+
         case "Env": {
           return [[setting.name, setting.value]];
         }
+
         case "Path": {
           return [
             [
@@ -77,9 +79,11 @@ export const profileScript = (
         case "Git": {
           return [];
         }
+
         case "Env": {
           return [`export ${setting.name}=${shellQuote(setting.value)}`];
         }
+
         case "Path": {
           return [
             `export PATH=${setting.dirs.map(shellQuote).join(":")}:"$PATH"`,

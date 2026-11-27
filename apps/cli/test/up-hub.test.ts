@@ -58,7 +58,7 @@ describe("devbox up --hub", () => {
     const { m, checkout } = machine();
     const first = await up(m, "--hub");
     expect(first.code).toBe(0);
-    const unit = readFileSync(unitPath(m), "utf8");
+    const unit = readFileSync(unitPath(m), "utf-8");
     expect(unit).toContain(
       `ExecStart=/opt/bun ${checkout}/apps/cli/src/cli.ts hub --host 127.0.0.1 --port 3780 --t3-port 3773\n`
     );
@@ -80,7 +80,7 @@ describe("devbox up --hub", () => {
       "--filter",
       "hub",
     ]);
-    expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf8")).toBe(
+    expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf-8")).toBe(
       "tree-1\n"
     );
 
@@ -92,7 +92,7 @@ describe("devbox up --hub", () => {
   test("listens on --host when that is one address", async () => {
     const { m } = machine();
     await up(m, "--hub", "--host", "100.64.0.21");
-    expect(readFileSync(unitPath(m), "utf8")).toContain(
+    expect(readFileSync(unitPath(m), "utf-8")).toContain(
       "hub --host 100.64.0.21 --port 3780"
     );
   });
@@ -105,7 +105,7 @@ describe("devbox up --hub", () => {
     const second = await up(m, "--hub");
     expect(second.err).toContain("built the hub page");
     expect(builds(m, before)).toBe(1);
-    expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf8")).toBe(
+    expect(readFileSync(join(checkout, "apps/hub/out/.built"), "utf-8")).toBe(
       "tree-2\n"
     );
     expect(m.units.get("user:devbox-hub.service")).toEqual({

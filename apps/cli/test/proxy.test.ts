@@ -114,7 +114,7 @@ describe("the in-process proxy", async () => {
   test("passes WebSocket upgrades through with the rewritten Host", async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
       headers: { "x-forwarded-proto": "https" },
-    } as never);
+    });
 
     const reply = await new Promise<string>((resolve, reject) => {
       ws.addEventListener("open", () => ws.send("ping"));

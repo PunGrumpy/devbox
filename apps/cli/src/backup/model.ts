@@ -203,7 +203,7 @@ const GENERIC_SIDECARS = [
   "*.db-shm",
 ] as const;
 
-const globEscape = (path: string) => path.replace(/[\\*?[]/g, "\\$&");
+const globEscape = (path: string) => path.replaceAll(/[\\*?[]/g, "\\$&");
 
 // restic expands $VARS in exclude files, so a literal $ in a path is written as $$.
 export const excludeFile = (plan: BackupPlan): string =>

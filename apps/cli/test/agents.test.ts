@@ -60,7 +60,7 @@ const mutations = (m: Machine, from: number) =>
 const savedFile = (m: Machine) => join(m.home, ".config/devbox/agents.json");
 
 const saved = (m: Machine): unknown =>
-  JSON.parse(readFileSync(savedFile(m), "utf8"));
+  JSON.parse(readFileSync(savedFile(m), "utf-8"));
 
 const binOf = (m: Machine, id: AgentId) =>
   join(m.home, ".local/bin", AGENTS.find((agent) => agent.id === id)!.bin);
@@ -161,7 +161,7 @@ describe("--agents", () => {
   test("the order and repeats of the list do not rewrite the file", async () => {
     const m = makeMachine();
     await up(m, "--agents", "codex,claude,codex");
-    expect(readFileSync(savedFile(m), "utf8")).toBe(
+    expect(readFileSync(savedFile(m), "utf-8")).toBe(
       '{\n  "agents": [\n    "claude",\n    "codex"\n  ]\n}\n'
     );
     const before = m.calls.length;
@@ -393,7 +393,7 @@ describe("skills follow the choice", () => {
     const npx = () => m.calls.filter((c) => c[0] === "npx");
 
     await runWith(m.host, installSkills(m.home, {}, BOTH));
-    expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
+    expect(readFileSync(join(m.home, ".devbox-skills"), "utf-8").trim()).toBe(
       `${list.hash} claude-code,codex`
     );
     expect(npx()).toHaveLength(2);
@@ -409,7 +409,7 @@ describe("skills follow the choice", () => {
       "codex",
       "devin",
     ]);
-    expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
+    expect(readFileSync(join(m.home, ".devbox-skills"), "utf-8").trim()).toBe(
       `${list.hash} claude-code,codex,devin`
     );
   });
@@ -510,7 +510,7 @@ describe("devbox serve keeps the chosen agents current", () => {
 describe("the README", () => {
   const readme = readFileSync(
     join(import.meta.dir, "..", "..", "..", "README.md"),
-    "utf8"
+    "utf-8"
   );
 
   test.each(AGENTS.map((agent) => [agent.id, agent.login]))(

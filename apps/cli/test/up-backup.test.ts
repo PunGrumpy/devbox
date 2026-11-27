@@ -73,13 +73,13 @@ describe("devbox up and backups", () => {
     expect(r.code).toBe(0);
     expect(r.err).not.toContain("backups: off");
     const dir = join(m.home, ".config/systemd/user");
-    const service = readFileSync(join(dir, "devbox-backup.service"), "utf8");
+    const service = readFileSync(join(dir, "devbox-backup.service"), "utf-8");
     expect(service).toContain("Type=oneshot\n");
     expect(service).toContain(`ExecStart=${SELF.join(" ")} backup run\n`);
     expect(service).toContain("Nice=10\n");
     expect(service).not.toContain("User=");
     expect(service).not.toContain("EnvironmentFile");
-    const timer = readFileSync(join(dir, "devbox-backup.timer"), "utf8");
+    const timer = readFileSync(join(dir, "devbox-backup.timer"), "utf-8");
     expect(timer).toContain("OnCalendar=*-*-* 03:30 Asia/Bangkok\n");
     expect(timer).toContain("RandomizedDelaySec=20m\n");
     expect(timer).toContain("Persistent=true\n");
@@ -130,7 +130,7 @@ describe("devbox up and backups", () => {
 
     const service = readFileSync(
       join(m.etc, "systemd/system/devbox-backup.service"),
-      "utf8"
+      "utf-8"
     );
 
     expect(service).toContain("User=agent\n");

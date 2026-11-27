@@ -63,9 +63,11 @@ const presenter = Layer.effect(
           case "Help": {
             return out.stdout(`${formatter.formatHelpDoc(event.helpDoc)}\n`);
           }
+
           case "Version": {
             return out.stdout(`${event.version}\n`);
           }
+
           case "InvalidInvocation": {
             return Effect.forEach(
               event.errors,

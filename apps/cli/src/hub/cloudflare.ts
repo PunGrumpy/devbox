@@ -328,7 +328,7 @@ export const failed = (doing: string) => (error: CloudflareRefused) =>
 
 /** One Cloudflare API token: printable ASCII, no spaces, at most 1024 characters. */
 export const ApiToken = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[\x21-\x7e]{1,1024}$/))
+  Schema.check(Schema.isPattern(/^[\u0021-\u007E]{1,1024}$/))
 );
 
 /**

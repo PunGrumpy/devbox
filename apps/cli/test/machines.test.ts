@@ -521,7 +521,7 @@ describe("the kind of a machine", () => {
       ]),
     });
 
-    const respond = m.respond;
+    const { respond } = m;
     m.respond = (argv) =>
       argv[0] === "systemd-detect-virt" ? ok("kvm\n") : respond(argv);
     const { json } = await machinesJson(m);

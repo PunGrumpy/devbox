@@ -137,5 +137,5 @@ export const runWith = async <A, E>(
 
 /** The header that logs a request in to the hub that runs with this HOME, once it has started. */
 export const asOwner = (home: string) => ({
-  authorization: `Bearer ${readFileSync(tokenFile(home), "utf8").trim()}`,
+  authorization: `Bearer ${readFileSync(tokenFile(home), "utf-8").trim()}`,
 });

@@ -45,7 +45,7 @@ describe("setupShell", () => {
     mkdirSync(m.home, { recursive: true });
     writeFileSync(join(m.home, ".zshrc"), "mine\n");
     const { err } = await setup(m);
-    expect(readFileSync(join(m.home, ".zshrc"), "utf8")).toBe("mine\n");
+    expect(readFileSync(join(m.home, ".zshrc"), "utf-8")).toBe("mine\n");
     expect(err).toContain("it is not ours");
   });
 

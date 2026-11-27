@@ -220,7 +220,7 @@ const pickAgents = (ticked: AgentIds) =>
       "Which agent CLIs should this machine have?",
       AGENTS.map((agent) => ({
         title: agent.name,
-        value: agent.id as AgentId,
+        value: agent.id,
         selected: ticked.includes(agent.id),
       }))
     );

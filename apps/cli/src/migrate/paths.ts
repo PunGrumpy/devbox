@@ -30,4 +30,4 @@ export const rebase = (
 
 // Claude Code keeps a project in projects/<slug>: the resolved cwd with every non-alphanumeric character turned into '-'.
 export const slugOf = (path: AbsolutePath): string =>
-  path.replace(/[^A-Za-z0-9]/g, "-");
+  path.replaceAll(/[^A-Za-z0-9]/g, "-");

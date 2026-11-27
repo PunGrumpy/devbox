@@ -52,7 +52,7 @@ const run = (stubs: {
   const calls = (() => {
     try {
       // curl and bash run at once in a pipeline, so their order is not fixed.
-      return readFileSync(log, "utf8")
+      return readFileSync(log, "utf-8")
         .trim()
         .split("\n")
         .map((line) => line.trim())

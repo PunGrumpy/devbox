@@ -210,7 +210,9 @@ const logIn = async (m: FakeMachine, flags: readonly string[] = []) => {
 };
 
 const savedFile = (m: FakeMachine) =>
-  JSON.parse(readFileSync(cloudflareFile(m.home), "utf8")) as CloudflareAccount;
+  JSON.parse(
+    readFileSync(cloudflareFile(m.home), "utf-8")
+  ) as CloudflareAccount;
 
 const oauthAccount = (expiresAt: number): CloudflareAccount => ({
   login: {
@@ -232,7 +234,7 @@ describe("devbox hub cloudflare", () => {
     expect(saved.code).toBe(0);
     expect(saved.err).toContain("saved a Cloudflare API token for example.com");
     expect(statSync(cloudflareFile(m.home)).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(readFileSync(cloudflareFile(m.home), "utf8"))).toEqual({
+    expect(JSON.parse(readFileSync(cloudflareFile(m.home), "utf-8"))).toEqual({
       login: { kind: "token", token: CLOUDFLARE_TOKEN },
       accountId: ACCOUNT.id,
       zoneId: ZONE.id,
@@ -463,7 +465,7 @@ describe("devbox hub cloudflare", () => {
 
     expect(picked.code).toBe(0);
     expect(
-      JSON.parse(readFileSync(cloudflareFile(m.home), "utf8"))
+      JSON.parse(readFileSync(cloudflareFile(m.home), "utf-8"))
     ).toMatchObject({
       zone: "example.org",
       zoneId: "zone000000000000000000000000002",
@@ -734,12 +736,14 @@ for (const kind of ["token", "oauth"] as const) {
     const m = makeMachine();
     m.answer = (url, request) => cf.answer(url, request);
 
-    if (kind === "token") await saveToken(m);
-    else
+    if (kind === "token") {
+      await saveToken(m);
+    } else {
       await runWith(
         m.host,
         saveCloudflare(m.home, oauthAccount(Date.now() + 3_600_000))
       );
+    }
 
     const key = (
       await devbox({ HOME: m.home }, ["hub", "key"], { host: m.host })
@@ -804,8 +808,10 @@ for (const kind of ["token", "oauth"] as const) {
       { host: m.host }
     );
 
-    for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1)
+    for (let i = 0; i < 100 && !hub.err().includes("hub:"); i += 1) {
       await Bun.sleep(20);
+    }
+
     afterAll(() => hub.stop());
     const base = `http://127.0.0.1:${port}`;
 
@@ -876,7 +882,7 @@ for (const kind of ["token", "oauth"] as const) {
 
     test("no secret reaches the snapshot, the hub's log, or tunnels.json", async () => {
       const { text } = await machines();
-      const remembered = readFileSync(tunnelsFile(m.home), "utf8");
+      const remembered = readFileSync(tunnelsFile(m.home), "utf-8");
 
       for (const secret of [
         CLOUDFLARE_TOKEN,
@@ -906,7 +912,7 @@ for (const kind of ["token", "oauth"] as const) {
     });
 
     test("when the spoke does not take it: 502", async () => {
-      const answerPost = m.answerPost;
+      const { answerPost } = m;
       m.answerPost = () => false;
       const response = await tunnel("DELETE");
       m.answerPost = answerPost;

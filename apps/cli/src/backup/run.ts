@@ -317,7 +317,9 @@ const discover = (
           : [source.path];
 
       for (const live of files) {
-        if (yield* isSqlite(live)) snapshots.push(snapshotOf(source, live));
+        if (yield* isSqlite(live)) {
+          snapshots.push(snapshotOf(source, live));
+        }
       }
     }
 
@@ -737,8 +739,9 @@ export const restoreBackup = (targetDir: string, snapshot: string) =>
         yield* fs
           .exists(join(target, root))
           .pipe(Effect.orElseSucceed(() => false))
-      )
+      ) {
         yield* out.log(`  ${join(target, root)} -> ${root}`);
+      }
     }
 
     yield* out.log(

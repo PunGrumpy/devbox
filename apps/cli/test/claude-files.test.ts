@@ -105,16 +105,16 @@ describe("rename-root carries Claude files", () => {
       [d.w.homes.a, "A"],
       [d.w.homes.b, "B"],
     ] as const) {
-      expect(readFileSync(join(d.dest(home), "a.jsonl"), "utf8")).toBe(
+      expect(readFileSync(join(d.dest(home), "a.jsonl"), "utf-8")).toBe(
         `${tag} transcript`
       );
-      expect(readFileSync(join(d.dest(home), "memory", "x.md"), "utf8")).toBe(
+      expect(readFileSync(join(d.dest(home), "memory", "x.md"), "utf-8")).toBe(
         `${tag} x`
       );
       expect(
-        readFileSync(join(d.dest(home), "s1/sub/deep.jsonl"), "utf8")
+        readFileSync(join(d.dest(home), "s1/sub/deep.jsonl"), "utf-8")
       ).toBe(`${tag} deep`);
-      expect(readFileSync(join(d.dest(home, "-sub"), "b.jsonl"), "utf8")).toBe(
+      expect(readFileSync(join(d.dest(home, "-sub"), "b.jsonl"), "utf-8")).toBe(
         `${tag} sub`
       );
       expect(existsSync(join(d.dest(home), "link.jsonl"))).toBe(false);
@@ -155,7 +155,7 @@ describe("rename-root carries Claude files", () => {
     expect(existsSync(join(d.dest(d.w.homes.b), "only-in-a.jsonl"))).toBe(
       false
     );
-    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")).toBe(
       "B transcript"
     );
   });
@@ -228,7 +228,7 @@ describe("rename-root carries Claude files", () => {
 
     expect(r.code).toBe(0);
     expect(r.err).not.toContain("not copied");
-    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")).toBe(
       "A transcript"
     );
     expect(d.workspaceRoot()).toBe(d.to);
@@ -310,15 +310,15 @@ describe("rename-root carries Claude files", () => {
     utimesSync(join(d.dest(d.w.homes.a), "a.jsonl"), new Date(), new Date());
     const r = await d.rename("--apply", "--yes");
     expect(r.code).toBe(0);
-    expect(readFileSync(join(d.dest(d.w.homes.a), "memory/x.md"), "utf8")).toBe(
-      "A y"
-    );
     expect(
-      readFileSync(join(d.dest(d.w.homes.a), "memory/MEMORY.md"), "utf8")
+      readFileSync(join(d.dest(d.w.homes.a), "memory/x.md"), "utf-8")
+    ).toBe("A y");
+    expect(
+      readFileSync(join(d.dest(d.w.homes.a), "memory/MEMORY.md"), "utf-8")
     ).toBe("A index");
-    expect(readFileSync(join(d.from(d.w.homes.a), "memory/x.md"), "utf8")).toBe(
-      "A x"
-    );
+    expect(
+      readFileSync(join(d.from(d.w.homes.a), "memory/x.md"), "utf-8")
+    ).toBe("A x");
     const conflict = join(d.dest(d.w.homes.a), "memory/x.md");
     expect(r.err).toContain("1 already there, 1 conflict");
     expect(r.err.indexOf("> Success!")).toBeLessThan(
@@ -347,7 +347,7 @@ describe("rename-root carries Claude files", () => {
     expect(snapshot(d.from(d.w.homes.b))).toEqual(sourceB);
     expect(snapshot(d.from(d.w.homes.a))).toEqual(sourceA);
     expect(r.err).toContain("or sat behind a symlink");
-    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")).toBe(
       "B transcript"
     );
   });
@@ -362,7 +362,7 @@ describe("rename-root carries Claude files", () => {
     expect(r.err).toContain("is a symlink, so it is not copied");
     expect(r.err).not.toContain("slug format");
     expect(existsSync(d.dest(d.w.homes.a))).toBe(false);
-    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(d.w.homes.b), "a.jsonl"), "utf-8")).toBe(
       "B transcript"
     );
     expect(snapshot(d.from(d.w.homes.b))).toEqual(sourceB);
@@ -390,7 +390,7 @@ describe("rename-root carries Claude files", () => {
     const name = `${"n".repeat(240)}.jsonl`;
     putFiles(d.from(d.w.homes.a), { [name]: "long" });
     expect((await d.rename("--apply", "--yes")).code).toBe(0);
-    expect(readFileSync(join(d.dest(d.w.homes.a), name), "utf8")).toBe("long");
+    expect(readFileSync(join(d.dest(d.w.homes.a), name), "utf-8")).toBe("long");
   });
 
   test("nothing is copied when the prompt is refused", async () => {
@@ -514,7 +514,7 @@ describe("rename-root carries Claude files", () => {
     expect(r.code).toBe(0);
     expect(r.err).toContain("the slug format may have changed");
     expect(
-      readFileSync(join(d.dest(d.w.homes.a, "-sub"), "b.jsonl"), "utf8")
+      readFileSync(join(d.dest(d.w.homes.a, "-sub"), "b.jsonl"), "utf-8")
     ).toBe("A sub");
   });
 
@@ -526,7 +526,7 @@ describe("rename-root carries Claude files", () => {
     symlinkSync(target, join(d.dest(d.w.homes.a), "a.jsonl"));
     const r = await d.rename("--apply", "--yes");
     expect(r.code).toBe(0);
-    expect(readFileSync(target, "utf8")).toBe("outside");
+    expect(readFileSync(target, "utf-8")).toBe("outside");
     expect(r.err).toContain("1 conflict");
   });
 
@@ -571,7 +571,7 @@ describe("rename-root carries Claude files", () => {
         yield* files.apply(plan);
       }).pipe(Effect.provide(layer))
     );
-    expect(readFileSync(join(d.dest(d.w.homes.a), "late.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(d.w.homes.a), "late.jsonl"), "utf-8")).toBe(
       "late"
     );
   });
@@ -603,7 +603,7 @@ describe("rename-root carries Claude files", () => {
 
     expect(r.code).toBe(0);
     const dest = join(w.homes.a, "projects", slug(join(gone, "proj2")));
-    expect(readFileSync(join(dest, "a.jsonl"), "utf8")).toBe("live");
+    expect(readFileSync(join(dest, "a.jsonl"), "utf-8")).toBe("live");
     expect(existsSync(join(dest, "b.jsonl"))).toBe(false);
   });
 
@@ -627,7 +627,7 @@ describe("rename-root carries Claude files", () => {
 
     expect(r.code).toBe(0);
     expect(r.err).not.toContain("not copied");
-    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")).toBe(
       "A transcript"
     );
   });
@@ -648,7 +648,7 @@ describe("rename-root carries Claude files", () => {
     const d = dotfiles();
 
     const settings = JSON.parse(
-      readFileSync(join(d.w.t3, "userdata", "settings.json"), "utf8")
+      readFileSync(join(d.w.t3, "userdata", "settings.json"), "utf-8")
     );
 
     const gone = join(d.w.base, "unmounted", ".claude-c");
@@ -669,7 +669,7 @@ describe("rename-root carries Claude files", () => {
     expect(r.code).toBe(0);
     expect(r.err.match(/does not exist here/g)).toHaveLength(1);
     expect(existsSync(gone)).toBe(false);
-    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")).toBe(
       "A transcript"
     );
   });
@@ -698,7 +698,7 @@ describe("rename-root carries Claude files", () => {
 
     expect(r.code).toBe(0);
     const dest = join(w.homes.a, "projects", slug(join(gone, "proj2")));
-    expect(readFileSync(join(dest, "a.jsonl"), "utf8")).toBe("live");
+    expect(readFileSync(join(dest, "a.jsonl"), "utf-8")).toBe("live");
   });
 
   test("temp files: a file named like one is left alone, and none is left behind", async () => {
@@ -717,10 +717,10 @@ describe("rename-root carries Claude files", () => {
     expect(
       readFileSync(
         join(d.dest(d.w.homes.a), ".a.jsonl.devbox-migrate.tmp"),
-        "utf8"
+        "utf-8"
       )
     ).toBe("keep");
-    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(d.w.homes.a), "a.jsonl"), "utf-8")).toBe(
       "A transcript"
     );
   });
@@ -736,10 +736,10 @@ describe("rename-root carries Claude files", () => {
     expect(r.code).toBe(0);
     expect(r.err).toContain("0 conflicts");
     expect(
-      readFileSync(join(d.dest(d.w.homes.a), "memory/MEMORY.md"), "utf8")
+      readFileSync(join(d.dest(d.w.homes.a), "memory/MEMORY.md"), "utf-8")
     ).toBe("A index");
     expect(
-      readFileSync(join(d.dest(d.w.homes.a), "s1/sub/deep.jsonl"), "utf8")
+      readFileSync(join(d.dest(d.w.homes.a), "s1/sub/deep.jsonl"), "utf-8")
     ).toBe("A deep");
   });
 
@@ -912,7 +912,7 @@ describe("Claude homes", () => {
     expect(
       (await d.rename("--claude-home", custom, "--apply", "--yes")).code
     ).toBe(0);
-    expect(readFileSync(join(d.dest(custom), "c.jsonl"), "utf8")).toBe(
+    expect(readFileSync(join(d.dest(custom), "c.jsonl"), "utf-8")).toBe(
       "custom"
     );
   });

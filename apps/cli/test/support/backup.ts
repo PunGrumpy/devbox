@@ -61,7 +61,7 @@ export const withBackupTools = (
       const backup = /^\.backup "(.*)"$/.exec(dot);
 
       if (backup) {
-        const dest = backup[1]!.replace(/\\(["\\])/g, "$1");
+        const dest = backup[1]!.replaceAll(/\\(["\\])/g, "$1");
         mkdirSync(dirname(dest), { recursive: true });
         copyFileSync(args.at(-2)!, dest);
 

@@ -100,7 +100,7 @@ describe("linkInstructions", () => {
     const first = await run();
     expect(readlinkSync(file(".claude"))).toBe(source);
     expect(readlinkSync(file(".claude-pun"))).toBe(source);
-    expect(readFileSync(file(".claude-pun"), "utf8")).toBe(
+    expect(readFileSync(file(".claude-pun"), "utf-8")).toBe(
       "# Rules\n\n- Reply in Thai.\n"
     );
     expect(first.err).toContain("instructions: linked CLAUDE.md in");
@@ -114,7 +114,7 @@ describe("linkInstructions", () => {
     const { run, file, source } = machine();
     await run();
     writeFileSync(source, "new rule\n");
-    expect(readFileSync(file(".claude"), "utf8")).toBe("new rule\n");
+    expect(readFileSync(file(".claude"), "utf-8")).toBe("new rule\n");
   });
 
   test("replaces a regular file that is an exact copy of AGENTS.md", async () => {
@@ -129,7 +129,7 @@ describe("linkInstructions", () => {
     put(".claude", "# Mine\n");
     const r = await run();
     expect(lstatSync(file(".claude")).isSymbolicLink()).toBe(false);
-    expect(readFileSync(file(".claude"), "utf8")).toBe("# Mine\n");
+    expect(readFileSync(file(".claude"), "utf-8")).toBe("# Mine\n");
     expect(r.err).toContain(
       `instructions: left ${file(".claude")} alone, it is not a copy of ${source}`
     );
@@ -157,7 +157,7 @@ describe("linkInstructions", () => {
 
 test("the repo ships the AGENTS.md the links point at", () => {
   expect(INSTRUCTIONS_FILE.endsWith("/instructions/AGENTS.md")).toBe(true);
-  expect(readFileSync(INSTRUCTIONS_FILE, "utf8")).toContain(
+  expect(readFileSync(INSTRUCTIONS_FILE, "utf-8")).toContain(
     "Never force push."
   );
 });

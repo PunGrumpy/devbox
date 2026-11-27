@@ -283,7 +283,7 @@ describe("publishing", () => {
     expect(html.error).toBe(
       "Publishing edge-7 stopped when devbox tried to create the tunnel: Cloudflare answered 200 with something that is not its JSON"
     );
-    const answer = m.answer;
+    const { answer } = m;
     m.answer = (url, request) =>
       url.includes("/configurations") ? undefined : answer(url, request);
     cf.override = () => undefined;
@@ -427,7 +427,7 @@ describe("unpublishing", () => {
       ingress: [],
       records: [],
     });
-    expect(readFileSync(tunnelsFile(m.home), "utf8").trim()).toBe("{}");
+    expect(readFileSync(tunnelsFile(m.home), "utf-8").trim()).toBe("{}");
   });
 
   test("when the spoke does not take it: 502, and nothing in Cloudflare is deleted", async () => {

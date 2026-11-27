@@ -7,7 +7,7 @@ export const expandVars = (
   line: string,
   vars: Readonly<Record<string, string | undefined>>
 ) =>
-  line.replace(
+  line.replaceAll(
     /\$(?:(\$)|\{([^}]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
     (_, dollar?: string, braced?: string, bare?: string) =>
       dollar === undefined ? (vars[braced ?? bare ?? ""] ?? "") : "$"

@@ -196,8 +196,9 @@ export const schemaGaps = Effect.fn("schemaGaps")(function* (
     if (present.length === 0) {
       gaps.push(`table ${table}`);
     } else {
-      for (const column of columns)
+      for (const column of columns) {
         if (!present.includes(column)) gaps.push(`column ${table}.${column}`);
+      }
     }
   }
 

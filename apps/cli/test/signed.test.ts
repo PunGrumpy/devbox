@@ -256,7 +256,7 @@ describe("vitals", () => {
       vitalsOf({
         load1: 3,
         cores: 8,
-        memory: { total: 16_000, available: 4_000 },
+        memory: { total: 16_000, available: 4000 },
         disk: { blocks: 1000, free: 250, blockSize: 4096 },
       })
     ).toEqual({

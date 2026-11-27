@@ -159,7 +159,7 @@ describe("the skills list is data", () => {
         ? { code: 0, stdout: TEMPLATE, stderr: "" }
         : undefined;
     await runWith(m.host, installSkills(m.home, {}, BOTH));
-    expect(readFileSync(join(m.home, ".devbox-skills"), "utf8").trim()).toBe(
+    expect(readFileSync(join(m.home, ".devbox-skills"), "utf-8").trim()).toBe(
       `${parseSkillsList(TEMPLATE).hash} ${BOTH.join(",")}`
     );
     const before = m.calls.length;
