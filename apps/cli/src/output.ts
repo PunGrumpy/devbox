@@ -1,7 +1,7 @@
 import { styleText } from "node:util";
 
 import { BunServices } from "@effect/platform-bun";
-import { Context, Duration, Effect, Layer } from "effect";
+import { Context, Duration, Effect, Layer, Predicate } from "effect";
 import { Prompt } from "effect/cli";
 
 import { Aborted, NotATerminal } from "./errors.ts";
@@ -90,35 +90,33 @@ export class Output extends Context.Service<
     ) => Effect.Effect<readonly A[], NotATerminal | Aborted>;
   }
 >()("devbox/Output") {
-  static readonly make = (streams: Streams): Output["Service"] => {
+  static readonly make = (streams: Streams) => {
     const { paint } = streams;
 
-    const text = (cell: Cell): string => {
-      if (typeof cell === "string") {
+    // oxlint-disable-next-line landmines-types/no-explicit-return-types -- a recursive function needs its return type to infer itself
+    const show = (cell: Cell, toned: Paint): string => {
+      if (Predicate.isString(cell)) {
         return cell;
       }
 
       if ("tone" in cell) {
-        return cell.text;
+        return toned(cell.tone, cell.text);
       }
 
-      return cell.map(text).join("");
+      return cell.map((inner) => show(inner, toned)).join("");
     };
 
-    const render = (cell: Cell): string => {
-      if (typeof cell === "string") {
-        return cell;
-      }
+    const text = (cell: Cell) => show(cell, (_, value) => value);
 
-      if ("tone" in cell) {
-        return paint(cell.tone, cell.text);
-      }
-
-      return cell.map(render).join("");
-    };
+    const render = (cell: Cell) => show(cell, paint);
 
     const line = (value = "") =>
-      Effect.sync(() => streams.stderr(`${value}\n`));
+      Effect.sync(() => {
+        streams.stderr(`${value}\n`);
+      });
+
+    const timing = (elapsed: Duration.Duration) =>
+      paint("dim", `[${formatElapsed(elapsed)}]`);
 
     const log = (message: string) => line(`${paint("dim", ">")} ${message}`);
 
@@ -132,14 +130,18 @@ export class Output extends Context.Service<
 
     return {
       paint,
-      stdoutColor: streams.stdoutColor,
-      stdout: (value) => Effect.sync(() => streams.stdout(value)),
       line,
       log,
-      success: (message, elapsed) =>
-        line(
-          `${paint("cyan", "> Success!")} ${message}${elapsed === undefined ? "" : ` ${paint("dim", `[${formatElapsed(elapsed)}]`)}`}`
-        ),
+      stdoutColor: streams.stdoutColor,
+      stdout: (value) =>
+        Effect.sync(() => {
+          streams.stdout(value);
+        }),
+      success: (message, elapsed) => {
+        const suffix = elapsed === undefined ? "" : ` ${timing(elapsed)}`;
+
+        return line(`${paint("cyan", "> Success!")} ${message}${suffix}`);
+      },
       note: (message) =>
         line(`${paint("bold", paint("yellow", "> NOTE:"))} ${message}`),
       warn: (message) =>
@@ -149,16 +151,21 @@ export class Output extends Context.Service<
           line(`${paint("bold", paint("red", "Error:"))} ${message}`),
           hint === undefined ? Effect.void : log(hint)
         ),
-      check: (ok, label, detail) =>
-        line(
-          `${ok ? paint("green", "✔") : paint("red", "✖")} ${render(label)}${detail ? `  ${paint("dim", detail)}` : ""}`
-        ),
+      check: (ok, label, detail) => {
+        const suffix =
+          detail === undefined || detail === ""
+            ? ""
+            : `  ${paint("dim", detail)}`;
+
+        return line(
+          `${ok ? paint("green", "✔") : paint("red", "✖")} ${render(label)}${suffix}`
+        );
+      },
       table: (columns, rows) =>
         Effect.gen(function* () {
-          const header = columns.map((column): Cell => ({
-            text: column.header,
-            tone: "dim",
-          }));
+          const header = columns.map(
+            (column) => ({ text: column.header, tone: "dim" }) satisfies Cell
+          );
 
           const body = rows.map((row) =>
             columns.map((column) => column.cell(row))
@@ -186,26 +193,26 @@ export class Output extends Context.Service<
           { discard: true }
         ),
       json: (value) =>
-        Effect.sync(() =>
-          streams.stdout(`${JSON.stringify(value, null, 2)}\n`)
-        ),
+        Effect.sync(() => {
+          streams.stdout(`${JSON.stringify(value, null, 2)}\n`);
+        }),
       step: (message, task) =>
         Effect.gen(function* () {
           if (streams.interactive) {
-            yield* Effect.sync(() =>
-              streams.stderr(`${paint("dim", ">")} ${message} …`)
-            );
+            yield* Effect.sync(() => {
+              streams.stderr(`${paint("dim", ">")} ${message} …`);
+            });
           }
 
           const [elapsed, result] = yield* Effect.timed(task);
 
           if (streams.interactive) {
-            yield* Effect.sync(() => streams.stderr("\r\u001B[2K"));
+            yield* Effect.sync(() => {
+              streams.stderr("\r\u001B[2K");
+            });
           }
 
-          yield* log(
-            `${message} ${paint("dim", `[${formatElapsed(elapsed)}]`)}`
-          );
+          yield* log(`${message} ${timing(elapsed)}`);
 
           return result;
         }),
@@ -215,12 +222,12 @@ export class Output extends Context.Service<
             return yield* new NotATerminal();
           }
 
-          yield* Effect.sync(() =>
+          yield* Effect.sync(() => {
             streams.stderr(
               `${paint("cyan", "?")} ${question} ${paint("dim", "(y/N)")} `
-            )
-          );
-          const yes = /^\s*y(es)?\s*$/i.test(yield* streams.readAnswer);
+            );
+          });
+          const yes = /^\s*y(?:es)?\s*$/iu.test(yield* streams.readAnswer);
           yield* line(paint("dim", yes ? "yes" : "no"));
 
           return yes;
@@ -237,14 +244,18 @@ export class Output extends Context.Service<
             choices[i] === undefined ? [] : [choices[i].value]
           );
         }),
-    };
+    } satisfies Output["Service"];
   };
 
+  /** Writes to stderr with `process.stderr.write`, because Bun's `console.error` paints the whole line red on a terminal. */
   static readonly layer = Layer.sync(Output, () =>
     Output.make({
-      stdout: (value) => process.stdout.write(value),
-      // Bun's console.error paints the whole line red on a terminal.
-      stderr: (value) => process.stderr.write(value),
+      stdout: (value) => {
+        process.stdout.write(value);
+      },
+      stderr: (value) => {
+        process.stderr.write(value);
+      },
       paint: colorFor(process.stderr),
       stdoutColor: colorFor(process.stdout)("bold", "x") !== "x",
       interactive: process.stdin.isTTY && process.stderr.isTTY,
@@ -269,18 +280,16 @@ export class Output extends Context.Service<
   );
 }
 
-const colorFor =
-  (stream: NodeJS.WriteStream): Paint =>
-  (tone, value) =>
-    styleText(tone, value, { stream });
+const colorFor = (stream: NodeJS.WriteStream) =>
+  ((tone, value) => styleText(tone, value, { stream })) satisfies Paint;
 
-export const formatElapsed = (elapsed: Duration.Duration): string => {
+export const formatElapsed = (elapsed: Duration.Duration) => {
   const ms = Duration.toMillis(elapsed);
 
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 };
 
-export const formatBytes = (bytes: number): string => {
+export const formatBytes = (bytes: number) => {
   if (bytes < 1024) {
     return `${bytes} B`;
   }
@@ -297,5 +306,5 @@ export const formatBytes = (bytes: number): string => {
   return `${Number(value.toFixed(1))} ${units[unit]}`;
 };
 
-export const plural = (count: number, noun: string): string =>
+export const plural = (count: number, noun: string) =>
   `${count} ${noun}${count === 1 ? "" : "s"}`;
