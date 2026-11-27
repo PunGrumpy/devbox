@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import path from "node:path";
 
 export const ALPHA = "0a1f0000-0000-4000-8000-00000000a1fa";
 export const BETA = "0b2e0000-0000-4000-8000-00000000be7a";
@@ -50,8 +50,8 @@ CREATE TABLE scheduled_tasks (
   last_run_status TEXT NOT NULL DEFAULT 'idle', last_run_error TEXT, run_count INTEGER NOT NULL DEFAULT 0);
 `;
 
-const sessionPayload = (cwd: string) =>
-  JSON.stringify({ id: "s", status: "ready", cwd, model: "m" });
+const sessionPayload = (dir: string) =>
+  JSON.stringify({ id: "s", status: "ready", cwd: dir, model: "m" });
 
 export interface Fixture {
   dir: string;
@@ -62,11 +62,11 @@ export interface Fixture {
 
 export const makeFixture = (
   options: { events?: number; dropSessions?: boolean } = {}
-): Fixture => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "devbox-migrate-")));
-  const path = join(dir, "statev2.sqlite");
-  const db = new Database(path, { create: true, strict: true });
-  db.exec(SCHEMA_0_1_6_NIGHTLY_20261031);
+) => {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "devbox-migrate-")));
+  const file = path.join(dir, "statev2.sqlite");
+  const db = new Database(file, { create: true, strict: true });
+  db.run(SCHEMA_0_1_6_NIGHTLY_20261031);
 
   const project = db.query(
     "INSERT INTO projection_projects (project_id, title, workspace_root, deleted_at) VALUES (?, ?, ?, ?)"
@@ -116,8 +116,8 @@ export const makeFixture = (
   add("t-beta-2", BETA, "Image build", "2026-10-21T00:00:00Z", null);
   add("t-beta-3", BETA, "Old", "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z");
 
-  if (options.dropSessions) {
-    db.exec("DROP TABLE orchestration_v2_projection_provider_sessions");
+  if (options.dropSessions === true) {
+    db.run("DROP TABLE orchestration_v2_projection_provider_sessions");
   } else {
     const session = db.query(
       "INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, payload_json) VALUES (?, ?, ?)"
@@ -141,26 +141,26 @@ export const makeFixture = (
   }
 
   db.close();
-  const backups = join(dir, "backups");
+  const backups = path.join(dir, "backups");
 
   return {
     dir,
-    db: path,
     backups,
+    db: file,
     env: {
-      HOME: join(dir, "home"),
-      T3_HOME: join(dir, "no-t3"),
+      HOME: path.join(dir, "home"),
+      T3_HOME: path.join(dir, "no-t3"),
       T3_BACKUP_DIR: backups,
     },
-  };
+  } satisfies Fixture;
 };
 
 export const query = <T>(
-  path: string,
+  file: string,
   sql: string,
   ...params: (string | number)[]
-): T[] => {
-  const db = new Database(path, { readonly: true, strict: true });
+) => {
+  const db = new Database(file, { readonly: true, strict: true });
 
   try {
     return db.query<T, (string | number)[]>(sql).all(...params);
@@ -179,27 +179,32 @@ export interface World {
   env: Record<string, string>;
 }
 
-export const slug = (path: string): string =>
-  path.replaceAll(/[^A-Za-z0-9]/g, "-");
+/** The folder name Claude gives a project: every UTF-16 unit that is not a letter or digit becomes `-`. */
+export const slug = (file: string) =>
+  file.replaceAll(/[^A-Za-z0-9]/gu, (char) => "-".repeat(char.length));
 
-export const makeWorld = (): World => {
+export const makeWorld = () => {
   const base = realpathSync(
-    mkdtempSync(join(tmpdir(), "devbox-migrate-world-"))
+    mkdtempSync(path.join(tmpdir(), "devbox-migrate-world-"))
   );
 
-  const home = join(base, "home");
-  const real = join(base, "real", "Developments");
-  const t3 = join(home, ".t3");
-  const homes = { a: join(home, ".claude-a"), b: join(home, ".claude-b") };
+  const home = path.join(base, "home");
+  const real = path.join(base, "real", "Developments");
+  const t3 = path.join(home, ".t3");
 
-  for (const dir of [home, real, join(t3, "userdata"), homes.a, homes.b]) {
+  const homes = {
+    a: path.join(home, ".claude-a"),
+    b: path.join(home, ".claude-b"),
+  };
+
+  for (const dir of [home, real, path.join(t3, "userdata"), homes.a, homes.b]) {
     mkdirSync(dir, { recursive: true });
   }
 
-  symlinkSync(real, join(home, "Developments"));
-  symlinkSync(homes.b, join(home, ".claude-b-alias"));
+  symlinkSync(real, path.join(home, "Developments"));
+  symlinkSync(homes.b, path.join(home, ".claude-b-alias"));
   writeFileSync(
-    join(t3, "userdata", "settings.json"),
+    path.join(t3, "userdata", "settings.json"),
     JSON.stringify({
       providerInstances: {
         claudeAgent_a: {
@@ -222,14 +227,14 @@ export const makeWorld = (): World => {
         },
         codex_x: {
           driver: "codex",
-          config: { homePath: join(home, ".codex-x") },
+          config: { homePath: path.join(home, ".codex-x") },
         },
       },
     })
   );
-  const db = join(t3, "userdata", "statev2.sqlite");
+  const db = path.join(t3, "userdata", "statev2.sqlite");
   const conn = new Database(db, { create: true, strict: true });
-  conn.exec(SCHEMA_0_1_6_NIGHTLY_20261031);
+  conn.run(SCHEMA_0_1_6_NIGHTLY_20261031);
   conn.close();
 
   return {
@@ -239,8 +244,8 @@ export const makeWorld = (): World => {
     t3,
     db,
     homes,
-    env: { HOME: home, T3_HOME: t3, T3_BACKUP_DIR: join(base, "backups") },
-  };
+    env: { HOME: home, T3_HOME: t3, T3_BACKUP_DIR: path.join(base, "backups") },
+  } satisfies World;
 };
 
 export const addProject = (
@@ -249,7 +254,7 @@ export const addProject = (
   title: string,
   root: string,
   cwds: { cwd: string; driver?: string }[] = []
-): void => {
+) => {
   const conn = new Database(world.db, { strict: true });
   conn
     .query(
@@ -271,34 +276,36 @@ export const addProject = (
   conn.close();
 };
 
-export const putFiles = (dir: string, files: Record<string, string>): void => {
+export const putFiles = (dir: string, files: Record<string, string>) => {
   for (const [rel, content] of Object.entries(files)) {
-    mkdirSync(dirname(join(dir, rel)), { recursive: true });
-    writeFileSync(join(dir, rel), content);
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), content);
   }
 };
 
-export const snapshot = (dir: string): Record<string, string> => {
-  const out: Record<string, string> = {};
+export const snapshot = (dir: string) => {
+  const out = new Map<string, string>();
 
-  const walk = (path: string) => {
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      const full = join(path, entry.name);
-      const rel = relative(dir, full);
+  const walk = (at: string) => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const full = path.join(at, entry.name);
+      const rel = path.relative(dir, full);
 
       if (entry.isDirectory()) {
-        out[rel] = "dir";
+        out.set(rel, "dir");
         walk(full);
       } else if (entry.isSymbolicLink()) {
-        out[rel] = `link ${readlinkSync(full)}`;
+        out.set(rel, `link ${readlinkSync(full)}`);
       } else {
-        out[rel] =
-          `${Bun.hash(readFileSync(full))} @${lstatSync(full).mtimeMs}`;
+        out.set(
+          rel,
+          `${Bun.hash(readFileSync(full))} @${lstatSync(full).mtimeMs}`
+        );
       }
     }
   };
 
   walk(dir);
 
-  return out;
+  return Object.fromEntries(out);
 };
