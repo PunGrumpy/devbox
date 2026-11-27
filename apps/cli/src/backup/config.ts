@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { Effect, FileSystem, Result, Schema } from "effect";
 
@@ -6,18 +6,18 @@ import type { AbsolutePath } from "../migrate/paths.ts";
 import { absolutePath } from "../migrate/paths.ts";
 
 export const backupPaths = (home: string) => {
-  const dir = join(home, ".config", "devbox", "backup");
-  const state = join(home, ".local", "state", "devbox", "backup");
+  const dir = path.join(home, ".config", "devbox", "backup");
+  const state = path.join(home, ".local", "state", "devbox", "backup");
 
   return {
     dir,
-    sources: join(dir, "sources"),
-    excludes: join(dir, "excludes"),
-    env: join(dir, "env"),
+    sources: path.join(dir, "sources"),
+    excludes: path.join(dir, "excludes"),
+    env: path.join(dir, "env"),
     state: absolutePath(state),
-    stage: absolutePath(join(state, "sqlite")),
-    generatedExcludes: join(state, "sqlite-excludes"),
-    lock: join(state, "lock"),
+    stage: absolutePath(path.join(state, "sqlite")),
+    generatedExcludes: path.join(state, "sqlite-excludes"),
+    lock: path.join(state, "lock"),
   };
 };
 
@@ -45,14 +45,14 @@ node_modules
 `;
 
 export const envTemplate = (home: string) => `RESTIC_REPOSITORY=
-RESTIC_PASSWORD_FILE=${join(home, ".config", "devbox", "backup", "restic-password")}
+RESTIC_PASSWORD_FILE=${path.join(home, ".config", "devbox", "backup", "restic-password")}
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_DEFAULT_REGION=auto
 `;
 
 const EnvName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/))
+  Schema.check(Schema.isPattern(/^[A-Za-z_]\w*$/u))
 );
 
 export interface ParsedEnv {
@@ -60,14 +60,18 @@ export interface ParsedEnv {
   readonly invalid: readonly number[];
 }
 
-const unquote = (value: string) =>
-  value.length >= 2 &&
-  (value.startsWith('"') || value.startsWith("'")) &&
-  value.endsWith(value[0]!)
-    ? value.slice(1, -1)
-    : value;
+const unquote = (value: string) => {
+  const quote = value.at(0);
 
-export const parseEnv = (text: string): ParsedEnv => {
+  const quoted =
+    value.length >= 2 &&
+    (quote === '"' || quote === "'") &&
+    value.endsWith(quote);
+
+  return quoted ? value.slice(1, -1) : value;
+};
+
+export const parseEnv = (text: string) => {
   const values: Record<string, string> = {};
   const invalid: number[] = [];
   text.split("\n").forEach((raw, index) => {
@@ -84,16 +88,18 @@ export const parseEnv = (text: string): ParsedEnv => {
       name === undefined ||
       Result.isFailure(Schema.decodeUnknownResult(EnvName)(name))
     ) {
-      return void invalid.push(index + 1);
+      invalid.push(index + 1);
+
+      return;
     }
 
     values[name] = unquote(line.slice(at + 1).trim());
   });
 
-  return { values, invalid };
+  return { values, invalid } satisfies ParsedEnv;
 };
 
-export const resticRepositoryOf = (text: string): string | undefined => {
+export const resticRepositoryOf = (text: string) => {
   const { values, invalid } = parseEnv(text);
   const repository = values.RESTIC_REPOSITORY;
 
@@ -108,8 +114,8 @@ export const ensureConfig = (home: AbsolutePath) =>
     const paths = backupPaths(home);
     yield* fs.makeDirectory(paths.dir, { recursive: true });
 
-    const create = (path: string, content: string, mode: number) =>
-      fs.writeFileString(path, content, { flag: "wx", mode }).pipe(
+    const create = (file: string, content: string, mode: number) =>
+      fs.writeFileString(file, content, { flag: "wx", mode }).pipe(
         Effect.as(true),
         Effect.catchIf(
           (error) => error.reason._tag === "AlreadyExists",
@@ -123,8 +129,8 @@ export const ensureConfig = (home: AbsolutePath) =>
         [paths.excludes, DEFAULT_EXCLUDES, 0o644],
         [paths.env, envTemplate(home), 0o600],
       ] as const,
-      ([path, content, mode]) =>
-        Effect.map(create(path, content, mode), (made) => (made ? [path] : []))
+      ([file, content, mode]) =>
+        Effect.map(create(file, content, mode), (made) => (made ? [file] : []))
     );
 
     return created.flat();

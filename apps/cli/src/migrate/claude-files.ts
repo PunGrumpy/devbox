@@ -1,7 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { basename, dirname, join, relative, sep } from "node:path";
+import path from "node:path";
 
-import { Context, Effect, FileSystem, Layer, Option, Schema } from "effect";
+import {
+  Context,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Predicate,
+  Schema,
+} from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 import { formatBytes, Output, plural } from "../output.ts";
@@ -74,98 +82,101 @@ const TEMP_SUFFIX = ".devbox-migrate.tmp";
 
 const NO_HARD_LINKS = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS"]);
 
-const errnoOf = (error: PlatformError): string | undefined => {
+const errnoOf = (error: PlatformError) => {
   const { cause } = error.reason;
 
   return cause instanceof Error &&
-    "code" in cause &&
-    typeof cause.code === "string"
+    Predicate.hasProperty(cause, "code") &&
+    Predicate.isString(cause.code)
     ? cause.code
     : undefined;
 };
 
 const isNotFound = (error: PlatformError) => error.reason._tag === "NotFound";
 
-const lstatIfExists = (fs: FileSystem.FileSystem, path: string) =>
-  fs.lstat(path).pipe(
+const lstatIfExists = (fs: FileSystem.FileSystem, file: string) =>
+  fs.lstat(file).pipe(
     Effect.map(Option.some),
     Effect.catchIf(isNotFound, () => Effect.succeedNone),
-    Effect.mapError((error) => fail(`cannot inspect ${path}: ${error.message}`))
+    Effect.mapError((error) => fail(`cannot inspect ${file}: ${error.message}`))
   );
 
 const MAX_LINKS = 40;
 
-export const resolvedPath = Effect.fn("resolvedPath")(function* (
-  path: string,
-  links = 0
-): Effect.fn.Return<AbsolutePath, ClaudeFilesError, FileSystem.FileSystem> {
-  const fs = yield* FileSystem.FileSystem;
-  const tail: string[] = [];
-  let head: string = absolutePath(path);
+export const resolvedPath: (
+  target: string,
+  links?: number
+) => Effect.Effect<AbsolutePath, ClaudeFilesError, FileSystem.FileSystem> =
+  Effect.fn("resolvedPath")(function* (target: string, links = 0) {
+    const fs = yield* FileSystem.FileSystem;
+    const tail: string[] = [];
+    let head: string = absolutePath(target);
 
-  for (;;) {
-    const real = yield* fs.realPath(head).pipe(
-      Effect.map(Option.some),
-      Effect.catchIf(isNotFound, () => Effect.succeedNone),
-      Effect.mapError((error) =>
-        fail(`cannot resolve ${head}: ${error.message}`)
-      )
-    );
+    for (;;) {
+      const current = head;
 
-    if (Option.isSome(real)) {
-      return absolutePath(join(real.value, ...tail));
-    }
+      const real = yield* fs.realPath(current).pipe(
+        Effect.map(Option.some),
+        Effect.catchIf(isNotFound, () => Effect.succeedNone),
+        Effect.mapError((error) =>
+          fail(`cannot resolve ${current}: ${error.message}`)
+        )
+      );
 
-    const entry = yield* lstatIfExists(fs, head);
-
-    if (Option.isSome(entry) && entry.value.type === "SymbolicLink") {
-      if (links >= MAX_LINKS) {
-        return yield* fail(`too many symbolic links at ${head}`);
+      if (Option.isSome(real)) {
+        return absolutePath(path.join(real.value, ...tail));
       }
 
-      const link = yield* fs
-        .readLink(head)
-        .pipe(
-          Effect.mapError((error) =>
-            fail(`cannot resolve ${head}: ${error.message}`)
-          )
+      const entry = yield* lstatIfExists(fs, current);
+
+      if (Option.isSome(entry) && entry.value.type === "SymbolicLink") {
+        if (links >= MAX_LINKS) {
+          return yield* fail(`too many symbolic links at ${current}`);
+        }
+
+        const link = yield* fs
+          .readLink(current)
+          .pipe(
+            Effect.mapError((error) =>
+              fail(`cannot resolve ${current}: ${error.message}`)
+            )
+          );
+
+        const parent = yield* resolvedPath(path.dirname(current), links + 1);
+
+        return yield* resolvedPath(
+          path.join(absolutePath(link, parent), ...tail),
+          links + 1
         );
+      }
 
-      const parent = yield* resolvedPath(dirname(head), links + 1);
+      const parent = path.dirname(current);
 
-      return yield* resolvedPath(
-        join(absolutePath(link, parent), ...tail),
-        links + 1
-      );
+      if (parent === current) {
+        return absolutePath(target);
+      }
+
+      tail.unshift(path.basename(current));
+      head = parent;
     }
+  });
 
-    const parent = dirname(head);
-
-    if (parent === head) {
-      return absolutePath(path);
-    }
-
-    tail.unshift(basename(head));
-    head = parent;
-  }
-});
-
-const walk = (
+const walk: (
   fs: FileSystem.FileSystem,
   dir: string,
   destDir: string,
   base: string
-): Effect.Effect<
+) => Effect.Effect<
   { files: readonly FileCopy[]; skipped: number },
   PlatformError
-> =>
+> = (fs, dir, destDir, base) =>
   Effect.gen(function* () {
     const files: FileCopy[] = [];
     let skipped = 0;
 
     for (const entry of yield* fs.readDirectoryEntries(dir)) {
-      const src = join(dir, entry.name);
-      const dest = join(destDir, entry.name);
+      const src = path.join(dir, entry.name);
+      const dest = path.join(destDir, entry.name);
 
       if (entry.type === "Directory") {
         const inner = yield* walk(fs, src, dest, base);
@@ -187,12 +198,14 @@ const pathIsBlocked = (fs: FileSystem.FileSystem, file: FileCopy) =>
   Effect.gen(function* () {
     let dir = file.base;
 
-    for (const part of relative(file.base, dirname(file.dest)).split(sep)) {
+    for (const part of path
+      .relative(file.base, path.dirname(file.dest))
+      .split(path.sep)) {
       if (part === "") {
         continue;
       }
 
-      dir = join(dir, part);
+      dir = path.join(dir, part);
       const entry = yield* lstatIfExists(fs, dir);
 
       if (Option.isNone(entry)) {
@@ -245,14 +258,13 @@ const classify = (fs: FileSystem.FileSystem, file: FileCopy) =>
     );
   });
 
-// link(2) fails with EEXIST where rename(2) replaces, and Node has no atomic no-clobber copy; the rename fallback leaves a race window.
 const placeWithoutClobber = (fs: FileSystem.FileSystem, file: FileCopy) =>
   Effect.gen(function* () {
     const source = yield* fs.lstat(file.src);
-    yield* fs.makeDirectory(dirname(file.dest), { recursive: true });
+    yield* fs.makeDirectory(path.dirname(file.dest), { recursive: true });
 
-    const temp = join(
-      dirname(file.dest),
+    const temp = path.join(
+      path.dirname(file.dest),
       `.${randomBytes(8).toString("hex")}${TEMP_SUFFIX}`
     );
 
@@ -278,6 +290,7 @@ const placeWithoutClobber = (fs: FileSystem.FileSystem, file: FileCopy) =>
                 return "exists" as const;
               }
 
+              // WARNING: rename(2) replaces where link(2) fails with EEXIST, and Node has no atomic no-clobber copy, so this fallback races a file that appears after the check.
               yield* fs.rename(temp, file.dest);
 
               return "placed" as const;
@@ -315,11 +328,20 @@ const scan = (homes: readonly ClaudeHome[], moves: readonly SlugMove[]) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
 
-    const exists = (path: string) =>
-      fs.exists(path).pipe(Effect.orElseSucceed(() => false));
+    const exists = (dir: string) =>
+      fs.exists(dir).pipe(Effect.orElseSucceed(() => false));
 
-    const realOrSelf = (path: string) =>
-      fs.realPath(path).pipe(Effect.orElseSucceed(() => path));
+    const realOrSelf = (dir: string) =>
+      fs.realPath(dir).pipe(Effect.orElseSucceed(() => dir));
+
+    const sameDirectory = (srcDir: string, destDir: string) =>
+      Effect.gen(function* () {
+        if (!(yield* exists(destDir))) {
+          return false;
+        }
+
+        return (yield* realOrSelf(destDir)) === (yield* realOrSelf(srcDir));
+      });
 
     const copies: SlugCopy[] = [];
     const linkedSlugs: string[] = [];
@@ -331,43 +353,35 @@ const scan = (homes: readonly ClaudeHome[], moves: readonly SlugMove[]) =>
     let rootSlugSeen = false;
 
     for (const home of homes) {
-      const base = join(home.path, "projects");
+      const base = path.join(home.path, "projects");
 
       for (const move of moves) {
-        const srcDir = join(base, move.fromSlug);
-        const destDir = join(base, move.toSlug);
+        const srcDir = path.join(base, move.fromSlug);
+        const destDir = path.join(base, move.toSlug);
         const entry = yield* lstatIfExists(fs, srcDir);
+        const type = Option.isSome(entry) ? entry.value.type : undefined;
 
-        if (Option.isNone(entry)) {
-          continue;
-        }
-
-        if (entry.value.type === "SymbolicLink") {
+        if (type === "SymbolicLink") {
           linkedSlugs.push(srcDir);
           rootSlugSeen ||= move.isRoot;
-          continue;
+        } else if (type === "Directory") {
+          rootSlugSeen ||= move.isRoot;
+
+          if (!(yield* sameDirectory(srcDir, destDir))) {
+            const { files, skipped } = yield* walk(
+              fs,
+              srcDir,
+              destDir,
+              base
+            ).pipe(
+              Effect.mapError((error) =>
+                fail(`cannot read ${srcDir}: ${error.message}`)
+              )
+            );
+
+            copies.push({ home, move, destDir, files, skipped });
+          }
         }
-
-        if (entry.value.type !== "Directory") {
-          continue;
-        }
-
-        rootSlugSeen ||= move.isRoot;
-
-        if (
-          (yield* exists(destDir)) &&
-          (yield* realOrSelf(destDir)) === (yield* realOrSelf(srcDir))
-        ) {
-          continue;
-        }
-
-        const { files, skipped } = yield* walk(fs, srcDir, destDir, base).pipe(
-          Effect.mapError((error) =>
-            fail(`cannot read ${srcDir}: ${error.message}`)
-          )
-        );
-
-        copies.push({ home, move, destDir, files, skipped });
       }
     }
 
@@ -409,13 +423,11 @@ const warnMissingHomes = (
   );
 
 const asClaudeFilesError =
-  (message: string, hint: string) => (error: unknown) =>
+  (message: string, hint: string) =>
+  (error: ClaudeFilesError | PlatformError) =>
     error instanceof ClaudeFilesError
       ? error
-      : fail(
-          `${message}: ${error instanceof Error ? error.message : String(error)}`,
-          hint
-        );
+      : fail(`${message}: ${error.message}`, hint);
 
 export class ClaudeFiles extends Context.Service<
   ClaudeFiles,
@@ -472,8 +484,8 @@ export class ClaudeFiles extends Context.Service<
 
           yield* warnMissingHomes(out, copyPlan.scan.missingHomes);
 
-          for (const path of copyPlan.scan.linkedSlugs) {
-            yield* out.warn(`${path} is a symlink, so it is not copied`);
+          for (const linked of copyPlan.scan.linkedSlugs) {
+            yield* out.warn(`${linked} is a symlink, so it is not copied`);
           }
 
           const root = copyPlan.moves.find((move) => move.isRoot);
@@ -502,8 +514,10 @@ export class ClaudeFiles extends Context.Service<
               `      ${plural(t.copy, "file")} to copy (${formatBytes(t.bytes)}), ${t.identical} already there, ${plural(t.conflict, "conflict")}, ${plural(copy.skipped, "symlink or special file")} skipped`
             );
 
-            for (const path of t.conflicts) {
-              yield* out.line(`      ${out.paint("dim", "differs:")} ${path}`);
+            for (const conflict of t.conflicts) {
+              yield* out.line(
+                `      ${out.paint("dim", "differs:")} ${conflict}`
+              );
             }
           }
         }).pipe(
@@ -543,18 +557,15 @@ export class ClaudeFiles extends Context.Service<
                   conflicts.add(file.dest);
                 }
 
-                if (outcome !== "copy") {
-                  continue;
+                if (outcome === "copy") {
+                  if ((yield* placeWithoutClobber(fs, file)) === "exists") {
+                    conflicts.add(file.dest);
+                  } else {
+                    arrived.set(file.dest, size);
+                    files += 1;
+                    bytes += size;
+                  }
                 }
-
-                if ((yield* placeWithoutClobber(fs, file)) === "exists") {
-                  conflicts.add(file.dest);
-                  continue;
-                }
-
-                arrived.set(file.dest, size);
-                files += 1;
-                bytes += size;
               }
             }
           }).pipe(
@@ -638,8 +649,8 @@ export const reportConflicts = (result: CopyResult) =>
       `${plural(result.conflicts.length, "file")} already existed with other content, or sat behind a symlink, and were left as they are:`
     );
 
-    for (const path of result.conflicts) {
-      yield* out.line(`  ${path}`);
+    for (const conflict of result.conflicts) {
+      yield* out.line(`  ${conflict}`);
     }
   });
 
@@ -667,7 +678,7 @@ export const strandedMemory = Effect.fn("strandedMemory")(function* (
   const homes = yield* (yield* ClaudeHomes).list;
 
   const memoryNames = (home: string, slug: string) =>
-    fs.readDirectoryEntries(join(home, "projects", slug, "memory")).pipe(
+    fs.readDirectoryEntries(path.join(home, "projects", slug, "memory")).pipe(
       Effect.map((entries) =>
         entries
           .filter(
@@ -675,7 +686,7 @@ export const strandedMemory = Effect.fn("strandedMemory")(function* (
           )
           .map((entry) => entry.name)
       ),
-      Effect.orElseSucceed((): readonly string[] => [])
+      Effect.orElseSucceed(() => [] satisfies string[])
     );
 
   const found = new Map<string, StrandedMemory>();
@@ -684,35 +695,35 @@ export const strandedMemory = Effect.fn("strandedMemory")(function* (
     const root = absolutePath(project.workspaceRoot);
 
     const paths = new Set(
-      [root, ...cwds.filter((cwd) => isUnderRoot(cwd, root))].map((path) =>
-        absolutePath(path)
+      [root, ...cwds.filter((cwd) => isUnderRoot(cwd, root))].map((dir) =>
+        absolutePath(dir)
       )
     );
 
-    for (const cwd of paths) {
-      const unresolvedSlug = slugOf(cwd);
-      const liveSlug = slugOf(yield* resolvedPath(cwd));
+    for (const dir of paths) {
+      const slug = slugOf(dir);
+      const resolvedSlug = slugOf(yield* resolvedPath(dir));
 
-      if (unresolvedSlug === liveSlug) {
+      if (slug === resolvedSlug) {
         continue;
       }
 
       for (const home of homes) {
-        const key = `${home.path} ${unresolvedSlug}`;
-        const names = yield* memoryNames(home.path, unresolvedSlug);
+        const key = `${home.path} ${slug}`;
+        const names = yield* memoryNames(home.path, slug);
 
         if (names.length === 0 || found.has(key)) {
           continue;
         }
 
-        const live = new Set(yield* memoryNames(home.path, liveSlug));
+        const live = new Set(yield* memoryNames(home.path, resolvedSlug));
         found.set(key, {
           project: project.title,
           projectId: project.projectId,
           home: home.path,
-          cwd,
-          unresolvedSlug,
-          liveSlug,
+          cwd: dir,
+          unresolvedSlug: slug,
+          liveSlug: resolvedSlug,
           files: names.length,
           missing: names.filter((name) => !live.has(name)).length,
           liveFiles: live.size,

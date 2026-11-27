@@ -1,4 +1,4 @@
-import { Data, Effect, FileSystem, Option, Schema } from "effect";
+import { Data, Effect, FileSystem, Option, Predicate, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 import { SqlClient } from "effect/sql";
 
@@ -70,7 +70,7 @@ interface Report {
 const Cwd = Schema.Array(Schema.Struct({ cwd: Schema.Unknown }));
 
 const strings = (rows: readonly { readonly cwd: unknown }[]) =>
-  rows.flatMap((row) => (typeof row.cwd === "string" ? [row.cwd] : []));
+  rows.flatMap((row) => (Predicate.isString(row.cwd) ? [row.cwd] : []));
 
 const inspect = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -138,8 +138,10 @@ const inspect = Effect.gen(function* () {
     )
   );
 
+  const events = yield* eventCount;
+
   return Inspection.Complete({
-    events: yield* eventCount,
+    events,
     projects,
     memory,
     issues: {
@@ -175,7 +177,7 @@ const collect = (database: string, check: boolean) =>
     const inspection =
       missing.length > 0 ? Inspection.Incomplete({ missing }) : yield* inspect;
 
-    return { database, server, quickCheck: quick, inspection } satisfies Report;
+    return { database, server, inspection, quickCheck: quick } satisfies Report;
   });
 
 const toJson = (report: Report) => {
@@ -217,12 +219,15 @@ const render = (report: Report) =>
     yield* out.log(`database ${report.database}`);
     yield* Option.match(report.server, {
       onNone: () => out.check(true, "T3 Code closed"),
-      onSome: ({ pid, version }) =>
-        out.check(
+      onSome: ({ pid, version }) => {
+        const suffix = version === null || version === "" ? "" : `, ${version}`;
+
+        return out.check(
           true,
-          `T3 Code running (pid ${pid}${version ? `, ${version}` : ""})`,
+          `T3 Code running (pid ${pid}${suffix})`,
           "read-only commands are fine, writes need it closed"
-        ),
+        );
+      },
     });
     yield* Inspection.$match(report.inspection, {
       Incomplete: ({ missing }) =>
@@ -270,7 +275,9 @@ const render = (report: Report) =>
           {
             header: "project",
             cell: (p) =>
-              p.deletedAt ? { text: p.title, tone: "gray" } : p.title,
+              p.deletedAt === null || p.deletedAt === ""
+                ? p.title
+                : { text: p.title, tone: "gray" },
           },
           { header: "id", cell: (p) => ({ text: p.projectId, tone: "dim" }) },
           { header: "threads", cell: (p) => String(p.threads), align: "right" },
@@ -387,11 +394,7 @@ export const doctor = Command.make(
           Effect.provide(databaseLayer(target.path, "read"))
         );
 
-        if (json) {
-          yield* (yield* Output).json(toJson(report));
-        } else {
-          yield* render(report);
-        }
+        yield* json ? (yield* Output).json(toJson(report)) : render(report);
       })
     )
 ).pipe(

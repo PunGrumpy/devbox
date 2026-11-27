@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import path from "node:path";
 
 import { Result, Schema } from "effect";
 
@@ -18,11 +18,11 @@ export const KEEP = [
 export const SQLITE_HEADER = "SQLite format 3\0";
 
 const SourceName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/))
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9][\w.-]*$/u))
 );
 
 const SourceLocation = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^(?:~(?:\/.*)?|\$DATA(?:\/.*)?|\/.*)$/))
+  Schema.check(Schema.isPattern(/^(?:~(?:\/.*)?|\$DATA(?:\/.*)?|\/.*)$/u))
 );
 
 const SourceLine = Schema.Struct({
@@ -77,7 +77,7 @@ const expand = (location: string, home: string, data: string) => {
     }
 
     if (location.startsWith(`${token}/`)) {
-      return join(dir, location.slice(token.length + 1));
+      return path.join(dir, location.slice(token.length + 1));
     }
   }
 
@@ -88,7 +88,7 @@ export const parseSources = (
   text: string,
   home: AbsolutePath,
   data: string = home
-): ParsedSources => {
+) => {
   const sources: Source[] = [];
   const issues: SourceIssue[] = [];
   text.split("\n").forEach((raw, index) => {
@@ -98,10 +98,12 @@ export const parseSources = (
       return;
     }
 
-    const tokens = /^(\S+)\s+(\S.*)$/.exec(line);
+    const tokens = /^(?<name>\S+)\s+(?<location>\S.*)$/u.exec(line);
 
     const decoded = Schema.decodeUnknownResult(SourceLine)(
-      tokens === null ? undefined : { name: tokens[1], location: tokens[2] }
+      tokens === null
+        ? undefined
+        : { name: tokens.groups?.name, location: tokens.groups?.location }
     );
 
     if (Result.isFailure(decoded)) {
@@ -124,45 +126,44 @@ export const parseSources = (
     sources.push({ name, path: absolutePath(expand(location, home, data)) });
   });
 
-  return { sources, issues };
+  return { sources, issues } satisfies ParsedSources;
 };
 
-export const hasSqliteHeader = (bytes: Uint8Array): boolean =>
+export const hasSqliteHeader = (bytes: Uint8Array) =>
   bytes.length === SQLITE_HEADER.length &&
-  SQLITE_HEADER.split("").every((char, i) => bytes[i] === char.charCodeAt(0));
+  SQLITE_HEADER.split("").every((char, i) => bytes[i] === char.codePointAt(0));
 
-export const stagedEntry = ({
-  source,
-  path,
-  relative,
-}: ManifestEntry): string =>
-  join(source, relative === "" ? basename(path) : relative);
+export const stagedEntry = (entry: ManifestEntry) =>
+  path.join(
+    entry.source,
+    entry.relative === "" ? path.basename(entry.path) : entry.relative
+  );
 
-export const snapshotOf = (source: Source, live: string): SqliteSnapshot => {
+export const snapshotOf = (source: Source, live: string) => {
   const entry = {
     source: source.name,
     path: source.path,
     relative: live === source.path ? "" : live.slice(source.path.length + 1),
   };
 
-  return { ...entry, live, entry: stagedEntry(entry) };
+  return { ...entry, live, entry: stagedEntry(entry) } satisfies SqliteSnapshot;
 };
 
-export const manifestOf = (plan: BackupPlan): readonly ManifestEntry[] =>
-  plan.snapshots.map(({ source, path, relative }) => ({
-    source,
-    path,
-    relative,
-  }));
+export const manifestOf = (plan: BackupPlan) =>
+  plan.snapshots.map(
+    (snapshot) =>
+      ({
+        source: snapshot.source,
+        path: snapshot.path,
+        relative: snapshot.relative,
+      }) satisfies ManifestEntry
+  );
 
 export const entriesFromStage = (
   staged: readonly string[],
   sources: readonly Source[],
   isDirectory: (source: Source) => boolean
-): {
-  readonly entries: readonly ManifestEntry[];
-  readonly unknown: readonly string[];
-} => {
+) => {
   const entries: ManifestEntry[] = [];
   const unknown = new Set<string>();
 
@@ -180,7 +181,7 @@ export const entriesFromStage = (
       source: name,
       path: source.path,
       relative:
-        relative === basename(source.path) && !isDirectory(source)
+        relative === path.basename(source.path) && !isDirectory(source)
           ? ""
           : relative,
     });
@@ -189,7 +190,7 @@ export const entriesFromStage = (
   return { entries, unknown: [...unknown] };
 };
 
-export const sidecars = (live: string): readonly string[] => [
+export const sidecars = (live: string) => [
   live,
   `${live}-wal`,
   `${live}-shm`,
@@ -203,14 +204,14 @@ const GENERIC_SIDECARS = [
   "*.db-shm",
 ] as const;
 
-const globEscape = (path: string) => path.replaceAll(/[\\*?[]/g, "\\$&");
+const globEscape = (file: string) => file.replaceAll(/[\\*?[]/gu, "\\$&");
 
-// restic expands $VARS in exclude files, so a literal $ in a path is written as $$.
-export const excludeFile = (plan: BackupPlan): string =>
+/** Restic expands `$VARS` in exclude files, so a literal `$` in a path is written as `$$`. */
+export const excludeFile = (plan: BackupPlan) =>
   [
     ...plan.snapshots
       .flatMap((snapshot) => sidecars(snapshot.live))
-      .map((path) => globEscape(path).replaceAll("$", "$$$$")),
+      .map((file) => globEscape(file).replaceAll("$", "$$$$")),
     ...GENERIC_SIDECARS,
   ]
     .map((line) => `${line}\n`)
@@ -219,7 +220,7 @@ export const excludeFile = (plan: BackupPlan): string =>
 export const backupArgs = (
   plan: BackupPlan,
   files: { readonly generated: string; readonly user: string }
-): readonly string[] => [
+) => [
   "restic",
   "backup",
   "--tag",
@@ -233,7 +234,7 @@ export const backupArgs = (
   plan.stage,
 ];
 
-export const forgetArgs = (host: string): readonly string[] => [
+export const forgetArgs = (host: string) => [
   "restic",
   "forget",
   "--host",
@@ -247,7 +248,7 @@ export const forgetArgs = (host: string): readonly string[] => [
 ];
 
 export const SnapshotId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[A-Za-z0-9]+$/))
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9]+$/u))
 );
 
 export const restoreArgs = (
@@ -255,7 +256,7 @@ export const restoreArgs = (
   snapshot: string,
   target: string,
   include?: string
-): readonly string[] => [
+) => [
   "restic",
   "restore",
   snapshot,
@@ -268,12 +269,13 @@ export const restoreArgs = (
   ...(include === undefined ? [] : ["--include", globEscape(include)]),
 ];
 
+/**
+ * How long `sqlite3 .backup` may run before the copy falls back to `VACUUM INTO`.
+ * `.backup` starts over whenever another connection writes while it copies, so a very busy database never finishes.
+ */
 export const BACKUP_TIMEOUT_MS = 120_000;
 
-export const sqliteBackupArgs = (
-  live: string,
-  dest: string
-): readonly string[] => [
+export const sqliteBackupArgs = (live: string, dest: string) => [
   "sqlite3",
   "-cmd",
   ".timeout 30000",
@@ -281,10 +283,7 @@ export const sqliteBackupArgs = (
   `.backup "${dest.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`,
 ];
 
-export const vacuumIntoArgs = (
-  live: string,
-  dest: string
-): readonly string[] => [
+export const vacuumIntoArgs = (live: string, dest: string) => [
   "sqlite3",
   "-cmd",
   ".timeout 30000",
@@ -292,7 +291,7 @@ export const vacuumIntoArgs = (
   `vacuum into '${dest.replaceAll("'", "''")}'`,
 ];
 
-export const quickCheckArgs = (db: string): readonly string[] => [
+export const quickCheckArgs = (db: string) => [
   "sqlite3",
   db,
   "pragma quick_check",

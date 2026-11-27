@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
 import { Config, Context, Effect, Layer, Option } from "effect";
 
@@ -25,20 +25,22 @@ export class Locations extends Context.Service<
       const home = absolutePath(Option.getOrElse(yield* env("HOME"), homedir));
 
       const t3Home = absolutePath(
-        Option.getOrElse(yield* env("T3_HOME"), () => join(home, ".t3"))
+        Option.getOrElse(yield* env("T3_HOME"), () => path.join(home, ".t3"))
       );
 
       const backupDir = Option.getOrElse(yield* env("T3_BACKUP_DIR"), () =>
-        join(t3Home, "backups")
+        path.join(t3Home, "backups")
       );
 
       return {
         home,
-        liveDb: absolutePath(join(t3Home, "userdata", "statev2.sqlite")),
+        liveDb: absolutePath(path.join(t3Home, "userdata", "statev2.sqlite")),
         runtimeFile: absolutePath(
-          join(t3Home, "userdata", "server-runtime.json")
+          path.join(t3Home, "userdata", "server-runtime.json")
         ),
-        settingsFile: absolutePath(join(t3Home, "userdata", "settings.json")),
+        settingsFile: absolutePath(
+          path.join(t3Home, "userdata", "settings.json")
+        ),
         backupDir: absolutePath(backupDir),
         claudeConfigDir: Option.map(yield* env("CLAUDE_CONFIG_DIR"), (dir) =>
           absolutePath(dir)

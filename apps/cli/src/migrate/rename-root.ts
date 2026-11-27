@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Schema } from "effect";
+import { Effect, FileSystem, Predicate, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 import { SqlClient } from "effect/sql";
 
@@ -46,8 +46,10 @@ const sessions = Effect.gen(function* () {
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Session)))
     );
 
-  return rows.flatMap((row): Session[] =>
-    typeof row.cwd === "string" ? [{ ...row, cwd: row.cwd }] : []
+  return rows.flatMap((row) =>
+    Predicate.isString(row.cwd)
+      ? [{ ...row, cwd: row.cwd } satisfies Session]
+      : []
   );
 });
 
@@ -102,16 +104,19 @@ export const renameRoot = Command.make(
 
         const moving = yield* under(from);
         const alreadyThere = (yield* under(to)).length;
-        yield* out.log(
-          `project ${project.title} ${out.paint("dim", `(${project.projectId})`)}`
-        );
+        const projectId = out.paint("dim", `(${project.projectId})`);
+        yield* out.log(`project ${project.title} ${projectId}`);
         yield* out.line();
+
+        const alreadyNote =
+          alreadyThere > 0 ? `, ${alreadyThere} already under the new one` : "";
+
         yield* out.pairs([
           ["from", from],
           ["to", to],
           [
             "sessions",
-            `${plural(moving.length, "session")} with cwd under the old root${alreadyThere ? `, ${alreadyThere} already under the new one` : ""}`,
+            `${plural(moving.length, "session")} with cwd under the old root${alreadyNote}`,
           ],
         ]);
         yield* out.line();

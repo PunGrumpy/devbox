@@ -1,5 +1,5 @@
 import { closeSync, openSync, readSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import path from "node:path";
 
 import { Effect, FileSystem, Option, Result, Schema } from "effect";
 
@@ -50,9 +50,9 @@ export class BackupFailed extends Schema.TaggedError<BackupFailed>()(
 const fsFailed = (error: { readonly message: string }) =>
   new BackupFailed({ message: error.message });
 
-const headerOf = (path: string): Uint8Array => {
+const headerOf = (file: string) => {
   const buffer = new Uint8Array(SQLITE_HEADER.length);
-  const fd = openSync(path, "r");
+  const fd = openSync(file, "r");
 
   try {
     const read = readSync(fd, buffer, 0, buffer.length, 0);
@@ -63,15 +63,18 @@ const headerOf = (path: string): Uint8Array => {
   }
 };
 
-const isSqlite = (path: string) =>
-  Effect.sync(() => hasSqliteHeader(headerOf(path))).pipe(
+const isSqlite = (file: string) =>
+  Effect.sync(() => hasSqliteHeader(headerOf(file))).pipe(
     Effect.orElseSucceed(() => false)
   );
 
-const walk = (
+const walk: (
   dir: string,
-  excluded: Excluded = () => false
-): Effect.Effect<readonly string[], never, FileSystem.FileSystem | Output> =>
+  excluded?: Excluded
+) => Effect.Effect<readonly string[], never, FileSystem.FileSystem | Output> = (
+  dir,
+  excluded = () => false
+) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
@@ -84,15 +87,23 @@ const walk = (
         )
       );
 
-    const nested = yield* Effect.forEach(entries, (entry) =>
-      excluded(join(dir, entry.name))
-        ? Effect.succeed([])
-        : entry.type === "File"
-          ? Effect.succeed([join(dir, entry.name)])
-          : entry.type === "Directory"
-            ? walk(join(dir, entry.name), excluded)
-            : Effect.succeed([])
-    );
+    const nested = yield* Effect.forEach(entries, (entry) => {
+      const file = path.join(dir, entry.name);
+
+      if (excluded(file)) {
+        return Effect.succeed([]);
+      }
+
+      if (entry.type === "File") {
+        return Effect.succeed([file]);
+      }
+
+      if (entry.type === "Directory") {
+        return walk(file, excluded);
+      }
+
+      return Effect.succeed([]);
+    });
 
     return nested.flat();
   });
@@ -175,7 +186,8 @@ const session = (needed: readonly string[]) =>
     yield* fs
       .makeDirectory(paths.state, { recursive: true })
       .pipe(Effect.mapError(fsFailed));
-    const host = values.RESTIC_HOST || machine.hostname;
+    const named = values.RESTIC_HOST;
+    const host = named === undefined || named === "" ? machine.hostname : named;
 
     return {
       home,
@@ -187,23 +199,23 @@ const session = (needed: readonly string[]) =>
 
 const LOCK_GRACE_MS = 10_000;
 
-const withLock = <A, E, R>(path: string, work: Effect.Effect<A, E, R>) =>
+const withLock = <A, E, R>(lock: string, work: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const host = yield* Host;
 
     const acquire: Effect.Effect<void, BackupFailed> = fs
-      .writeFileString(path, `${process.pid}\n`, { flag: "wx" })
+      .writeFileString(lock, `${process.pid}\n`, { flag: "wx" })
       .pipe(
         Effect.catchIf(
           (error) => error.reason._tag === "AlreadyExists",
           () =>
             Effect.gen(function* () {
               const text = (yield* fs
-                .readFileString(path)
+                .readFileString(lock)
                 .pipe(Effect.orElseSucceed(() => ""))).trim();
 
-              if (/^\d+$/.test(text)) {
+              if (/^\d+$/u.test(text)) {
                 const holder = Number(text);
 
                 const running = (yield* host.processes).some(
@@ -216,7 +228,7 @@ const withLock = <A, E, R>(path: string, work: Effect.Effect<A, E, R>) =>
                   });
                 }
               } else {
-                const info = yield* fs.stat(path).pipe(Effect.option);
+                const info = yield* fs.stat(lock).pipe(Effect.option);
                 const written = Option.flatMap(info, (stat) => stat.mtime);
 
                 if (
@@ -231,7 +243,7 @@ const withLock = <A, E, R>(path: string, work: Effect.Effect<A, E, R>) =>
                 }
               }
 
-              yield* fs.remove(path, { force: true });
+              yield* fs.remove(lock, { force: true });
 
               return yield* acquire;
             })
@@ -244,7 +256,7 @@ const withLock = <A, E, R>(path: string, work: Effect.Effect<A, E, R>) =>
     return yield* Effect.acquireUseRelease(
       acquire,
       () => work,
-      () => fs.remove(path, { force: true }).pipe(Effect.ignore)
+      () => fs.remove(lock, { force: true }).pipe(Effect.ignore)
     );
   });
 
@@ -362,12 +374,11 @@ const stageSnapshots = (
       .pipe(Effect.mapError(fsFailed));
 
     for (const snapshot of plan.snapshots) {
-      const dest = join(tmp, snapshot.entry);
+      const dest = path.join(tmp, snapshot.entry);
       yield* fs
-        .makeDirectory(dirname(dest), { recursive: true })
+        .makeDirectory(path.dirname(dest), { recursive: true })
         .pipe(Effect.mapError(fsFailed));
 
-      // sqlite3's .backup starts over whenever another connection writes while it copies, so a very busy database never finishes.
       let taken = yield* host.run(sqliteBackupArgs(snapshot.live, dest), {
         env,
         timeoutMs: BACKUP_TIMEOUT_MS,
@@ -379,7 +390,7 @@ const stageSnapshots = (
         );
         yield* Effect.forEach(
           sidecars(dest),
-          (path) => fs.remove(path, { force: true }),
+          (file) => fs.remove(file, { force: true }),
           {
             discard: true,
           }
@@ -409,7 +420,7 @@ const stageSnapshots = (
 
     yield* fs
       .writeFileString(
-        join(tmp, MANIFEST),
+        path.join(tmp, MANIFEST),
         `${JSON.stringify(manifestOf(plan), null, 2)}\n`
       )
       .pipe(Effect.mapError(fsFailed));
@@ -421,6 +432,8 @@ const stageSnapshots = (
 
 const NO_REPOSITORY = "Is there a repository at the following location?";
 
+const NO_REPOSITORY_EXIT_SINCE_RESTIC_0_17 = 10;
+
 const ensureRepository = (env: Readonly<Record<string, string>>) =>
   Effect.gen(function* () {
     const host = yield* Host;
@@ -431,8 +444,10 @@ const ensureRepository = (env: Readonly<Record<string, string>>) =>
       return;
     }
 
-    // restic 0.17 and later exit 10 for a missing repository. Older versions only print this question.
-    if (probe.code !== 10 && !probe.stderr.includes(NO_REPOSITORY)) {
+    if (
+      probe.code !== NO_REPOSITORY_EXIT_SINCE_RESTIC_0_17 &&
+      !probe.stderr.includes(NO_REPOSITORY)
+    ) {
       return yield* new BackupFailed({
         message: `restic cannot open the repository (exit ${probe.code})`,
         hint: probe.stderr.trim() || undefined,
@@ -528,7 +543,7 @@ export const verifyBackup = Effect.gen(function* () {
         );
 
         const restored = (yield* walk(target)).filter(
-          (file) => file !== join(target, paths.stage, MANIFEST)
+          (file) => file !== path.join(target, paths.stage, MANIFEST)
         );
 
         if (restored.length === 0) {
@@ -571,7 +586,7 @@ const readManifest = (stage: string) =>
     const fs = yield* FileSystem.FileSystem;
 
     const text = yield* fs
-      .readFileString(join(stage, MANIFEST))
+      .readFileString(path.join(stage, MANIFEST))
       .pipe(Effect.option);
 
     if (Option.isNone(text)) {
@@ -585,7 +600,7 @@ const readManifest = (stage: string) =>
         Effect.mapError(
           () =>
             new BackupFailed({
-              message: `${join(stage, MANIFEST)} is not a backup manifest`,
+              message: `${path.join(stage, MANIFEST)} is not a backup manifest`,
             })
         )
       )
@@ -615,7 +630,7 @@ const entriesOf = (target: string, stage: string) =>
 
     for (const source of sources) {
       const info = yield* fs
-        .stat(join(target, source.path))
+        .stat(path.join(target, source.path))
         .pipe(Effect.option);
 
       if (Option.exists(info, (found) => found.type === "Directory")) {
@@ -623,7 +638,9 @@ const entriesOf = (target: string, stage: string) =>
       }
     }
 
-    const staged = (yield* walk(stage)).map((file) => relative(stage, file));
+    const staged = (yield* walk(stage)).map((file) =>
+      path.relative(stage, file)
+    );
 
     const { entries, unknown } = entriesFromStage(staged, sources, (source) =>
       directories.has(source.name)
@@ -648,8 +665,8 @@ const place = (
     const root = yield* fs.realPath(target).pipe(Effect.mapError(fsFailed));
 
     for (const entry of entries) {
-      const from = join(stage, stagedEntry(entry));
-      const to = join(target, entry.path, entry.relative);
+      const from = path.join(stage, stagedEntry(entry));
+      const to = path.join(target, entry.path, entry.relative);
 
       if (
         !isUnderRoot(to, target) ||
@@ -662,23 +679,23 @@ const place = (
       }
 
       yield* fs
-        .makeDirectory(dirname(to), { recursive: true })
+        .makeDirectory(path.dirname(to), { recursive: true })
         .pipe(Effect.mapError(fsFailed));
 
       const parent = yield* fs
-        .realPath(dirname(to))
+        .realPath(path.dirname(to))
         .pipe(Effect.mapError(fsFailed));
 
       if (!isUnderRoot(parent, AbsolutePath.make(root))) {
         return yield* new BackupFailed({
-          message: `${dirname(to)} leads outside ${target}`,
+          message: `${path.dirname(to)} leads outside ${target}`,
           hint: "a symlink inside the restored files points elsewhere",
         });
       }
 
       yield* Effect.forEach(
         sidecars(to),
-        (path) => fs.remove(path, { force: true }),
+        (file) => fs.remove(file, { force: true }),
         {
           discard: true,
         }
@@ -717,7 +734,7 @@ export const restoreBackup = (targetDir: string, snapshot: string) =>
       .makeDirectory(target, { recursive: true })
       .pipe(Effect.mapError(fsFailed));
     yield* must(restoreArgs(host, snapshot, target), env, { inherit: true });
-    const stage = absolutePath(join(target, paths.stage));
+    const stage = absolutePath(path.join(target, paths.stage));
     const { entries, unknown } = yield* entriesOf(target, stage);
     yield* place(target, stage, entries);
 
@@ -737,10 +754,10 @@ export const restoreBackup = (targetDir: string, snapshot: string) =>
     for (const root of roots) {
       if (
         yield* fs
-          .exists(join(target, root))
+          .exists(path.join(target, root))
           .pipe(Effect.orElseSucceed(() => false))
       ) {
-        yield* out.log(`  ${join(target, root)} -> ${root}`);
+        yield* out.log(`  ${path.join(target, root)} -> ${root}`);
       }
     }
 

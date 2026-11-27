@@ -1,11 +1,11 @@
-import { isAbsolute, resolve } from "node:path";
+import path from "node:path";
 
 import { Schema } from "effect";
 
 export const AbsolutePath = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
-      (path: string) => isAbsolute(path) && resolve(path) === path
+      (value: string) => path.isAbsolute(value) && path.resolve(value) === value
     )
   ),
   Schema.brand("AbsolutePath")
@@ -13,21 +13,19 @@ export const AbsolutePath = Schema.String.pipe(
 
 export type AbsolutePath = typeof AbsolutePath.Type;
 
-export const absolutePath = (
-  path: string,
-  from = process.cwd()
-): AbsolutePath => AbsolutePath.make(resolve(from, path));
+export const absolutePath = (target: string, from = process.cwd()) =>
+  AbsolutePath.make(path.resolve(from, target));
 
-// SQLite's LIKE ignores ASCII case, so the under-root match runs here instead of in SQL.
-export const isUnderRoot = (path: string, root: AbsolutePath): boolean =>
-  path === root || path.startsWith(root === "/" ? root : `${root}/`);
+/** Whether `candidate` is `root` or inside it. SQLite's LIKE ignores ASCII case, so this match runs here instead of in SQL. */
+export const isUnderRoot = (candidate: string, root: AbsolutePath) =>
+  candidate === root || candidate.startsWith(root === "/" ? root : `${root}/`);
 
-export const rebase = (
-  path: string,
-  from: AbsolutePath,
-  to: AbsolutePath
-): string => to + path.slice(from.length);
+export const rebase = (file: string, from: AbsolutePath, to: AbsolutePath) =>
+  to + file.slice(from.length);
 
-// Claude Code keeps a project in projects/<slug>: the resolved cwd with every non-alphanumeric character turned into '-'.
-export const slugOf = (path: AbsolutePath): string =>
-  path.replaceAll(/[^A-Za-z0-9]/g, "-");
+/**
+ * The folder name Claude Code gives a project in `projects/<slug>`: the resolved cwd with every
+ * non-alphanumeric UTF-16 code unit turned into `-`.
+ */
+export const slugOf = (cwd: AbsolutePath) =>
+  cwd.replaceAll(/[^A-Za-z0-9]/gu, (char) => "-".repeat(char.length));
