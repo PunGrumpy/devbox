@@ -174,8 +174,10 @@ export const untilListening = async (hub: { readonly err: () => string }) => {
   await poll(() => (hub.err().includes("hub:") ? true : undefined), 100, 20);
 };
 
-/** The status of a response, once it comes. */
-export const statusOf = async (response: Promise<Response>) => {
+/** The status of a response or a hub reply, once it comes. */
+export const statusOf = async (
+  response: Promise<{ readonly status: number }>
+) => {
   const { status } = await response;
 
   return status;
