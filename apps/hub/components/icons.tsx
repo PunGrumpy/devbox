@@ -1,4 +1,4 @@
-import { useId } from "react";
+import Image from "next/image";
 import type { SVGProps } from "react";
 
 import type { MachineKind, MachineState } from "@/lib/machines";
@@ -232,144 +232,19 @@ export const KindIcon = ({ kind, state }: KindIconProps) => (
   </span>
 );
 
-const MOUSE_HEAD =
-  "M104 176c-18-6-30-22-30-44 0-40 30-70 70-70 26 0 44 12 60 34l14 18c6 8 2 18-8 20l-44 8c-10 2-16 8-18 18l-4 16c-6 6-26 6-40 0z";
-
-const Mouse = () => (
-  <>
-    <circle cx="92" cy="74" r="38" />
-    <path d={MOUSE_HEAD} />
-  </>
-);
-
 /**
- * The hub's app icon, built like the Rex one: a plate tinted pink and cyan, a figure that runs
- * from yellow through orange and pink to violet, and a name on a pill. The colors are the ones
- * sampled from the Rex icon. Where Rex has a dinosaur, the hub has a mouse of its own.
+ * The hub's app icon, drawn like the Rex one: a glass plate, a figure that runs from yellow through
+ * orange and pink to blue, and a name on a pill. Where Rex has a dinosaur, the hub has a mouse of
+ * its own. The file follows the reader's color scheme by itself.
  */
-export const HubLogo = ({ className = "" }: { className?: string }) => {
-  const id = useId();
-  const url = (name: string) => `url(#${id}-${name})`;
-
-  return (
-    <span
-      className={`squircle block shrink-0 overflow-hidden rounded-(--radius-icon) shadow-(--shadow-icon) ${className}`}
-    >
-      <svg aria-hidden="true" className="block size-full" viewBox="0 0 256 256">
-        <defs>
-          <radialGradient cx="0" cy="0" id={`${id}-corner`} r="1">
-            <stop className="[stop-color:var(--logo-corner)]" offset="0" />
-            <stop
-              className="[stop-color:var(--logo-corner)]"
-              offset="1"
-              stopOpacity="0"
-            />
-          </radialGradient>
-          <radialGradient cx="1" cy="0" id={`${id}-warm`} r="0.9">
-            <stop className="[stop-color:var(--logo-warm)]" offset="0" />
-            <stop
-              className="[stop-color:var(--logo-warm)]"
-              offset="1"
-              stopOpacity="0"
-            />
-          </radialGradient>
-          <radialGradient cx="0" cy="1" id={`${id}-cool`} r="0.9">
-            <stop className="[stop-color:var(--logo-cool)]" offset="0" />
-            <stop
-              className="[stop-color:var(--logo-cool)]"
-              offset="1"
-              stopOpacity="0"
-            />
-          </radialGradient>
-          <linearGradient
-            gradientUnits="userSpaceOnUse"
-            id={`${id}-figure`}
-            x1="214"
-            x2="70"
-            y1="52"
-            y2="178"
-          >
-            <stop offset="0" stopColor="#ffdd57" />
-            <stop offset="0.28" stopColor="#ff8338" />
-            <stop offset="0.56" stopColor="#df6e99" />
-            <stop offset="0.8" stopColor="#df8aff" />
-            <stop offset="1" stopColor="#b47aff" />
-          </linearGradient>
-          <radialGradient
-            cx="176"
-            cy="70"
-            gradientUnits="userSpaceOnUse"
-            id={`${id}-gloss`}
-            r="70"
-          >
-            <stop offset="0" stopColor="#ffffff" stopOpacity="0.5" />
-            <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
-          </radialGradient>
-          <linearGradient id={`${id}-word`} x1="0" x2="1">
-            <stop offset="0" stopColor="#ff8338" />
-            <stop offset="0.4" stopColor="#df6e99" />
-            <stop offset="0.7" stopColor="#b47aff" />
-            <stop offset="1" stopColor="#5c8dff" />
-          </linearGradient>
-          <filter
-            height="150%"
-            id={`${id}-lift`}
-            width="140%"
-            x="-20%"
-            y="-20%"
-          >
-            <feDropShadow
-              dx="0"
-              dy="6"
-              floodColor="#12002e"
-              floodOpacity="0.35"
-              stdDeviation="7"
-            />
-          </filter>
-          <clipPath id={`${id}-mouse`}>
-            <Mouse />
-          </clipPath>
-        </defs>
-        <rect className="fill-(--logo-plate)" height="256" width="256" />
-        <rect fill={url("corner")} height="256" width="256" />
-        <rect fill={url("warm")} height="256" width="256" />
-        <rect fill={url("cool")} height="256" width="256" />
-        <g fill={url("figure")} filter={url("lift")}>
-          <Mouse />
-        </g>
-        <circle cx="92" cy="74" fill="#15013f" opacity="0.16" r="21" />
-        <rect
-          clipPath={url("mouse")}
-          fill={url("gloss")}
-          height="256"
-          width="256"
-        />
-        <ellipse cx="160" cy="106" fill="#1e015a" rx="8.5" ry="12" />
-        <circle cx="163" cy="101" fill="#ffffff" opacity="0.85" r="3" />
-        <circle cx="213" cy="124" fill="#1e015a" r="8" />
-        <g filter={url("lift")}>
-          <rect
-            className="fill-(--logo-pill)"
-            height="46"
-            rx="23"
-            width="132"
-            x="62"
-            y="186"
-          />
-        </g>
-        <text
-          fill={url("word")}
-          fontFamily="ui-rounded, 'SF Pro Rounded', system-ui, sans-serif"
-          fontSize="30"
-          fontWeight="800"
-          letterSpacing="3"
-          textAnchor="middle"
-          x="128"
-          y="219"
-        >
-          HUB
-        </text>
-      </svg>
-    </span>
-  );
-};
+export const HubLogo = ({ className = "" }: { className?: string }) => (
+  <Image
+    alt=""
+    className={`block shrink-0 rounded-(--radius-icon) shadow-(--shadow-icon) ${className}`}
+    height={48}
+    priority
+    src="/logo.svg"
+    unoptimized
+    width={48}
+  />
+);

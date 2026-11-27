@@ -1,4 +1,5 @@
-import { HubLogo, SearchIcon } from "@/components/icons";
+import { HubLogo } from "@/components/icons";
+import { Search } from "@/components/search";
 import { FILTERS } from "@/lib/machines";
 import type { FilterKey, Machine } from "@/lib/machines";
 
@@ -63,15 +64,17 @@ export const Nav = ({
 );
 
 interface SidebarProps extends NavProps {
+  now: number;
+  onJump: (name: string) => void;
   onRefresh: () => void;
-  onSearch: () => void;
   shortcut: string;
   status: string;
 }
 
 export const Sidebar = ({
+  now,
+  onJump,
   onRefresh,
-  onSearch,
   shortcut,
   status,
   ...nav
@@ -79,15 +82,12 @@ export const Sidebar = ({
   <aside className="max-side:hidden side:fixed side:top-0 side:left-[clamp(0.5rem,calc(50vw-33rem),4rem)] side:max-h-screen side:w-50 side:overflow-y-auto side:pt-20 side:pr-2 side:pl-4 side:[scrollbar-width:none]">
     <HubLogo className="size-12" />
     <div className="pt-7">
-      <button
-        className="search-trigger edge text-nav text-muted -ml-3 flex w-[calc(100%+0.75rem)] cursor-pointer items-center gap-2 rounded-full px-2.5 py-1.5 [--fill:var(--paper)]"
-        onClick={onSearch}
-        type="button"
-      >
-        <SearchIcon className="size-3.5 shrink-0" />
-        Search
-        <kbd className="text-muted ml-auto font-sans text-xs">{shortcut}</kbd>
-      </button>
+      <Search
+        machines={nav.machines}
+        now={now}
+        onJump={onJump}
+        shortcut={shortcut}
+      />
     </div>
     <nav aria-label="Machines" className="text-nav flex flex-col gap-7 pt-7">
       <Nav {...nav} />

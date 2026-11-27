@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
-import type { KeyboardEvent, PropsWithChildren, RefObject } from "react";
+import { Fragment, useEffect, useEffectEvent, useRef, useState } from "react";
+import type { KeyboardEvent, PropsWithChildren } from "react";
 
 import { CloseIcon, SearchIcon } from "@/components/icons";
 import type { Machine } from "@/lib/machines";
+import { morph } from "@/lib/morph";
 import { anchorOf, search } from "@/lib/search";
 import type { Part } from "@/lib/search";
 
@@ -15,6 +16,48 @@ const Marked = ({ parts }: { parts: readonly Part[] }) =>
 
 const reveal = (item: HTMLAnchorElement | null) => {
   item?.scrollIntoView({ block: "nearest" });
+};
+
+const stepOf = (event: KeyboardEvent) => {
+  const key = event.key.toLowerCase();
+
+  const chord =
+    event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+
+  if (key === "arrowdown" || (chord && key === "n")) {
+    return 1;
+  }
+
+  return key === "arrowup" || (chord && key === "p") ? -1 : 0;
+};
+
+const isField = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable ||
+    ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName));
+
+const isShown = (element: HTMLElement | null) =>
+  element?.checkVisibility({ visibilityProperty: true }) === true;
+
+const useSearchKey = (onAsk: (event: globalThis.KeyboardEvent) => void) => {
+  const ask = useEffectEvent(onAsk);
+
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      const chord =
+        (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
+
+      if (chord || (event.key === "/" && !isField(event.target))) {
+        ask(event);
+      }
+    };
+
+    document.addEventListener("keydown", onKey);
+
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
 };
 
 const usePalette = (
@@ -42,12 +85,14 @@ const usePalette = (
       .flatMap(({ hits }) => hits)
       .find(({ index }) => index === active);
 
-    if (event.key === "ArrowDown") {
+    const step = stepOf(event);
+
+    if (step !== 0) {
       event.preventDefault();
-      setSelected(Math.min(active + 1, found.count - 1));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setSelected(Math.max(active - 1, 0));
+
+      if (found.count > 0) {
+        setSelected((active + step + found.count) % found.count);
+      }
     } else if (event.key === "Enter" && hit !== undefined) {
       event.preventDefault();
       pick(hit.machine.name);
@@ -172,85 +217,163 @@ interface SearchProps {
 }
 
 /**
- * The search palette of the Rex docs, over machines instead of pages. Ctrl K or Command K opens
- * it, the arrows move through what it found, and Enter goes to that machine's card.
+ * The search of the Rex docs, over machines instead of pages: a button in the sidebar and the
+ * palette it grows into. Ctrl K, Command K or a slash opens it, the arrows move through what it
+ * found, and Enter goes to that machine's card.
  */
 export const Search = ({
   machines,
   now,
   onJump,
-  ref,
-}: SearchProps & { ref: RefObject<HTMLDialogElement | null> }) => {
+  shortcut,
+}: SearchProps & { shortcut: string }) => {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+
+  const close = (animate: boolean) => {
+    const panel = dialog.current;
+    const button = trigger.current;
+
+    if (panel?.open !== true) {
+      return;
+    }
+
+    if (animate && button) {
+      void morph(panel, button, () => {
+        panel.close();
+        button.style.visibility = "";
+      });
+    } else {
+      panel.close();
+    }
+  };
+
+  const open = () => {
+    const panel = dialog.current;
+    const button = trigger.current;
+
+    if (!panel || !button) {
+      return;
+    }
+
+    if (panel.open) {
+      input.current?.select();
+
+      return;
+    }
+
+    const show = () => {
+      button.style.visibility = "hidden";
+      panel.showModal();
+      input.current?.select();
+    };
+
+    if (matchMedia("(pointer: coarse)").matches) {
+      show();
+
+      return;
+    }
+
+    void morph(button, panel, () => {
+      panel.dataset.landing = "";
+      show();
+    }).finally(() => {
+      delete panel.dataset.landing;
+    });
+  };
+
   const palette = usePalette(machines, now, (name) => {
-    ref.current?.close();
+    close(false);
     onJump(name);
   });
 
-  useEffect(() => {
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (
-        event.key.toLowerCase() !== "k" ||
-        !(event.metaKey || event.ctrlKey)
-      ) {
-        return;
-      }
-
+  useSearchKey((event) => {
+    if (
+      isShown(dialog.current?.open === true ? dialog.current : trigger.current)
+    ) {
       event.preventDefault();
+      open();
+    }
+  });
 
-      if (ref.current?.open === true) {
-        ref.current.close();
-      } else {
-        ref.current?.showModal();
-      }
-    };
+  const dismiss = useEffectEvent((event: MouseEvent) => {
+    if (event.target === dialog.current) {
+      close(true);
+    }
+  });
 
-    document.addEventListener("keydown", onKey);
+  useEffect(() => {
+    const panel = dialog.current;
+
+    panel?.addEventListener("click", dismiss);
 
     return () => {
-      document.removeEventListener("keydown", onKey);
+      panel?.removeEventListener("click", dismiss);
     };
-  }, [ref]);
+  }, []);
 
   return (
-    <dialog
-      aria-label="Search machines"
-      className="search bg-surface text-ink rounded-search mx-auto mt-[12vh] w-[min(32rem,calc(100vw-2rem))] overflow-hidden font-sans"
-      closedby="any"
-      onClose={() => {
-        palette.onQuery("");
-      }}
-      ref={ref}
-    >
-      <div className="flex max-h-[min(36rem,76vh)] flex-col">
-        <div className="flex items-center gap-[0.8125rem] px-[1.0625rem]">
-          <SearchIcon className="text-muted size-5.5 shrink-0" />
-          <input
-            aria-label="Search machines"
-            autoComplete="off"
-            className="placeholder:text-muted caret-accent h-12 min-w-0 flex-1 bg-transparent text-[1.375rem] tracking-[-0.01em] outline-none"
-            onChange={(event) => {
-              palette.onQuery(event.target.value);
-            }}
-            onKeyDown={palette.handleKeyDown}
-            placeholder="Search"
-            spellCheck={false}
-            type="text"
-            value={palette.query}
-          />
-          <button
-            aria-label="Close search"
-            className="text-muted hover:text-soft cursor-pointer text-[1.1875rem] transition-colors duration-100"
-            onClick={() => {
-              ref.current?.close();
-            }}
-            type="button"
-          >
-            esc
-          </button>
+    <>
+      <button
+        className="search-trigger edge text-nav text-muted -ml-3 flex w-[calc(100%+0.75rem)] cursor-pointer items-center gap-2 rounded-full px-2.5 py-1.5 [--fill:var(--paper)]"
+        onClick={open}
+        ref={trigger}
+        type="button"
+      >
+        <SearchIcon className="size-3.5 shrink-0" />
+        Search
+        <kbd className="text-muted ml-auto font-sans text-xs">{shortcut}</kbd>
+      </button>
+      <dialog
+        aria-label="Search machines"
+        className="search bg-surface text-ink rounded-search mx-auto mt-[12vh] w-[min(32rem,calc(100vw-2rem))] overflow-hidden font-sans"
+        onCancel={(event) => {
+          event.preventDefault();
+          close(true);
+        }}
+        onClose={() => {
+          palette.onQuery("");
+
+          if (trigger.current) {
+            trigger.current.style.visibility = "";
+            trigger.current.focus({ preventScroll: true });
+          }
+        }}
+        ref={dialog}
+      >
+        <div className="flex max-h-[min(36rem,76vh)] flex-col">
+          <div className="flex items-center gap-[0.8125rem] px-[1.0625rem]">
+            <SearchIcon className="text-muted size-5.5 shrink-0" />
+            <input
+              aria-label="Search machines"
+              autoComplete="off"
+              className="placeholder:text-muted caret-accent h-12 min-w-0 flex-1 bg-transparent text-[1.375rem] tracking-[-0.01em] outline-none"
+              onChange={(event) => {
+                palette.onQuery(event.target.value);
+              }}
+              onKeyDown={palette.handleKeyDown}
+              placeholder="Search"
+              ref={input}
+              spellCheck={false}
+              type="text"
+              value={palette.query}
+            />
+            <button
+              aria-label="Close search"
+              className="text-muted hover:text-soft cursor-pointer text-[1.1875rem] transition-colors duration-100"
+              onClick={() => {
+                close(true);
+              }}
+              type="button"
+            >
+              esc
+            </button>
+          </div>
+          <Results {...palette} place="dialog" />
         </div>
-        <Results {...palette} place="dialog" />
-      </div>
-    </dialog>
+      </dialog>
+    </>
   );
 };
 
@@ -265,6 +388,14 @@ export const MenuSearch = ({
   onJump,
 }: PropsWithChildren<SearchProps>) => {
   const palette = usePalette(machines, now, onJump);
+  const input = useRef<HTMLInputElement>(null);
+
+  useSearchKey((event) => {
+    if (isShown(input.current)) {
+      event.preventDefault();
+      input.current?.select();
+    }
+  });
 
   const searching = palette.query.trim() !== "";
 
@@ -284,6 +415,7 @@ export const MenuSearch = ({
           }}
           onKeyDown={palette.handleKeyDown}
           placeholder="Search"
+          ref={input}
           spellCheck={false}
           type="text"
           value={palette.query}

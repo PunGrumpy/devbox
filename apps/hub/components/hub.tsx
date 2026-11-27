@@ -1,12 +1,11 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 
-import { CodeBlock } from "@/components/copy";
+import { CommandTabs } from "@/components/command";
 import { OsIcon } from "@/components/icons";
 import { MachineCard } from "@/components/machine-card";
 import { Menu } from "@/components/menu";
-import { Search } from "@/components/search";
 import { Sidebar } from "@/components/sidebar";
 import {
   ago,
@@ -69,8 +68,12 @@ const Agents = () => {
         The same list is available as JSON. An agent reads it before it picks a
         machine, then reaches a linked one by its environment id.
       </p>
-      <CodeBlock text="devbox machines --json" />
-      <CodeBlock text={`curl -s ${origin}/api/machines`} />
+      <CommandTabs
+        items={[
+          { label: "devbox", text: "devbox machines --json" },
+          { label: "curl", text: `curl -s ${origin}/api/machines` },
+        ]}
+      />
     </section>
   );
 };
@@ -91,7 +94,6 @@ export const Hub = () => {
   );
 
   const [filter, setFilter] = useState<FilterKey>("all");
-  const palette = useRef<HTMLDialogElement>(null);
   const machines = snapshot?.machines ?? [];
   const groups = groupByOs(matching(machines, filter));
   const { linked, ready } = summarize(machines);
@@ -118,15 +120,8 @@ export const Hub = () => {
 
   return (
     <div className="side:mr-auto side:ml-[max(15rem,calc(50vw-18rem))] side:pt-20 side:pr-8 side:pl-0 docs:mx-auto docs:px-4 mx-auto min-h-screen max-w-(--measure) px-6 pt-8 pb-16">
-      <Sidebar
-        {...nav}
-        onSearch={() => {
-          palette.current?.showModal();
-        }}
-        shortcut={shortcut}
-      />
+      <Sidebar {...nav} now={now} onJump={jump} shortcut={shortcut} />
       <Menu {...nav} now={now} onJump={jump} />
-      <Search machines={machines} now={now} onJump={jump} ref={palette} />
       <main className="side:pt-0 pt-10">
         <h1 className="text-title side:before:inline-block side:before:h-12 pb-2 before:content-['']">
           Machines
