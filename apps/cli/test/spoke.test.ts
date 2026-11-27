@@ -1,21 +1,37 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { generateKeyPairSync } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { generateKeyPairSync, sign } from "node:crypto";
+import type { KeyObject } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import http from "node:http";
-import { join } from "node:path";
+import path from "node:path";
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import { freePort } from "../src/machine/proxy.ts";
 import {
   fingerprint,
+  KEY_HEADER,
   newNonce,
   publicKeyOf,
+  SIGNATURE_HEADER,
   signRequest,
 } from "../src/spoke/signed.ts";
 import type { Do, Signed } from "../src/spoke/signed.ts";
+import { SpokeAnswer } from "../src/spoke/vitals.ts";
 import { makeMachine, SELF } from "./support/host.ts";
+import { readJson } from "./support/json.ts";
 import { devbox, start } from "./support/run.ts";
+
+interface MachineRecord {
+  name: string;
+  port: number;
+  data: string;
+  baseDir: string;
+  t3: string;
+  up?: readonly string[];
+}
+
+const ChallengeSchema = Schema.Struct({ nonce: Schema.String });
 
 const hubKey = generateKeyPairSync("ed25519").privateKey;
 const strangerKey = generateKeyPairSync("ed25519").privateKey;
@@ -38,31 +54,46 @@ const PAIRING = {
   token: PAIRING_TOKEN,
 };
 
-const setUpMachine = (options: { recorded?: boolean; virt?: string } = {}) => {
+const waitForSpoke = async (err: () => string, attempts = 100) => {
+  if (attempts <= 0 || err().includes("spoke:")) {
+    return;
+  }
+
+  await Bun.sleep(20);
+  await waitForSpoke(err, attempts - 1);
+};
+
+const setUpMachine = (
+  options: { recorded?: boolean; virt?: string | null } = {}
+) => {
   const m = makeMachine();
   m.respond = (argv) => {
-    if (argv[0] === "systemd-detect-virt") {
+    if (argv[0] === "systemd-detect-virt" && options.virt !== null) {
       return { code: 0, stdout: `${options.virt ?? "kvm"}\n`, stderr: "" };
     }
 
     if (argv[SELF.length] === "pair") {
       return { code: 0, stdout: `${JSON.stringify(PAIRING)}\n`, stderr: "" };
     }
-
-    return undefined;
   };
 
-  mkdirSync(join(m.home, ".config", "devbox"), { recursive: true });
+  mkdirSync(path.join(m.home, ".config", "devbox"), { recursive: true });
+
+  const record: MachineRecord = {
+    name: "edge-7",
+    port: 3773,
+    data: "/srv/data",
+    baseDir: "/srv/data/.t3",
+    t3: "/srv/data/.local/bin/t3",
+  };
+
+  if (options.recorded !== false) {
+    record.up = SET_UP;
+  }
+
   writeFileSync(
-    join(m.home, ".config", "devbox", "machine.json"),
-    JSON.stringify({
-      name: "edge-7",
-      port: 3773,
-      data: "/srv/data",
-      baseDir: "/srv/data/.t3",
-      t3: "/srv/data/.local/bin/t3",
-      ...(options.recorded === false ? {} : { up: SET_UP }),
-    })
+    path.join(m.home, ".config", "devbox", "machine.json"),
+    JSON.stringify(record)
   );
 
   return m;
@@ -82,16 +113,16 @@ const running = async (
     }
   );
 
-  for (let i = 0; i < 100 && !spoke.err().includes("spoke:"); i += 1) {
-    await Bun.sleep(20);
-  }
+  await waitForSpoke(() => spoke.err());
 
-  return { spoke, base: `http://127.0.0.1:${port}`, port };
+  return { spoke, port, base: `http://127.0.0.1:${port}` };
 };
 
-const challenge = async (base: string) =>
-  ((await (await fetch(`${base}/api/challenge`)).json()) as { nonce: string })
-    .nonce;
+const challenge = async (base: string) => {
+  const response = await fetch(`${base}/api/challenge`);
+
+  return readJson(ChallengeSchema, await response.text()).nonce;
+};
 
 const signedFor = async (
   base: string,
@@ -100,11 +131,34 @@ const signedFor = async (
   action: Do = "update"
 ) => signRequest(key, at, await challenge(base), action);
 
-const post = async (base: string, signed?: Signed) =>
-  send(base, signed ?? (await signedFor(base)));
+const signRawAction = async (
+  base: string,
+  key: KeyObject,
+  at: Date,
+  action: string
+) => {
+  const body = JSON.stringify({
+    at: at.toISOString(),
+    nonce: await challenge(base),
+    do: action,
+  });
 
-const send = (base: string, signed: Signed) =>
-  fetch(`${base}/api/do`, {
+  return {
+    body,
+    headers: {
+      [KEY_HEADER]: fingerprint(publicKeyOf(key)),
+      [SIGNATURE_HEADER]: sign(null, Buffer.from(body), key).toString(
+        "base64url"
+      ),
+    },
+  } satisfies Signed;
+};
+
+const post = async (base: string, signed?: Signed) =>
+  await send(base, signed ?? (await signedFor(base)));
+
+const send = async (base: string, signed: Signed) =>
+  await fetch(`${base}/api/do`, {
     method: "POST",
     headers: { "content-type": "application/json", ...signed.headers },
     body: signed.body,
@@ -113,12 +167,54 @@ const send = (base: string, signed: Signed) =>
 const updates = (m: ReturnType<typeof makeMachine>) =>
   m.calls.filter((argv) => argv[0] === "<detached>");
 
-describe("devbox spoke", async () => {
+const readSpokeAnswer = async (base: string) => {
+  const response = await fetch(`${base}/api/spoke`);
+
+  return Schema.decodeUnknownSync(SpokeAnswer)(await response.text());
+};
+
+const kindOf = async (m: ReturnType<typeof makeMachine>) => {
+  const { spoke, base } = await running(m);
+
+  try {
+    const answer = await readSpokeAnswer(base);
+
+    return answer.kind;
+  } finally {
+    await spoke.stop();
+  }
+};
+
+const startSpokeFixture = async () => {
   const m = setUpMachine();
   const { spoke, base } = await running(m, "--trust", KEY);
-  afterAll(() => spoke.stop());
+
+  return { m, spoke, base };
+};
+
+describe("devbox spoke", () => {
+  let fixture: Awaited<ReturnType<typeof startSpokeFixture>> | undefined;
+
+  beforeAll(async () => {
+    fixture = await startSpokeFixture();
+  });
+
+  afterAll(async () => {
+    if (fixture !== undefined) {
+      await fixture.spoke.stop();
+    }
+  });
+
+  const env = () => {
+    if (fixture === undefined) {
+      throw new Error("spoke fixture not initialized");
+    }
+
+    return fixture;
+  };
 
   test("answers with what the machine is, its vitals, and the keys it trusts", async () => {
+    const { m, base } = env();
     const response = await fetch(`${base}/api/spoke`);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -131,11 +227,13 @@ describe("devbox spoke", async () => {
   });
 
   test("logs where it listens and how many keys it trusts, never a key", () => {
+    const { spoke } = env();
     expect(spoke.err()).toContain("taking requests from 1 hub key");
     expect(spoke.err()).not.toContain(KEY);
   });
 
   test("a request a trusted hub signed runs devbox up again with the recorded flags", async () => {
+    const { m, base } = env();
     const response = await post(base);
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ asked: true });
@@ -143,6 +241,7 @@ describe("devbox spoke", async () => {
   });
 
   test("a second request while that update runs starts nothing", async () => {
+    const { m, base } = env();
     const response = await post(base);
     expect(response.status).toBe(409);
     expect(updates(m)).toHaveLength(1);
@@ -150,17 +249,20 @@ describe("devbox spoke", async () => {
   });
 
   test("hands out a new challenge to anyone who asks, without a login", async () => {
+    const { base } = env();
     const response = await fetch(`${base}/api/challenge`);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    const { nonce } = (await response.json()) as { nonce: string };
-    expect(nonce).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+    const { nonce } = readJson(ChallengeSchema, await response.text());
+    expect(nonce).toMatch(/^[A-Za-z0-9_-]{16,128}$/u);
     expect(await challenge(base)).not.toBe(nonce);
   });
 
   test("the same request sent again is refused", async () => {
+    const { m, base } = env();
     const signed = await signedFor(base);
-    expect((await send(base, signed)).status).toBe(202);
+    const first = await send(base, signed);
+    expect(first.status).toBe(202);
     m.processes = [];
     const replayed = await send(base, signed);
     expect(replayed.status).toBe(403);
@@ -171,6 +273,8 @@ describe("devbox spoke", async () => {
   });
 
   test("a request with a nonce this spoke never handed out is refused", async () => {
+    const { m, base } = env();
+
     const response = await send(
       base,
       signRequest(hubKey, new Date(), newNonce(), "update")
@@ -181,12 +285,15 @@ describe("devbox spoke", async () => {
   });
 
   test("a request from a hub it does not trust is refused", async () => {
+    const { m, base } = env();
     const response = await post(base, await signedFor(base, strangerKey));
     expect(response.status).toBe(403);
     expect(updates(m)).toHaveLength(2);
   });
 
   test("a request from the past is refused", async () => {
+    const { base } = env();
+
     const response = await post(
       base,
       await signedFor(base, hubKey, new Date(Date.now() - 120_000))
@@ -199,25 +306,29 @@ describe("devbox spoke", async () => {
   });
 
   test("a body longer than any signed request is refused without reading it", async () => {
-    const status = await new Promise<number>((done, fail) => {
-      const req = http.request(
-        `${base}/api/do`,
-        { method: "POST" },
-        (response) => {
-          response.resume();
-          done(response.statusCode ?? 0);
-        }
-      );
+    const { m, base } = env();
+    const { promise, resolve, reject } = Promise.withResolvers<number>();
 
-      req.on("error", fail);
-      req.end("x".repeat(64 * 1024));
-    });
+    const req = http.request(
+      `${base}/api/do`,
+      { method: "POST" },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      }
+    );
+
+    req.on("error", reject);
+    req.end("x".repeat(64 * 1024));
+    const status = await promise;
 
     expect(status).toBe(413);
     expect(updates(m)).toHaveLength(2);
   });
 
   test("a pairing request runs devbox pair here and answers with the link, which it never logs", async () => {
+    const { m, spoke, base } = env();
+
     const response = await post(
       base,
       await signedFor(base, hubKey, new Date(), "pair")
@@ -242,24 +353,28 @@ describe("devbox spoke", async () => {
   });
 
   test("a request for something the spoke cannot do is refused, though signed", async () => {
+    const { m, base } = env();
     const before = m.calls.length;
 
-    for (const action of ["reboot", "constructor", "__proto__", "toString"]) {
-      const response = await post(
-        base,
-        await signedFor(base, hubKey, new Date(), action as Do)
-      );
+    await Promise.all(
+      ["reboot", "constructor", "__proto__", "toString"].map(async (action) => {
+        const response = await post(
+          base,
+          await signRawAction(base, hubKey, new Date(), action)
+        );
 
-      expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({
-        error: "this spoke does not do that",
-      });
-    }
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+          error: "this spoke does not do that",
+        });
+      })
+    );
 
-    expect(m.calls.length).toBe(before);
+    expect(m.calls).toHaveLength(before);
   });
 
   test("a signed update cannot be sent as a pairing request", async () => {
+    const { base } = env();
     const signed = await signedFor(base);
 
     const response = await send(base, {
@@ -274,17 +389,21 @@ describe("devbox spoke", async () => {
   });
 
   test("other paths are 404 and other methods are 405", async () => {
-    expect((await fetch(`${base}/`)).status).toBe(404);
-    expect((await fetch(`${base}/api/update`, { method: "POST" })).status).toBe(
-      404
-    );
-    expect((await fetch(`${base}/api/do`)).status).toBe(405);
-    expect((await fetch(`${base}/api/spoke`, { method: "POST" })).status).toBe(
-      405
-    );
-    expect(
-      (await fetch(`${base}/api/challenge`, { method: "POST" })).status
-    ).toBe(405);
+    const { base } = env();
+    const rootRes = await fetch(`${base}/`);
+    expect(rootRes.status).toBe(404);
+    const updateRes = await fetch(`${base}/api/update`, { method: "POST" });
+    expect(updateRes.status).toBe(404);
+    const doGetRes = await fetch(`${base}/api/do`);
+    expect(doGetRes.status).toBe(405);
+    const spokePostRes = await fetch(`${base}/api/spoke`, { method: "POST" });
+    expect(spokePostRes.status).toBe(405);
+
+    const challengePostRes = await fetch(`${base}/api/challenge`, {
+      method: "POST",
+    });
+
+    expect(challengePostRes.status).toBe(405);
   });
 });
 
@@ -304,30 +423,17 @@ test("a request signed for one spoke is refused by another that trusts the same 
       error: "this spoke did not hand out that nonce, or already took it",
     });
     expect(updates(two)).toEqual([]);
-    expect((await send(first.base, signed)).status).toBe(202);
+    const accepted = await send(first.base, signed);
+    expect(accepted.status).toBe(202);
   } finally {
     await Promise.all([first.spoke.stop(), second.spoke.stop()]);
   }
 });
 
 describe("what a spoke says it is", () => {
-  const kindOf = async (m: ReturnType<typeof makeMachine>) => {
-    const { spoke, base } = await running(m);
-
-    try {
-      return (
-        (await (await fetch(`${base}/api/spoke`)).json()) as { kind: string }
-      ).kind;
-    } finally {
-      await spoke.stop();
-    }
-  };
-
   test("WSL, a computer, and a Mac", async () => {
     expect(await kindOf(setUpMachine({ virt: "wsl" }))).toBe("wsl");
-    const bare = setUpMachine();
-    bare.respond = () => undefined;
-    expect(await kindOf(bare)).toBe("computer");
+    expect(await kindOf(setUpMachine({ virt: null }))).toBe("computer");
     const mac = makeMachine({ platform: "darwin" });
     expect(await kindOf(mac)).toBe("mac");
   });
@@ -351,11 +457,10 @@ test("a spoke that trusts nobody takes no update", async () => {
   const { spoke, base } = await running(m);
 
   try {
-    expect(
-      ((await (await fetch(`${base}/api/spoke`)).json()) as { trusts: unknown })
-        .trusts
-    ).toEqual([]);
-    expect((await post(base)).status).toBe(403);
+    const answer = await readSpokeAnswer(base);
+    expect(answer.trusts).toEqual([]);
+    const response = await post(base);
+    expect(response.status).toBe(403);
     expect(updates(m)).toEqual([]);
   } finally {
     await spoke.stop();
