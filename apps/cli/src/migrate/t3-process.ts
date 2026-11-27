@@ -26,7 +26,7 @@ const RuntimeFile = Schema.fromJsonString(
   })
 );
 
-// A T3 server on Linux: `t3 serve`, or the WSL runtime the Windows app starts.
+/** Matches a T3 server on Linux: `t3 serve`, or the WSL runtime the Windows app starts. */
 export const LINUX_T3_SERVER = "(^|/)t3 (serve|--bootstrap-fd)";
 
 const PROCESS_PATTERNS: Partial<Record<NodeJS.Platform, string>> = {
@@ -34,7 +34,9 @@ const PROCESS_PATTERNS: Partial<Record<NodeJS.Platform, string>> = {
   linux: LINUX_T3_SERVER,
 };
 
-const pidAlive = (pid: number): boolean => {
+const LEADING_INTEGER = /^\s*(?<integer>[+-]?\d+)/u;
+
+const pidAlive = (pid: number) => {
   try {
     process.kill(pid, 0);
 
@@ -72,7 +74,9 @@ export class T3Process extends Context.Service<
           ? Effect.succeed(Option.none<RunningServer>())
           : spawner.lines(ChildProcess.make("pgrep", ["-f", pattern])).pipe(
               Effect.map((lines) => {
-                const pid = Number.parseInt(lines[0] ?? "", 10);
+                const pid = Number(
+                  LEADING_INTEGER.exec(lines[0] ?? "")?.groups?.integer
+                );
 
                 return Number.isFinite(pid)
                   ? Option.some({ pid, version: null })
