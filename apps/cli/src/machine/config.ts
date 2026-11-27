@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { Effect, Option, Result, Schema } from "effect";
 import { Flag } from "effect/cli";
@@ -12,7 +12,7 @@ import type { AgentChoice, AgentsFlag } from "./agents.ts";
 
 export const Name = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, {
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u, {
       message: "use letters, digits, '.', '_' and '-'",
     })
   )
@@ -20,7 +20,7 @@ export const Name = Schema.String.pipe(
 
 export const PublicUrl = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^https?:\/\/[^/\s?#]+\/?$/, {
+    Schema.isPattern(/^https?:\/\/[^/\s?#]+\/?$/u, {
       message: "expected an origin such as https://box.example.com",
     })
   )
@@ -30,24 +30,26 @@ export const originFlag = (name: string, description: string) =>
   Flag.String(name).pipe(
     Flag.withDescription(description),
     Flag.withSchema(PublicUrl),
-    Flag.map((url) => url.replace(/\/$/, "")),
+    Flag.map((url) => url.replace(/\/$/u, "")),
     Flag.optional
   );
 
 export const BindHost = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[A-Za-z0-9._:-]+$/, {
+    Schema.isPattern(/^[A-Za-z0-9._:-]+$/u, {
       message: "expected an IP address or host name such as 100.64.0.7",
     })
   )
 );
 
-// Listening on every interface is what T3 did before --host existed, so a box without the flag
-// keeps the same unit file.
+/**
+ * Listening on every interface is what T3 did before --host existed, so a box without the flag
+ * keeps the same unit file.
+ */
 export const ALL_INTERFACES = "0.0.0.0";
 
-// Where to knock to see whether T3 answers: a wildcard address is not one you can connect to.
-export const probeHost = (bind: string): string =>
+/** Where to knock to see whether T3 answers: a wildcard address is not one you can connect to. */
+export const probeHost = (bind: string) =>
   bind === ALL_INTERFACES || bind === "::" ? "127.0.0.1" : bind;
 
 export const Port = Schema.Int.pipe(
@@ -56,7 +58,7 @@ export const Port = Schema.Int.pipe(
 
 const Channel = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.+-]*$/, {
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.+-]*$/u, {
       message: "expected an npm tag",
     })
   )
@@ -218,7 +220,7 @@ export const serveConfig = (flags: ServeFlags, home: AbsolutePath) =>
     });
 
     const under = (value: Option.Option<string>, fallback: string) =>
-      absolutePath(Option.getOrElse(value, () => join(data, fallback)));
+      absolutePath(Option.getOrElse(value, () => path.join(data, fallback)));
 
     return {
       data,
@@ -260,7 +262,7 @@ export const machineConfig = (
     } satisfies MachineConfig;
   });
 
-export const serveArgs = (config: ServeConfig): readonly string[] => [
+export const serveArgs = (config: ServeConfig) => [
   "serve",
   "--data",
   config.data,
@@ -283,7 +285,7 @@ export const serveArgs = (config: ServeConfig): readonly string[] => [
  * an update. Paths are absolute, so it does not matter where it runs from. The agents are left
  * out: a later run reads the ones saved in <data>.
  */
-export const upArgs = (config: MachineConfig): readonly string[] => [
+export const upArgs = (config: MachineConfig) => [
   ...serveArgs(config).slice(1),
   "--name",
   config.name,
@@ -298,18 +300,25 @@ export const upArgs = (config: MachineConfig): readonly string[] => [
 ];
 
 export const pathsOf = (data: string) => ({
-  prefix: join(data, ".local"),
-  t3: join(data, ".local", "bin", "t3"),
-  t3Package: join(data, ".local", "lib", "node_modules", "t3", "package.json"),
-  mise: join(data, ".local", "bin", "mise"),
-  npmShim: join(data, ".local", "share", "mise", "shims", "npm"),
-  logs: join(data, ".devbox-logs"),
-  skillsStamp: join(data, ".devbox-skills"),
+  prefix: path.join(data, ".local"),
+  t3: path.join(data, ".local", "bin", "t3"),
+  t3Package: path.join(
+    data,
+    ".local",
+    "lib",
+    "node_modules",
+    "t3",
+    "package.json"
+  ),
+  mise: path.join(data, ".local", "bin", "mise"),
+  npmShim: path.join(data, ".local", "share", "mise", "shims", "npm"),
+  logs: path.join(data, ".devbox-logs"),
+  skillsStamp: path.join(data, ".devbox-skills"),
   agents: agentsFile(data),
 });
 
 export const machineFile = (home: string) =>
-  join(home, ".config", "devbox", "machine.json");
+  path.join(home, ".config", "devbox", "machine.json");
 
 export const MachineFile = Schema.Struct({
   name: Schema.String,

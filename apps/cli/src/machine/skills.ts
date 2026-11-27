@@ -8,13 +8,13 @@ export const SKILLS_LIST_URL =
 const Source = Schema.String.pipe(
   Schema.check(
     Schema.isPattern(
-      /^(?!.*\.\.)(?:[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*|https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_./-]+)$/
+      /^(?!.*\.\.)(?:[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*|https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_./-]+)$/u
     )
   )
 );
 
 const SkillName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/))
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u))
 );
 
 export const SkillSource = Schema.Struct({
@@ -31,17 +31,17 @@ export interface SkillsList {
 }
 
 const tokens = (line: string) => {
-  const [, repo, ...rest] = line.trim().split(/\s+/);
+  const [, repo, ...rest] = line.trim().split(/\s+/u);
   const [flag, ...skills] = rest;
 
-  return rest.length === 0
-    ? { repo, skills: [] }
-    : flag === "--skill"
-      ? { repo, skills }
-      : undefined;
+  if (rest.length === 0) {
+    return { repo, skills: [] };
+  }
+
+  return flag === "--skill" ? { repo, skills } : undefined;
 };
 
-export const parseSkillsList = (text: string): SkillsList => {
+export const parseSkillsList = (text: string) => {
   const lines = text
     .split("\n")
     .filter((line) => line.startsWith("skill "))
@@ -64,18 +64,16 @@ export const parseSkillsList = (text: string): SkillsList => {
     sources,
     rejected,
     hash: createHash("sha256").update(lines.join("\n")).digest("hex"),
-  };
+  } satisfies SkillsList;
 };
 
-export const skillsStamp = (
-  list: SkillsList,
-  agents: readonly string[]
-): string => `${list.hash} ${agents.join(",")}`;
+export const skillsStamp = (list: SkillsList, agents: readonly string[]) =>
+  `${list.hash} ${agents.join(",")}`;
 
 export const skillsAddArgs = (
   source: SkillSource,
   agents: readonly string[]
-): readonly string[] => [
+) => [
   "npx",
   "-y",
   "skills",

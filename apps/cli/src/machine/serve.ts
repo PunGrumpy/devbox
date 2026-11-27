@@ -17,9 +17,7 @@ export class T3Missing extends Schema.TaggedError<T3Missing>()("T3Missing", {
   override get message() {
     return `T3 Code is not installed at ${this.path}`;
   }
-  get hint() {
-    return "run `devbox up` with the same --data, which installs it";
-  }
+  readonly hint = "run `devbox up` with the same --data, which installs it";
 }
 
 export const t3Bind = (config: ServeConfig) =>
@@ -36,6 +34,11 @@ export const answering = (bind: string, port: number, attempts: number) =>
     );
   });
 
+/**
+ * T3 Code runs with SHELL=/bin/bash, since agents run their commands in $SHELL and keep bash when
+ * the login shell is zsh. T3CODE_SERVER_BROWSER_SANDBOX is 0 on hosts that block user namespaces,
+ * which makes T3 Code run Chrome with --no-sandbox.
+ */
 export const serve = Command.make("serve", serveFlags, (flags) =>
   Effect.gen(function* () {
     const { home } = yield* Locations;
@@ -55,9 +58,7 @@ export const serve = Command.make("serve", serveFlags, (flags) =>
     const env = {
       ...processEnv(settingsFor(config.data), process.env.PATH ?? ""),
       T3CODE_HOME: config.baseDir,
-      // Agents run their commands in $SHELL. They keep bash when the login shell is zsh.
       SHELL: "/bin/bash",
-      // T3 Code runs Chrome with --no-sandbox when this is 0, for hosts that block user namespaces.
       T3CODE_SERVER_BROWSER_SANDBOX: sandbox ? "1" : "0",
     };
 

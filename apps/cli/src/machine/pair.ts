@@ -8,8 +8,10 @@ import { Host } from "./host.ts";
 import { processEnv, settingsFor } from "./settings.ts";
 
 export const Pairing = Schema.Struct({
-  url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/))),
-  token: Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/))),
+  url: Schema.String.pipe(Schema.check(Schema.isPattern(/^https?:\/\/\S+$/u))),
+  token: Schema.String.pipe(
+    Schema.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/u))
+  ),
 });
 
 export type Pairing = typeof Pairing.Type;
@@ -21,8 +23,6 @@ const TailscaleSelf = Schema.fromJsonString(
   Schema.Struct({ Self: Schema.Struct({ DNSName: Schema.String }) })
 );
 
-// `t3 environment link` refuses plain http unless the host is a Tailscale address, and the bare
-// hostname is not one. The MagicDNS name is, and it stays reachable only from the tailnet.
 const tailscaleName = Effect.gen(function* () {
   const host = yield* Host;
 
@@ -35,7 +35,7 @@ const tailscaleName = Effect.gen(function* () {
   }
 
   return Schema.decodeUnknownOption(TailscaleSelf)(status.stdout).pipe(
-    Option.map((json) => json.Self.DNSName.replace(/\.$/, "")),
+    Option.map((json) => json.Self.DNSName.replace(/\.$/u, "")),
     Option.filter((name) => name !== "")
   );
 });
@@ -45,6 +45,11 @@ export class PairFailed extends Schema.TaggedError<PairFailed>()("PairFailed", {
   hint: Schema.optional(Schema.String),
 }) {}
 
+/**
+ * With no --url and no public URL, the link names this machine by its Tailscale MagicDNS name.
+ * `t3 environment link` refuses plain http unless the host is a Tailscale address, and the bare
+ * hostname is not one. The MagicDNS name is, and it stays reachable only from the tailnet.
+ */
 export const pair = Command.make(
   "pair",
   {
@@ -101,7 +106,8 @@ export const pair = Command.make(
         }
       );
 
-      const token = /^Token: (\S+)$/m.exec(minted.stdout)?.[1];
+      const token = /^Token: (?<token>\S+)$/mu.exec(minted.stdout)?.groups
+        ?.token;
 
       if (minted.code !== 0 || token === undefined) {
         return yield* new PairFailed({

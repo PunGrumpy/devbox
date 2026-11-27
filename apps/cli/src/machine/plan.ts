@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import path from "node:path";
 
 import { Data, Option, Schema } from "effect";
 
@@ -106,7 +106,7 @@ export type Change = Data.TaggedEnum<{
     readonly path: string;
     readonly content: string;
     readonly privileged: boolean;
-    // Applies only when the file is created.
+    /** Applies only when the file is created. */
     readonly mode: Option.Option<number>;
   };
   Git: { readonly key: string; readonly values: readonly string[] };
@@ -140,7 +140,7 @@ export interface Plan {
 }
 
 export const t3SettingsPath = (baseDir: string) =>
-  join(baseDir, "userdata", "settings.json");
+  path.join(baseDir, "userdata", "settings.json");
 
 type LinkedEnvironments = Data.TaggedEnum<{
   On: {};
@@ -154,15 +154,14 @@ const SettingsObject = Schema.fromJsonString(
   Schema.Record(Schema.String, Schema.Unknown)
 );
 
-// T3 refuses `t3 environment link` unless this is true, and its settings.json has no other
-// switch for it than a Settings screen a headless box never opens.
-export const enableLinkedEnvironments = (
-  current: Option.Option<string>
-): LinkedEnvironments => {
-  const settings = Option.match(current, {
-    onNone: () => Option.some<Record<string, unknown>>({}),
-    onSome: (text) => Schema.decodeUnknownOption(SettingsObject)(text),
-  });
+/**
+ * T3 refuses `t3 environment link` unless this is true, and its settings.json has no other switch
+ * for it than a Settings screen a headless box never opens.
+ */
+export const enableLinkedEnvironments = (current: Option.Option<string>) => {
+  const settings = Schema.decodeUnknownOption(SettingsObject)(
+    Option.getOrElse(current, () => "{}")
+  );
 
   if (Option.isNone(settings)) {
     return LinkedEnvironments.NotAnObject();
@@ -177,16 +176,18 @@ export const enableLinkedEnvironments = (
   });
 };
 
-export const machineInfoPath = (etc: string) => join(etc, "machine-info");
-export const profilePath = (etc: string) => join(etc, "profile.d", "devbox.sh");
+export const machineInfoPath = (etc: string) => path.join(etc, "machine-info");
+
+export const profilePath = (etc: string) =>
+  path.join(etc, "profile.d", "devbox.sh");
 
 export const unitPath = (scope: "system" | "user", ctx: Context, unit = UNIT) =>
   scope === "system"
-    ? join(ctx.etc, "systemd", "system", unit)
-    : join(ctx.home, ".config", "systemd", "user", unit);
+    ? path.join(ctx.etc, "systemd", "system", unit)
+    : path.join(ctx.home, ".config", "systemd", "user", unit);
 
-// T3 Code names the environment after PRETTY_HOSTNAME in /etc/machine-info before the hostname.
-export const withPrettyHostname = (current: string, name: string): string =>
+/** T3 Code names the environment after PRETTY_HOSTNAME in /etc/machine-info before the hostname. */
+export const withPrettyHostname = (current: string, name: string) =>
   [
     `PRETTY_HOSTNAME=${name}`,
     ...current
@@ -196,22 +197,25 @@ export const withPrettyHostname = (current: string, name: string): string =>
     .map((line) => `${line}\n`)
     .join("");
 
-const systemdQuote = (arg: string): string =>
-  /^[A-Za-z0-9_@+=:,./-]+$/.test(arg)
+const systemdQuote = (arg: string) =>
+  /^[A-Za-z0-9_@+=:,./-]+$/u.test(arg)
     ? arg
     : `"${arg.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%").replaceAll("$", "$$$$")}"`;
 
 const SYSTEM_PATH =
   "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
-const pathLine = (config: MachineConfig) =>
-  `Environment=${systemdQuote(`PATH=${processEnv(settingsFor(config.data), SYSTEM_PATH).PATH}`)}`;
+const pathLine = (config: MachineConfig) => {
+  const assignment = `PATH=${processEnv(settingsFor(config.data), SYSTEM_PATH).PATH}`;
+
+  return `Environment=${systemdQuote(assignment)}`;
+};
 
 export const unitFile = (
   scope: "system" | "user",
   config: MachineConfig,
   ctx: Context
-): string =>
+) =>
   [
     "[Unit]",
     "Description=T3 Code, kept running by devbox",
@@ -234,7 +238,7 @@ export const backupServiceFile = (
   scope: "system" | "user",
   config: MachineConfig,
   ctx: Context
-): string =>
+) =>
   [
     "[Unit]",
     "Description=Back up agent memory and threads with restic, run by devbox",
@@ -252,15 +256,15 @@ export const backupServiceFile = (
   ].join("\n");
 
 export const hubEnvPath = (home: string) =>
-  join(home, ".config", "devbox", "hub", "env");
+  path.join(home, ".config", "devbox", "hub", "env");
 
-const neverAllInterfaces = (bind: string): string =>
+const neverAllInterfaces = (bind: string) =>
   bind === ALL_INTERFACES || bind === "::" ? "127.0.0.1" : bind;
 
-export const hubHost = (config: MachineConfig): string =>
+export const hubHost = (config: MachineConfig) =>
   neverAllInterfaces(config.host);
 
-export const hubArgs = (config: MachineConfig): readonly string[] => [
+export const hubArgs = (config: MachineConfig) => [
   "hub",
   "--host",
   hubHost(config),
@@ -274,7 +278,7 @@ export const hubUnitFile = (
   scope: "system" | "user",
   config: MachineConfig,
   ctx: Context
-): string =>
+) =>
   [
     "[Unit]",
     "Description=devbox hub, the page of every machine, kept running by devbox",
@@ -294,7 +298,7 @@ export const hubUnitFile = (
     "",
   ].join("\n");
 
-export const spokeArgs = (config: MachineConfig): readonly string[] => [
+export const spokeArgs = (config: MachineConfig) => [
   "spoke",
   "--host",
   neverAllInterfaces(config.host),
@@ -303,11 +307,12 @@ export const spokeArgs = (config: MachineConfig): readonly string[] => [
   ...config.trust.flatMap((key) => ["--trust", key]),
 ];
 
+/** KillMode=process, because the `devbox up` the spoke starts for an update must outlive a restart of the spoke itself. */
 export const spokeUnitFile = (
   scope: "system" | "user",
   config: MachineConfig,
   ctx: Context
-): string =>
+) =>
   [
     "[Unit]",
     "Description=devbox spoke, which answers the hub, kept running by devbox",
@@ -318,7 +323,6 @@ export const spokeUnitFile = (
     ...(scope === "system" ? [`User=${ctx.user}`] : []),
     pathLine(config),
     `ExecStart=${[...ctx.self, ...spokeArgs(config)].map(systemdQuote).join(" ")}`,
-    // The `devbox up` it starts for an update must outlive a restart of the spoke itself.
     "KillMode=process",
     "Restart=always",
     "RestartSec=5",
@@ -332,12 +336,11 @@ export const spokeUnitFile = (
  * The unit the README gives. cloudflared reads the token from its file, so the token is never on a
  * command line. A system unit runs as the user, and `%h` there would be root's home.
  */
-export const tunnelUnitFile = (
-  scope: "system" | "user",
-  ctx: Context
-): string => {
-  const at = (path: string) =>
-    scope === "user" ? `%h/${path}` : systemdQuote(join(ctx.home, path));
+export const tunnelUnitFile = (scope: "system" | "user", ctx: Context) => {
+  const at = (relative: string) =>
+    scope === "user"
+      ? `%h/${relative}`
+      : systemdQuote(path.join(ctx.home, relative));
 
   return [
     "[Unit]",
@@ -355,7 +358,7 @@ export const tunnelUnitFile = (
   ].join("\n");
 };
 
-export const backupTimerFile = (): string =>
+export const backupTimerFile = () =>
   [
     "[Unit]",
     "Description=Nightly agent backup, run by devbox",
@@ -370,7 +373,7 @@ export const backupTimerFile = (): string =>
     "",
   ].join("\n");
 
-export const machineJson = (config: MachineConfig): string =>
+export const machineJson = (config: MachineConfig) =>
   `${JSON.stringify(
     {
       name: config.name,
@@ -379,7 +382,7 @@ export const machineJson = (config: MachineConfig): string =>
       port: config.port,
       data: config.data,
       baseDir: config.baseDir,
-      t3: join(config.data, ".local", "bin", "t3"),
+      t3: path.join(config.data, ".local", "bin", "t3"),
       up: upArgs(config),
     },
     null,
@@ -395,14 +398,14 @@ export const persistLinks = (
     ? []
     : [
         {
-          path: join(ctx.home, ".agents"),
-          target: join(config.data, ".agents"),
+          path: path.join(ctx.home, ".agents"),
+          target: path.join(config.data, ".agents"),
         },
         ...(facts.ghLoginSaved
           ? [
               {
-                path: join(ctx.home, ".config", "gh"),
-                target: join(config.data, ".config", "gh"),
+                path: path.join(ctx.home, ".config", "gh"),
+                target: path.join(config.data, ".config", "gh"),
               },
             ]
           : []),
@@ -411,34 +414,30 @@ export const persistLinks = (
 const sameValues = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((value, i) => value === b[i]);
 
-export const plan = (
-  config: MachineConfig,
-  ctx: Context,
-  facts: Facts
-): Plan => {
+export const plan = (config: MachineConfig, ctx: Context, facts: Facts) => {
   const changes: Change[] = [];
   const skips: Skip[] = [];
 
-  const current = (path: string) =>
-    Option.flatten(Option.fromUndefinedOr(facts.files.get(path)));
+  const current = (file: string) =>
+    Option.flatten(Option.fromUndefinedOr(facts.files.get(file)));
 
   const write = (
-    path: string,
+    file: string,
     content: string,
     privileged: boolean,
     mode: Option.Option<number> = Option.none()
   ) => {
-    if (Option.contains(current(path), content)) {
+    if (Option.contains(current(file), content)) {
       return false;
     }
 
     if (privileged && !facts.sudo) {
-      skips.push({ what: path, why: "no passwordless sudo" });
+      skips.push({ what: file, why: "no passwordless sudo" });
 
       return false;
     }
 
-    changes.push(Change.Write({ path, content, privileged, mode }));
+    changes.push(Change.Write({ path: file, content, privileged, mode }));
 
     return true;
   };
@@ -477,7 +476,7 @@ export const plan = (
 
   const t3Settings = t3SettingsPath(config.baseDir);
   LinkedEnvironments.$match(enableLinkedEnvironments(current(t3Settings)), {
-    On: () => undefined,
+    On: () => false,
     Enable: ({ content }) =>
       write(t3Settings, content, false, Option.some(0o600)),
     NotAnObject: () =>
@@ -573,14 +572,17 @@ export const plan = (
   });
 
   const why = ServeState.$match(facts.serve, {
-    Running: () =>
-      unitChanged
-        ? "the unit changed"
-        : t3Changed
-          ? "T3 Code was updated"
-          : toInstall.length > 0
-            ? "an agent CLI was installed"
-            : undefined,
+    Running: () => {
+      if (unitChanged) {
+        return "the unit changed";
+      }
+
+      if (t3Changed) {
+        return "T3 Code was updated";
+      }
+
+      return toInstall.length > 0 ? "an agent CLI was installed" : undefined;
+    },
     Stale: () => "its flags changed",
     Stopped: () => "it was not running",
   });
@@ -605,12 +607,12 @@ export const plan = (
       }
     },
     Systemd: ({ scope }) => {
-      const path = unitPath(scope, ctx, HUB_UNIT);
+      const unitAt = unitPath(scope, ctx, HUB_UNIT);
 
       if (!config.hub) {
-        if (Option.isSome(current(path))) {
+        if (Option.isSome(current(unitAt))) {
           changes.push(
-            Change.RemoveHub({ path, privileged: scope === "system" })
+            Change.RemoveHub({ path: unitAt, privileged: scope === "system" })
           );
         }
 
@@ -618,7 +620,7 @@ export const plan = (
       }
 
       const wrote = write(
-        path,
+        unitAt,
         hubUnitFile(scope, config, ctx),
         scope === "system"
       );
@@ -652,12 +654,12 @@ export const plan = (
       }
     },
     Systemd: ({ scope }) => {
-      const path = unitPath(scope, ctx, SPOKE_UNIT);
+      const unitAt = unitPath(scope, ctx, SPOKE_UNIT);
 
       if (!config.spoke) {
-        if (Option.isSome(current(path))) {
+        if (Option.isSome(current(unitAt))) {
           changes.push(
-            Change.RemoveSpoke({ path, privileged: scope === "system" })
+            Change.RemoveSpoke({ path: unitAt, privileged: scope === "system" })
           );
         }
 
@@ -665,7 +667,7 @@ export const plan = (
       }
 
       const wrote = write(
-        path,
+        unitAt,
         spokeUnitFile(scope, config, ctx),
         scope === "system"
       );
@@ -688,12 +690,15 @@ export const plan = (
       }
     },
     Systemd: ({ scope }) => {
-      const path = unitPath(scope, ctx, TUNNEL_UNIT);
+      const unitAt = unitPath(scope, ctx, TUNNEL_UNIT);
 
       if (!config.tunnel) {
-        if (Option.isSome(current(path))) {
+        if (Option.isSome(current(unitAt))) {
           changes.push(
-            Change.RemoveTunnel({ path, privileged: scope === "system" })
+            Change.RemoveTunnel({
+              path: unitAt,
+              privileged: scope === "system",
+            })
           );
         }
 
@@ -706,7 +711,11 @@ export const plan = (
         );
       }
 
-      const wrote = write(path, tunnelUnitFile(scope, ctx), scope === "system");
+      const wrote = write(
+        unitAt,
+        tunnelUnitFile(scope, ctx),
+        scope === "system"
+      );
 
       if (wrote || !facts.tunnel.cloudflared || !facts.tunnel.running) {
         changes.push(Change.EnableTunnel());
@@ -714,5 +723,5 @@ export const plan = (
     },
   });
 
-  return { changes, skips };
+  return { changes, skips } satisfies Plan;
 };

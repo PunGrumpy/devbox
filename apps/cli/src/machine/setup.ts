@@ -1,6 +1,6 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
 import { Effect, FileSystem, Option } from "effect";
 
@@ -12,6 +12,7 @@ import { Host } from "./host.ts";
 import {
   claudeHomes,
   INSTRUCTIONS_FILE,
+  InstructionsLink,
   instructionsLink,
 } from "./instructions.ts";
 import { t3SettingsPath } from "./plan.ts";
@@ -56,7 +57,7 @@ export const browserLibraries = Effect.gen(function* () {
 
   const packages = yield* Effect.forEach(BROWSER_PACKAGES, (name) =>
     Effect.map(host.run(["apt-cache", "policy", `${name}t64`]), (policy) =>
-      /Candidate: (?!\(none\))/.test(policy.stdout) ? `${name}t64` : name
+      /Candidate: (?!\(none\))/u.test(policy.stdout) ? `${name}t64` : name
     )
   );
 
@@ -194,7 +195,7 @@ export const installSkills = (
       );
     }
 
-    const cwd = mkdtempSync(join(tmpdir(), "devbox-skills-"));
+    const cwd = mkdtempSync(path.join(tmpdir(), "devbox-skills-"));
 
     const failed = yield* Effect.filter(list.sources, (source) =>
       Effect.map(
@@ -244,35 +245,29 @@ export const linkInstructions = (
       claudeHomes(settings, home, config.data),
       (dir) =>
         Effect.gen(function* () {
-          const path = join(dir, "CLAUDE.md");
+          const linkPath = path.join(dir, "CLAUDE.md");
 
           const now = {
-            target: yield* fs.readLink(path).pipe(Effect.option),
-            text: yield* fs.readFileString(path).pipe(Effect.option),
+            target: yield* fs.readLink(linkPath).pipe(Effect.option),
+            text: yield* fs.readFileString(linkPath).pipe(Effect.option),
           };
 
-          switch (instructionsLink(now, source)._tag) {
-            case "Linked": {
-              return false;
-            }
-
-            case "NotOurs": {
-              yield* out.warn(
-                `instructions: left ${path} alone, it is not a copy of ${sourcePath}`
-              );
-
-              return false;
-            }
-
-            case "Link": {
-              return yield* fs.makeDirectory(dir, { recursive: true }).pipe(
-                Effect.andThen(fs.remove(path, { force: true })),
-                Effect.andThen(fs.symlink(sourcePath, path)),
+          return yield* InstructionsLink.$match(instructionsLink(now, source), {
+            Linked: () => Effect.succeed(false),
+            NotOurs: () =>
+              out
+                .warn(
+                  `instructions: left ${linkPath} alone, it is not a copy of ${sourcePath}`
+                )
+                .pipe(Effect.as(false)),
+            Link: () =>
+              fs.makeDirectory(dir, { recursive: true }).pipe(
+                Effect.andThen(fs.remove(linkPath, { force: true })),
+                Effect.andThen(fs.symlink(sourcePath, linkPath)),
                 Effect.as(true),
                 Effect.orElseSucceed(() => false)
-              );
-            }
-          }
+              ),
+          });
         })
     );
 

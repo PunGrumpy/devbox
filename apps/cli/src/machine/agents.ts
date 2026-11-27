@@ -1,12 +1,18 @@
-import { join } from "node:path";
+import path from "node:path";
 
-import { Data, Effect, FileSystem, Option, Result, Schema } from "effect";
+import {
+  Brand,
+  Data,
+  Effect,
+  FileSystem,
+  Option,
+  Result,
+  Schema,
+} from "effect";
 
 import { UsageError } from "../errors.ts";
-import type { Aborted } from "../errors.ts";
 import { Output } from "../output.ts";
 import { Host } from "./host.ts";
-import type { Ran } from "./host.ts";
 import { processEnv, settingsFor } from "./settings.ts";
 
 /** How an agent gets onto the machine without sudo. It also says who keeps it current. */
@@ -92,29 +98,38 @@ export const AGENTS = [
 
 export type AgentId = (typeof AGENTS)[number]["id"];
 
-const agentOf = (id: AgentId): Agent =>
-  AGENTS.find((agent) => agent.id === id)!;
+const agentOf = (id: AgentId) => {
+  const agent: Agent | undefined = AGENTS.find(
+    (candidate) => candidate.id === id
+  );
 
-const isAgentId = (word: string): word is AgentId =>
+  if (agent === undefined) {
+    throw new Error(`devbox does not know the agent ${id}`);
+  }
+
+  return agent;
+};
+
+export const isAgentId = (word: string): word is AgentId =>
   AGENTS.some((agent) => agent.id === word);
 
 const KNOWN = AGENTS.map((agent) => agent.id).join(", ");
 
 /** Unique and in AGENTS order, so two lists that mean the same set serialize the same. Only `normalize` builds one. */
-export type AgentIds = readonly AgentId[] & {
-  readonly AgentIds: unique symbol;
-};
+export type AgentIds = Brand.Branded<readonly AgentId[], "AgentIds">;
 
-export const normalize = (ids: Iterable<AgentId>): AgentIds => {
+const AgentIds = Brand.nominal<AgentIds>();
+
+export const normalize = (ids: Iterable<AgentId>) => {
   const wanted = new Set(ids);
 
-  return AGENTS.map((agent) => agent.id).filter((id) =>
-    wanted.has(id)
-  ) as unknown as AgentIds;
+  return AgentIds(
+    AGENTS.flatMap((agent) => (wanted.has(agent.id) ? [agent.id] : []))
+  );
 };
 
 export const DEFAULT_AGENTS = normalize(
-  AGENTS.filter((agent) => agent.byDefault).map((agent) => agent.id)
+  AGENTS.flatMap((agent) => (agent.byDefault ? [agent.id] : []))
 );
 
 export type AgentsFlag = Data.TaggedEnum<{
@@ -125,15 +140,13 @@ export type AgentsFlag = Data.TaggedEnum<{
 export const AgentsFlag = Data.taggedEnum<AgentsFlag>();
 
 /** `--agents`: `pick`, `none`, or a comma list of ids. The failure names the bad word. */
-export const parseAgentsFlag = (
-  text: string
-): Result.Result<AgentsFlag, string> => {
+export const parseAgentsFlag = (text: string) => {
   if (text.trim() === "pick") {
-    return Result.succeed(AgentsFlag.Pick());
+    return Result.succeed<AgentsFlag>(AgentsFlag.Pick());
   }
 
   if (text.trim() === "none") {
-    return Result.succeed(AgentsFlag.Set({ ids: normalize([]) }));
+    return Result.succeed<AgentsFlag>(AgentsFlag.Set({ ids: normalize([]) }));
   }
 
   const words = text.split(",").map((word) => word.trim());
@@ -147,31 +160,37 @@ export const parseAgentsFlag = (
     );
   }
 
-  return Result.succeed(
+  return Result.succeed<AgentsFlag>(
     AgentsFlag.Set({ ids: normalize(words.filter(isAgentId)) })
   );
 };
 
+const CHOICE_SOURCES = ["flag", "picked", "saved", "default"] as const;
+
 export interface AgentChoice {
   readonly ids: AgentIds;
-  readonly from: "flag" | "picked" | "saved" | "default";
+  readonly from: (typeof CHOICE_SOURCES)[number];
 }
 
 /** A person made the choice, so it is saved. Defaults used for lack of a terminal are not. */
-export const remembered = (choice: AgentChoice): boolean =>
+export const remembered = (choice: AgentChoice) =>
   choice.from === "flag" || choice.from === "picked";
 
 export const agentsFile = (data: string) =>
-  join(data, ".config", "devbox", "agents.json");
+  path.join(data, ".config", "devbox", "agents.json");
 
+/**
+ * Whether an agent installed is judged by this file, not by the installer's exit code: Devin's
+ * installer ends with a login that fails without a terminal.
+ */
 export const agentBin = (data: string, id: AgentId) =>
-  join(data, ".local", "bin", agentOf(id).bin);
+  path.join(data, ".local", "bin", agentOf(id).bin);
 
 const SavedFile = Schema.fromJsonString(
   Schema.Struct({ agents: Schema.Array(Schema.String) })
 );
 
-export const agentsJson = (ids: AgentIds): string =>
+export const agentsJson = (ids: AgentIds) =>
   `${JSON.stringify({ agents: ids }, null, 2)}\n`;
 
 /** Ids that AGENTS no longer lists are dropped with a warning, and a file that does not decode counts as absent. */
@@ -179,8 +198,8 @@ export const readSavedAgents = (data: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const out = yield* Output;
-    const path = agentsFile(data);
-    const text = yield* fs.readFileString(path).pipe(Effect.option);
+    const file = agentsFile(data);
+    const text = yield* fs.readFileString(file).pipe(Effect.option);
 
     if (Option.isNone(text)) {
       return Option.none<AgentIds>();
@@ -189,7 +208,7 @@ export const readSavedAgents = (data: string) =>
     const decoded = Schema.decodeUnknownOption(SavedFile)(text.value);
 
     if (Option.isNone(decoded)) {
-      yield* out.warn(`${path} is not {"agents": [...]}, ignoring it`);
+      yield* out.warn(`${file} is not {"agents": [...]}, ignoring it`);
 
       return Option.none<AgentIds>();
     }
@@ -198,7 +217,7 @@ export const readSavedAgents = (data: string) =>
 
     if (unknown.length > 0) {
       yield* out.warn(
-        `${path} names agents this devbox does not know, ignoring ${unknown.join(", ")}`
+        `${file} names agents this devbox does not know, ignoring ${unknown.join(", ")}`
       );
     }
 
@@ -241,7 +260,7 @@ const pickAgents = (ticked: AgentIds) =>
 export const chooseAgents = (
   flag: Option.Option<AgentsFlag>,
   saved: Option.Option<AgentIds>
-): Effect.Effect<AgentChoice, UsageError | Aborted, Output> =>
+) =>
   Effect.gen(function* () {
     const ticked = Option.getOrElse(saved, () => DEFAULT_AGENTS);
 
@@ -286,11 +305,7 @@ export const presentAgents = (data: string) =>
 const FIVE_MINUTES = 300_000;
 
 /** Installs into `<data>/.local`. A Script installer runs with HOME=<data>, detached from any terminal, because Devin's starts a login. */
-export const installAgent = (
-  id: AgentId,
-  data: string,
-  npm: string
-): Effect.Effect<Ran, never, Host> =>
+export const installAgent = (id: AgentId, data: string, npm: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const env = processEnv(settingsFor(data), process.env.PATH ?? "");
@@ -303,7 +318,7 @@ export const installAgent = (
             "install",
             "-g",
             "--prefix",
-            join(data, ".local"),
+            path.join(data, ".local"),
             `${pkg}@latest`,
           ],
           {
@@ -329,59 +344,70 @@ export const installAgent = (
     });
   });
 
-/** Best effort and never fails. Npm agents reinstall `@latest`; Script agents are left alone. */
-export const updateAgents = (data: string, ids: AgentIds, npm: string) =>
+const updateAgent = (
+  id: AgentId,
+  data: string,
+  npm: string,
+  installed: boolean
+) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const out = yield* Output;
-    const present = yield* presentAgents(data);
     const env = processEnv(settingsFor(data), process.env.PATH ?? "");
+    const { name, install } = agentOf(id);
 
-    for (const id of ids) {
-      const { name, install } = agentOf(id);
-
-      if (!present.get(id)) {
-        yield* out.warn(
-          `agents: ${name} is chosen but not installed, run \`devbox up\``
-        );
-        continue;
-      }
-
-      if (install._tag === "Script") {
-        continue;
-      }
-
-      const ran = yield* host.run(
-        [
-          npm,
-          "install",
-          "-g",
-          "--prefix",
-          join(data, ".local"),
-          `${install.pkg}@latest`,
-        ],
-        { env, timeoutMs: FIVE_MINUTES }
+    if (!installed) {
+      return yield* out.warn(
+        `agents: ${name} is chosen but not installed, run \`devbox up\``
       );
-
-      yield* ran.code === 0
-        ? out.log(`agents: ${name} is current`)
-        : out.warn(`agents: ${name} did not update, exit ${ran.code}`);
     }
+
+    if (install._tag === "Script") {
+      return;
+    }
+
+    const ran = yield* host.run(
+      [
+        npm,
+        "install",
+        "-g",
+        "--prefix",
+        path.join(data, ".local"),
+        `${install.pkg}@latest`,
+      ],
+      { env, timeoutMs: FIVE_MINUTES }
+    );
+
+    yield* ran.code === 0
+      ? out.log(`agents: ${name} is current`)
+      : out.warn(`agents: ${name} did not update, exit ${ran.code}`);
   });
 
-export const skillsAgentsOf = (ids: AgentIds): readonly string[] =>
+/** Best effort and never fails. Npm agents reinstall `@latest`; Script agents are left alone. */
+export const updateAgents = (data: string, ids: AgentIds, npm: string) =>
+  Effect.gen(function* () {
+    const present = yield* presentAgents(data);
+
+    yield* Effect.forEach(
+      ids,
+      (id) => updateAgent(id, data, npm, present.get(id) === true),
+      { discard: true }
+    );
+  });
+
+export const skillsAgentsOf = (ids: AgentIds) =>
   ids.flatMap((id) => agentOf(id).skills ?? []);
 
-export const loginHint = (id: AgentId): string => agentOf(id).login;
+export const loginHint = (id: AgentId) => agentOf(id).login;
 
-export const removeHint = (id: AgentId, data: string): string =>
+export const removeHint = (id: AgentId, data: string) =>
   Install.$match(agentOf(id).install, {
     Npm: ({ pkg }) =>
-      `\`npm rm -g --prefix ${join(data, ".local")} ${pkg}\` removes it`,
+      `\`npm rm -g --prefix ${path.join(data, ".local")} ${pkg}\` removes it`,
     Script: () => `delete ${agentBin(data, id)} to remove it`,
   });
 
-export const agentName = (id: AgentId): string => agentOf(id).name;
+export const agentName = (id: AgentId) => agentOf(id).name;
 
 export class AgentInstallFailed extends Schema.TaggedError<AgentInstallFailed>()(
   "AgentInstallFailed",
